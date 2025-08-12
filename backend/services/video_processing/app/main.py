@@ -90,7 +90,7 @@ async def upload_video(file: UploadFile = File(...)):
                 }
                 
                 response = await client.post(
-                    "http://pose_estimation:8003/estimate",
+                    "http://pose_estimation:8002/estimate",
                     json=pose_request,
                     timeout=300.0  # 5分のタイムアウト
                 )
@@ -98,12 +98,60 @@ async def upload_video(file: UploadFile = File(...)):
                 if response.status_code == 200:
                     pose_data = response.json()
                     
-                    return {
-                        "status": "success",
-                        "message": "動画アップロードと骨格解析が完了しました",
-                        "upload_info": upload_data,
-                        "pose_analysis": pose_data
-                    }
+                    # Feature Extraction Serviceに特徴量計算リクエスト
+                    try:
+                        feature_request = {
+                            "pose_data": pose_data.get("pose_data", []),
+                            "video_info": pose_data.get("video_info", {})
+                        }
+                        
+                        feature_response = await client.post(
+                            "http://feature_extraction:8003/extract",
+                            json=feature_request,
+                            timeout=120.0  # 2分のタイムアウト
+                        )
+                        
+                        if feature_response.status_code == 200:
+                            feature_data = feature_response.json()
+                            
+                            return {
+                                "status": "success",
+                                "message": "動画アップロード、骨格解析、特徴量計算が完了しました",
+                                "upload_info": upload_data,
+                                "pose_analysis": pose_data,
+                                "feature_analysis": feature_data
+                            }
+                        else:
+                            # 特徴量計算が失敗した場合は骨格解析まで返す
+                            return {
+                                "status": "partial_success",
+                                "message": "動画アップロードと骨格解析は成功しましたが、特徴量計算に失敗しました",
+                                "upload_info": upload_data,
+                                "pose_analysis": pose_data,
+                                "feature_analysis": None,
+                                "error": f"Feature extraction service returned {feature_response.status_code}"
+                            }
+                            
+                    except httpx.RequestError as fe:
+                        # 特徴量計算でネットワークエラーの場合は骨格解析まで返す
+                        return {
+                            "status": "partial_success",
+                            "message": "動画アップロードと骨格解析は成功しましたが、特徴量計算サービスに接続できませんでした",
+                            "upload_info": upload_data,
+                            "pose_analysis": pose_data,
+                            "feature_analysis": None,
+                            "error": str(fe)
+                        }
+                    except Exception as fe:
+                        # 特徴量計算で他のエラーの場合は骨格解析まで返す
+                        return {
+                            "status": "partial_success",
+                            "message": "動画アップロードと骨格解析は成功しましたが、特徴量計算中にエラーが発生しました",
+                            "upload_info": upload_data,
+                            "pose_analysis": pose_data,
+                            "feature_analysis": None,
+                            "error": str(fe)
+                        }
                 else:
                     # 骨格解析が失敗した場合はアップロード情報のみ返す
                     return {
