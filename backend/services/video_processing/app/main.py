@@ -1,11 +1,14 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import uvicorn
 import os
 import aiofiles
 from pathlib import Path
 import uuid
 from datetime import datetime
+import httpx
+import asyncio
 
 app = FastAPI(
     title="Video Processing Service",
@@ -67,19 +70,68 @@ async def upload_video(file: UploadFile = File(...)):
         # ファイルサイズを取得
         file_size = len(content)
         
-        return {
-            "status": "success",
-            "message": "動画ファイルが正常にアップロードされました",
-            "data": {
-                "file_id": unique_id,
-                "original_filename": file.filename,
-                "saved_filename": safe_filename,
-                "file_size": file_size,
-                "content_type": file.content_type,
-                "upload_timestamp": datetime.now().isoformat(),
-                "file_extension": file_extension
-            }
+        # 基本的なアップロード情報
+        upload_data = {
+            "file_id": unique_id,
+            "original_filename": file.filename,
+            "saved_filename": safe_filename,
+            "file_size": file_size,
+            "content_type": file.content_type,
+            "upload_timestamp": datetime.now().isoformat(),
+            "file_extension": file_extension
         }
+        
+        # Pose Estimation Serviceに解析リクエスト
+        try:
+            async with httpx.AsyncClient() as client:
+                pose_request = {
+                    "video_path": f"uploads/{safe_filename}",
+                    "confidence_threshold": 0.5
+                }
+                
+                response = await client.post(
+                    "http://pose_estimation:8002/estimate",
+                    json=pose_request,
+                    timeout=300.0  # 5分のタイムアウト
+                )
+                
+                if response.status_code == 200:
+                    pose_data = response.json()
+                    
+                    return {
+                        "status": "success",
+                        "message": "動画アップロードと骨格解析が完了しました",
+                        "upload_info": upload_data,
+                        "pose_analysis": pose_data
+                    }
+                else:
+                    # 骨格解析が失敗した場合はアップロード情報のみ返す
+                    return {
+                        "status": "partial_success",
+                        "message": "動画アップロードは成功しましたが、骨格解析に失敗しました",
+                        "upload_info": upload_data,
+                        "pose_analysis": None,
+                        "error": f"Pose estimation service returned {response.status_code}"
+                    }
+                    
+        except httpx.RequestError as e:
+            # ネットワークエラーの場合はアップロード情報のみ返す
+            return {
+                "status": "partial_success", 
+                "message": "動画アップロードは成功しましたが、骨格解析サービスに接続できませんでした",
+                "upload_info": upload_data,
+                "pose_analysis": None,
+                "error": str(e)
+            }
+        except Exception as e:
+            # その他のエラーの場合
+            return {
+                "status": "partial_success",
+                "message": "動画アップロードは成功しましたが、骨格解析中にエラーが発生しました", 
+                "upload_info": upload_data,
+                "pose_analysis": None,
+                "error": str(e)
+            }
         
     except Exception as e:
         # エラーが発生した場合、既に保存されたファイルを削除
@@ -140,6 +192,39 @@ async def get_processing_status(video_id: str):
         "current_step": "frame_extraction",
         "estimated_remaining_time": 0
     }
+
+@app.get("/stream/{filename}")
+async def stream_video(filename: str):
+    """
+    保存された動画ファイルをストリーミング配信する
+    
+    Args:
+        filename: ストリーミングする動画ファイル名
+        
+    Returns:
+        動画ファイルのレスポンス
+    """
+    file_path = UPLOAD_DIR / filename
+    
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="指定された動画ファイルが見つかりません"
+        )
+    
+    # ファイルが動画形式かチェック
+    allowed_extensions = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
+    if file_path.suffix.lower() not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="指定されたファイルは動画形式ではありません"
+        )
+    
+    return FileResponse(
+        path=str(file_path),
+        media_type="video/mp4",
+        filename=filename
+    )
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001) 

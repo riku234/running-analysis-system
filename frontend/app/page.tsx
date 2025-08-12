@@ -55,19 +55,44 @@ export default function HomePage() {
       setUploadProgress(100)
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || `HTTP ${response.status}: アップロードに失敗しました`)
+        let errorMessage = `HTTP ${response.status}: アップロードに失敗しました`
+        
+        try {
+          const contentType = response.headers.get('content-type')
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json()
+            errorMessage = errorData.detail || errorMessage
+          } else {
+            // JSONでない場合はテキストとして読み取る
+            const errorText = await response.text()
+            if (errorText) {
+              errorMessage = `${errorMessage}\n詳細: ${errorText}`
+            }
+          }
+        } catch (parseError) {
+          // JSONパースに失敗した場合はデフォルトメッセージを使用
+          console.warn('エラーレスポンスのパースに失敗:', parseError)
+        }
+        
+        throw new Error(errorMessage)
       }
 
       const result = await response.json()
       console.log('アップロード成功:', result)
 
+      // 結果データをlocalStorageに保存（結果ページで使用）
+      localStorage.setItem(`analysis_result_${result.upload_info.file_id}`, JSON.stringify(result))
+
       // 成功メッセージを表示
-      alert(`アップロード成功！\nファイル: ${result.data.original_filename}\nファイルID: ${result.data.file_id}`)
+      if (result.status === 'success' && result.pose_analysis) {
+        alert(`解析完了！\nファイル: ${result.upload_info.original_filename}\n検出率: ${(result.pose_analysis.summary.detection_rate * 100).toFixed(1)}%`)
+      } else {
+        alert(`アップロード成功（骨格解析は部分的）\nファイル: ${result.upload_info.original_filename}\nエラー: ${result.error || 'N/A'}`)
+      }
       
       // 結果ページへリダイレクト
       setTimeout(() => {
-        window.location.href = `/result/${result.data.file_id}`
+        window.location.href = `/result/${result.upload_info.file_id}`
       }, 1500)
 
     } catch (error) {
