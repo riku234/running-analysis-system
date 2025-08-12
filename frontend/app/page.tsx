@@ -1,24 +1,51 @@
 'use client'
 
-import { useState } from 'react'
-import { Upload, Play, FileVideo, AlertCircle } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { Upload, FileVideo, CheckCircle, Loader2, PlayCircle } from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 export default function HomePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      // 動画ファイルの検証
-      if (file.type.startsWith('video/')) {
-        setSelectedFile(file)
-      } else {
-        alert('動画ファイルを選択してください。')
-      }
+      handleFile(file)
     }
   }
+
+  const handleFile = (file: File) => {
+    // 動画ファイルの検証
+    if (file.type.startsWith('video/')) {
+      setSelectedFile(file)
+    } else {
+      alert('動画ファイルを選択してください。')
+    }
+  }
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleFile(files[0])
+    }
+  }, [])
 
   const handleUpload = async () => {
     if (!selectedFile) return
@@ -105,129 +132,152 @@ export default function HomePage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* ヘッダーセクション */}
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          ランニング動画自動解析システム
-        </h1>
-        <p className="text-xl text-gray-600 mb-8">
-          あなたのランニング動画をアップロードして、AIによる詳細なフォーム分析と改善アドバイスを受け取りましょう
-        </p>
-        
-        {/* 特徴の説明 */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <div className="card text-center">
-            <div className="text-primary-600 mb-4">
-              <FileVideo className="w-12 h-12 mx-auto" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">骨格検出</h3>
-            <p className="text-gray-600">
-              最新のAI技術でランニングフォームの骨格を精密に検出
-            </p>
-          </div>
-          <div className="card text-center">
-            <div className="text-primary-600 mb-4">
-              <Play className="w-12 h-12 mx-auto" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">特徴量解析</h3>
-            <p className="text-gray-600">
-              ストライド、ケイデンス、関節角度などを詳細に分析
-            </p>
-          </div>
-          <div className="card text-center">
-            <div className="text-primary-600 mb-4">
-              <AlertCircle className="w-12 h-12 mx-auto" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">改善アドバイス</h3>
-            <p className="text-gray-600">
-              個人に最適化された具体的な改善提案とエクササイズ
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* アップロードセクション */}
-      <div className="card">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">動画をアップロード</h2>
-        
-        {/* ファイル選択エリア */}
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center mb-6">
-          <Upload className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <div className="mb-4">
-            <label htmlFor="video-upload" className="btn-primary cursor-pointer inline-block">
-              動画ファイルを選択
-            </label>
-            <input
-              id="video-upload"
-              type="file"
-              accept="video/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-          </div>
-          <p className="text-gray-500 mb-2">
-            またはファイルをここにドラッグ&ドロップしてください
-          </p>
-          <p className="text-sm text-gray-400">
-            対応形式: MP4, AVI, MOV (最大100MB)
+    <div className="min-h-screen bg-gradient-running flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl space-y-8">
+        {/* ヘッダー */}
+        <div className="text-center space-y-4">
+          <h1 className="text-4xl font-bold tracking-tight text-primary-gradient">
+            ランニングフォーム自動解析
+          </h1>
+          <p className="text-xl text-muted-foreground max-w-lg mx-auto">
+            動画ファイルをアップロードして、あなたの走り方を分析しましょう
           </p>
         </div>
 
-        {/* 選択されたファイル情報 */}
-        {selectedFile && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center">
-              <FileVideo className="w-6 h-6 text-blue-600 mr-3" />
-              <div className="flex-1">
-                <p className="font-medium text-blue-900">{selectedFile.name}</p>
-                <p className="text-sm text-blue-600">
-                  サイズ: {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
-                </p>
+        {/* メインカード */}
+        <Card className="shadow-xl border-0">
+          <CardHeader className="text-center pb-6">
+            <CardTitle className="text-2xl">動画をアップロード</CardTitle>
+            <CardDescription>
+              AIが自動的にランニングフォームを解析し、改善点をアドバイスします
+            </CardDescription>
+          </CardHeader>
+          
+          <CardContent className="space-y-6">
+            {/* ドラッグ&ドロップエリア */}
+            <div
+              className={`
+                relative border-2 border-dashed rounded-xl p-12 text-center transition-all duration-200 cursor-pointer
+                ${isDragOver 
+                  ? 'border-primary bg-primary/5 scale-105' 
+                  : selectedFile 
+                    ? 'border-green-500 bg-green-50' 
+                    : 'border-muted-foreground/25 hover:border-primary hover:bg-primary/5'
+                }
+              `}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => document.getElementById('video-upload')?.click()}
+            >
+              <div className="space-y-4">
+                {selectedFile ? (
+                  <>
+                    <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
+                    <div>
+                      <p className="text-lg font-medium text-green-700">
+                        ファイルが選択されました
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        クリックして別のファイルを選択
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Upload className={`h-16 w-16 mx-auto transition-colors ${isDragOver ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <div>
+                      <p className="text-lg font-medium">
+                        ここにファイルをドラッグ&ドロップ
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        またはクリックして選択
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
+              
+              <input
+                id="video-upload"
+                type="file"
+                accept="video/*"
+                onChange={handleFileSelect}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
             </div>
-          </div>
-        )}
 
-        {/* アップロード進捗 */}
-        {isUploading && (
-          <div className="mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">アップロード中...</span>
-              <span className="text-sm text-gray-500">{uploadProgress}%</span>
+            {/* 選択されたファイル情報 */}
+            {selectedFile && (
+              <Card className="bg-green-50 border-green-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <FileVideo className="h-8 w-8 text-green-600 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-green-900 truncate">
+                        {selectedFile.name}
+                      </p>
+                      <p className="text-sm text-green-600">
+                        サイズ: {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* アップロード進捗 */}
+            {isUploading && (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">解析中...</span>
+                  <span className="text-sm text-muted-foreground">{uploadProgress}%</span>
+                </div>
+                <div className="w-full bg-secondary rounded-full h-2">
+                  <div
+                    className="bg-primary h-2 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* アップロードボタン */}
+            <Button
+              onClick={handleUpload}
+              disabled={!selectedFile || isUploading}
+              className="w-full h-12 text-base"
+              size="lg"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  解析中...
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-5 w-5 mr-2" />
+                  解析を開始する
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* サポート情報 */}
+        <Card className="bg-amber-50 border-amber-200">
+          <CardHeader>
+            <CardTitle className="text-lg text-amber-800">ご利用時の注意</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-amber-700">
+            <div className="grid md:grid-cols-2 gap-2">
+              <p>• 横から撮影した動画が最適</p>
+              <p>• ランナーが画面中央に映っている</p>
+              <p>• 10秒以上の動画を推奨</p>
+              <p>• 対応形式: MP4, AVI, MOV</p>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-primary-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
-              ></div>
-            </div>
-          </div>
-        )}
-
-        {/* アップロードボタン */}
-        <button
-          onClick={handleUpload}
-          disabled={!selectedFile || isUploading}
-          className={`w-full py-3 px-6 rounded-lg font-medium transition-colors duration-200 ${
-            selectedFile && !isUploading
-              ? 'bg-primary-600 hover:bg-primary-700 text-white'
-              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          {isUploading ? '解析中...' : '解析を開始'}
-        </button>
-      </div>
-
-      {/* 注意事項 */}
-      <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-yellow-800 mb-2">ご利用時の注意</h3>
-        <ul className="text-sm text-yellow-700 space-y-1">
-          <li>• 横から撮影した動画が最も解析精度が高くなります</li>
-          <li>• ランナーが画面中央に映っている動画をご使用ください</li>
-          <li>• 10秒以上の動画を推奨します</li>
-          <li>• 解析には2-3分程度かかる場合があります</li>
-        </ul>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )
