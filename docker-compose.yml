@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # API Gateway (Nginx)
+  api_gateway:
+    build:
+      context: ./backend/api_gateway
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - video_processing
+      - pose_estimation
+      - feature_extraction
+      - analysis
+      - advice_generation
+    networks:
+      - app_network
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - api_gateway
+    networks:
+      - app_network
+
+  # Backend Services
+  video_processing:
+    build:
+      context: ./backend/services/video_processing
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - video_storage:/app/uploads
+    networks:
+      - app_network
+
+  pose_estimation:
+    build:
+      context: ./backend/services/pose_estimation
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - video_storage:/app/uploads
+      - model_cache:/app/models
+    networks:
+      - app_network
+
+  feature_extraction:
+    build:
+      context: ./backend/services/feature_extraction
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - app_network
+
+  analysis:
+    build:
+      context: ./backend/services/analysis
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - app_network
+
+  advice_generation:
+    build:
+      context: ./backend/services/advice_generation
+      dockerfile: Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - app_network
+
+# ボリューム定義
+volumes:
+  video_storage:
+    driver: local
+  model_cache:
+    driver: local
+
+# ネットワーク定義
+networks:
+  app_network:
+    driver: bridge 
