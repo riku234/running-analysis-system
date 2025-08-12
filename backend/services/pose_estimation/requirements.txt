@@ -1,0 +1,9 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+mediapipe==0.10.7
+ultralytics==8.0.206
+opencv-python-headless==4.8.1.78
+numpy==1.25.2
+torch==2.1.1
+torchvision==0.16.1
+pillow==10.1.0 
