@@ -62,12 +62,19 @@ export default function HomePage() {
       const result = await response.json()
       console.log('アップロード成功:', result)
 
+      // 結果データをlocalStorageに保存（結果ページで使用）
+      localStorage.setItem(`analysis_result_${result.upload_info.file_id}`, JSON.stringify(result))
+
       // 成功メッセージを表示
-      alert(`アップロード成功！\nファイル: ${result.data.original_filename}\nファイルID: ${result.data.file_id}`)
+      if (result.status === 'success' && result.pose_analysis) {
+        alert(`解析完了！\nファイル: ${result.upload_info.original_filename}\n検出率: ${(result.pose_analysis.summary.detection_rate * 100).toFixed(1)}%`)
+      } else {
+        alert(`アップロード成功（骨格解析は部分的）\nファイル: ${result.upload_info.original_filename}\nエラー: ${result.error || 'N/A'}`)
+      }
       
       // 結果ページへリダイレクト
       setTimeout(() => {
-        window.location.href = `/result/${result.data.file_id}`
+        window.location.href = `/result/${result.upload_info.file_id}`
       }, 1500)
 
     } catch (error) {
