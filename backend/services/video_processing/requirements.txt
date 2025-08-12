@@ -1,0 +1,8 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+opencv-python==4.8.1.78
+ffmpeg-python==0.2.0
+pillow==10.1.0
+numpy==1.25.2
+aiofiles==23.2.1 
