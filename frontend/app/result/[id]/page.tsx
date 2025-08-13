@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import PoseVisualizer from '../../components/PoseVisualizer'
+import { useResultStore } from '@/lib/store'
 
 interface AnalysisResult {
   status: string
@@ -77,20 +78,49 @@ interface AnalysisResult {
       analysis_method: string
     }
   }
+  issue_analysis?: {
+    status: string
+    message: string
+    issues: string[]
+    analysis_details: {
+      analyzed_metrics: {
+        cadence: { value: number; unit: string; threshold: number; status: string }
+        knee_angle_at_landing: { value: number; unit: string; threshold: number; status: string }
+        ground_contact_time: { value: number; unit: string; threshold: number; status: string }
+      }
+      total_issues: number
+      overall_assessment: string
+    }
+  }
   error?: string
 }
 
 export default function ResultPage({ params }: { params: { id: string } }) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
+  
+  // Zustandストアからpose_dataを取得
+  const { poseData, videoInfo, uploadInfo } = useResultStore()
 
   useEffect(() => {
     const fetchResult = async () => {
       try {
-        // localStorageから結果データを取得
-        const savedResult = localStorage.getItem(`analysis_result_${params.id}`)
+        // localStorageから軽量な結果データを取得
+        const savedResult = localStorage.getItem(`light_analysis_result_${params.id}`)
         if (savedResult) {
-          setResult(JSON.parse(savedResult))
+          const lightResult = JSON.parse(savedResult)
+          
+          // Zustandストアからpose_dataを追加してresultを再構成
+          const completeResult = {
+            ...lightResult,
+            pose_analysis: {
+              ...lightResult.pose_analysis,
+              pose_data: poseData || [], // Zustandから取得
+              video_info: videoInfo || lightResult.pose_analysis?.video_info
+            }
+          }
+          
+          setResult(completeResult)
           setLoading(false)
           return
         }
@@ -145,6 +175,20 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 detection_rate: 0.95,
                 video_duration: 10.0,
                 analysis_method: "mediapipe_pose_landmarks"
+              }
+            },
+            issue_analysis: {
+              status: "success",
+              message: "フォーム分析完了：1つの改善点を検出しました",
+              issues: ["地面に足がついている時間が長く、エネルギー効率が低下している可能性があります。"],
+              analysis_details: {
+                analyzed_metrics: {
+                  cadence: { value: 182.0, unit: "steps/min", threshold: 170, status: "良好" },
+                  knee_angle_at_landing: { value: 165.7, unit: "degrees", threshold: 170, status: "良好" },
+                  ground_contact_time: { value: 245.5, unit: "ms", threshold: 240, status: "要改善" }
+                },
+                total_issues: 1,
+                overall_assessment: "1つの改善点が見つかりました"
               }
             }
           })
@@ -390,6 +434,45 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   <div className="text-center py-6 text-muted-foreground">
                     <BarChart3 className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">計算中...</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 課題分析カード */}
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <AlertTriangle className="h-5 w-5 mr-2" />
+                  課題分析
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {result.issue_analysis ? (
+                  <div className="space-y-3">
+                    <div className="text-sm text-muted-foreground">
+                      {result.issue_analysis.analysis_details.total_issues}個の改善点が検出されました
+                    </div>
+                    {result.issue_analysis.issues.length > 0 ? (
+                      <div className="space-y-2">
+                        {result.issue_analysis.issues.map((issue, index) => (
+                          <div key={index} className="flex items-start space-x-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                            <span className="text-sm text-amber-800">{issue}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <span className="text-sm text-green-800">フォームに大きな問題は見つかりませんでした</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
+                    <p className="text-sm">分析中...</p>
                   </div>
                 )}
               </CardContent>

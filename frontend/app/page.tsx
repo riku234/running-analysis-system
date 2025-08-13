@@ -4,12 +4,16 @@ import { useState, useCallback } from 'react'
 import { Upload, FileVideo, CheckCircle, Loader2, PlayCircle } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { useResultStore } from '@/lib/store'
 
 export default function HomePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isDragOver, setIsDragOver] = useState(false)
+  
+  // Zustandストアのアクション
+  const { setPoseData, setVideoInfo, setUploadInfo, clearData } = useResultStore()
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -72,10 +76,17 @@ export default function HomePage() {
       }, 200)
 
       // API Gateway経由でバックエンドのvideo_processing serviceにPOSTリクエスト
+      // タイムアウト設定（5分）
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 300000) // 5分
+      
       const response = await fetch('/api/video/upload', {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       })
+      
+      clearTimeout(timeoutId)
 
       // 進捗完了
       clearInterval(progressInterval)
@@ -107,8 +118,35 @@ export default function HomePage() {
       const result = await response.json()
       console.log('アップロード成功:', result)
 
-      // 結果データをlocalStorageに保存（結果ページで使用）
-      localStorage.setItem(`analysis_result_${result.upload_info.file_id}`, JSON.stringify(result))
+      // 巨大なpose_dataはZustandストアに保存
+      if (result.pose_analysis?.pose_data) {
+        setPoseData(result.pose_analysis.pose_data)
+      }
+      if (result.pose_analysis?.video_info) {
+        setVideoInfo(result.pose_analysis.video_info)
+      }
+      if (result.upload_info) {
+        setUploadInfo(result.upload_info)
+      }
+
+      // 軽量なデータのみをlocalStorageに保存
+      const lightWeightResult = {
+        status: result.status,
+        message: result.message,
+        upload_info: result.upload_info,
+        pose_analysis: {
+          status: result.pose_analysis?.status,
+          message: result.pose_analysis?.message,
+          video_info: result.pose_analysis?.video_info,
+          summary: result.pose_analysis?.summary,
+          // pose_dataは除外（Zustandに保存済み）
+        },
+        feature_analysis: result.feature_analysis, // 特徴量データは軽量なので保存
+        issue_analysis: result.issue_analysis, // 課題分析結果も軽量なので保存
+        error: result.error
+      }
+      
+      localStorage.setItem(`light_analysis_result_${result.upload_info.file_id}`, JSON.stringify(lightWeightResult))
 
       // 成功メッセージを表示
       if (result.status === 'success' && result.pose_analysis) {
@@ -124,7 +162,17 @@ export default function HomePage() {
 
     } catch (error) {
       console.error('アップロードエラー:', error)
-      alert(`アップロードに失敗しました:\n${error instanceof Error ? error.message : 'Unknown error'}`)
+      
+      let errorMessage = 'Unknown error'
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'アップロードがタイムアウトしました。大きなファイルの場合、時間がかかることがあります。'
+        } else {
+          errorMessage = error.message
+        }
+      }
+      
+      alert(`アップロードに失敗しました:\n${errorMessage}`)
       setUploadProgress(0)
     } finally {
       setIsUploading(false)

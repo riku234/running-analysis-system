@@ -3,7 +3,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 from typing import List, Dict, Any
-from enum import Enum
+
+# 新しい特徴量ベースの課題に対応するアドバイス知識ベース
+ADVICE_DATABASE = {
+    "ピッチが遅く、上下動の大きい走りになっている可能性があります。": {
+        "title": "ケイデンス（ピッチ）の改善",
+        "description": "歩数を意識的に増やすことで、一歩あたりの負担を減らし、より効率的な走りに近づきます。目標は1分あたり180歩です。",
+        "exercise": "練習ドリル: メトロノームアプリを180bpmに設定し、そのリズムに合わせて走る練習を取り入れてみましょう。"
+    },
+    "着地時に膝が伸びすぎており、ブレーキ動作と怪我のリスクを高めています。": {
+        "title": "着地衝撃の緩和",
+        "description": "着地は体の真下を意識し、膝を少し曲げた状態で接地することで、衝撃を和らげスムーズな体重移動が可能になります。",
+        "exercise": "練習ドリル: その場で足踏みをする際に、音を立てずに静かに着地する練習を繰り返してみましょう。"
+    },
+    "地面に足がついている時間が長く、エネルギー効率が低下している可能性があります。": {
+        "title": "接地時間の短縮",
+        "description": "地面を「押す」のではなく「弾く」ようなイメージを持つと、接地時間を短縮できます。足が地面に触れたらすぐに引き上げることを意識してください。",
+        "exercise": "練習ドリル: 短い縄跳びをリズミカルに行うと、素早い足の切り替えしと弾むような接地感覚を養うのに役立ちます。"
+    }
+}
 
 app = FastAPI(
     title="Advice Generation Service",
@@ -20,179 +38,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ExerciseType(str, Enum):
-    STRENGTH = "strength"
-    FLEXIBILITY = "flexibility"
-    TECHNIQUE = "technique"
-    CARDIO = "cardio"
-
-class Priority(str, Enum):
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
+# 新しいアドバイス形式では使用しないため削除
 
 class AdviceRequest(BaseModel):
     video_id: str
-    analysis_result: Dict[str, Any]
+    issues: List[str]  # 課題リスト（issue_analysisから受け取る）
 
-class Exercise(BaseModel):
-    exercise_id: str
-    name: str
-    type: ExerciseType
-    description: str
-    duration: str
-    repetitions: str
-    frequency: str
-    video_url: str
-    equipment_needed: List[str]
+class AdviceResponse(BaseModel):
+    status: str
+    message: str
+    advice_list: List[Dict[str, Any]]
 
-class Advice(BaseModel):
-    advice_id: str
-    issue_id: str
-    priority: Priority
-    title: str
-    description: str
-    immediate_tips: List[str]
-    long_term_plan: List[str]
-    exercises: List[Exercise]
-    expected_improvement_timeline: str
+# 古いクラス定義を削除（新しいアドバイス形式では不要）
 
 @app.get("/")
 async def health_check():
     """サービスヘルスチェック"""
     return {"status": "healthy", "service": "advice_generation"}
 
-@app.post("/generate")
+@app.post("/generate", response_model=AdviceResponse)
 async def generate_advice(request: AdviceRequest):
     """
-    分析結果に基づいて改善アドバイスを生成する
+    検出された課題に基づいて改善アドバイスを生成する
     
     Args:
-        request: 動画IDと分析結果
+        request: 動画IDと課題リスト
         
     Returns:
-        具体的な改善アドバイスとエクササイズプラン
+        具体的な改善アドバイス
     """
-    # TODO: 問題の重要度に基づく優先順位付け
-    # TODO: 個人のレベル・体力に応じたカスタマイズ
-    # TODO: 段階的な改善プランの作成
-    # TODO: エクササイズデータベースからの適切な選択
-    # TODO: 改善効果の予測モデル
-    # TODO: フォローアップスケジュールの提案
-    
-    # ダミーのアドバイス生成
-    advice_list = [
-        Advice(
-            advice_id="advice_001",
-            issue_id="overstride_001",
-            priority=Priority.HIGH,
-            title="オーバーストライド改善プログラム",
-            description="ストライド長を適正化し、着地衝撃を軽減するための包括的改善プラン",
-            immediate_tips=[
-                "ケイデンスを180-185 spmに意識的に上げる",
-                "メトロノームアプリを使用してリズムを身につける",
-                "足音を小さくすることを意識する",
-                "重心の真下に足を着地させる意識を持つ"
-            ],
-            long_term_plan=[
-                "週3回のケイデンス特化ランニング（4週間）",
-                "ストライド長測定とフィードバック練習",
-                "フォーム動画の定期撮影と比較",
-                "月1回のフォーム分析と調整"
-            ],
-            exercises=[
-                Exercise(
-                    exercise_id="ex_001",
-                    name="ハイケイデンス・ドリル",
-                    type=ExerciseType.TECHNIQUE,
-                    description="メトロノームに合わせて180bpmで短いステップを刻む練習",
-                    duration="5分",
-                    repetitions="3セット",
-                    frequency="週3回",
-                    video_url="https://example.com/cadence-drill",
-                    equipment_needed=["メトロノームアプリ"]
-                ),
-                Exercise(
-                    exercise_id="ex_002",
-                    name="その場かけ足",
-                    type=ExerciseType.TECHNIQUE,
-                    description="その場で高いケイデンスを維持しながら軽快に足踏み",
-                    duration="30秒",
-                    repetitions="10セット",
-                    frequency="毎日",
-                    video_url="https://example.com/marching-drill",
-                    equipment_needed=[]
-                )
-            ],
-            expected_improvement_timeline="2-4週間で効果を実感、3ヶ月で習慣化"
-        ),
-        Advice(
-            advice_id="advice_002",
-            issue_id="asymmetry_002",
-            priority=Priority.MEDIUM,
-            title="左右バランス強化プログラム",
-            description="左右の動きの非対称性を解消し、効率的で安全なランニングフォームを構築",
-            immediate_tips=[
-                "片足立ちバランス練習を日常に取り入れる",
-                "弱い側の筋力強化を意識する",
-                "鏡の前でのランニングフォームチェック",
-                "左右交互の動きを意識したウォームアップ"
-            ],
-            long_term_plan=[
-                "週2回の片足強化トレーニング（6週間）",
-                "月2回のフォーム分析と左右比較",
-                "ランニング前のバランス系ウォームアップ習慣化",
-                "3ヶ月後の再評価と調整"
-            ],
-            exercises=[
-                Exercise(
-                    exercise_id="ex_003",
-                    name="シングルレッグ・デッドリフト",
-                    type=ExerciseType.STRENGTH,
-                    description="片足で立ちながら反対足を後ろに上げるバランス強化運動",
-                    duration="45秒",
-                    repetitions="各脚3セット",
-                    frequency="週2回",
-                    video_url="https://example.com/single-leg-deadlift",
-                    equipment_needed=[]
-                ),
-                Exercise(
-                    exercise_id="ex_004",
-                    name="ラテラル・ステップアップ",
-                    type=ExerciseType.STRENGTH,
-                    description="横方向の安定性と左右バランスを強化する運動",
-                    duration="1分",
-                    repetitions="各側3セット",
-                    frequency="週2回",
-                    video_url="https://example.com/lateral-step-up",
-                    equipment_needed=["ステップ台または階段"]
-                )
-            ],
-            expected_improvement_timeline="4-6週間で左右差の軽減、3ヶ月で著明な改善"
+    try:
+        advice_list = []
+        
+        # 各課題に対してアドバイスデータベースから対応するアドバイスを取得
+        for issue in request.issues:
+            if issue in ADVICE_DATABASE:
+                advice_data = ADVICE_DATABASE[issue]
+                advice_item = {
+                    "issue": issue,
+                    "title": advice_data["title"],
+                    "description": advice_data["description"],
+                    "exercise": advice_data["exercise"]
+                }
+                advice_list.append(advice_item)
+        
+        # 課題が見つからない場合は一般的なアドバイスを提供
+        if not advice_list:
+            advice_list = [{
+                "issue": "一般的なアドバイス",
+                "title": "ランニングフォーム向上",
+                "description": "現在のフォームは良好です。継続的な練習で更なる向上を目指しましょう。",
+                "exercise": "練習ドリル: 週に1回、自分のランニング動画を撮影してフォームをチェックしてみましょう。"
+            }]
+        
+        return AdviceResponse(
+            status="success",
+            message=f"{len(advice_list)}つのアドバイスを生成しました",
+            advice_list=advice_list
         )
-    ]
-    
-    return {
-        "status": "success",
-        "video_id": request.video_id,
-        "advice_generated_at": "2025-01-26T10:00:00Z",
-        "total_advice_items": len(advice_list),
-        "advice": advice_list,
-        "overall_recommendations": {
-            "focus_areas": ["ケイデンス改善", "左右バランス強化", "着地技術向上"],
-            "estimated_timeline": "3-6ヶ月での大幅な改善",
-            "follow_up_schedule": [
-                "2週間後: 初回フォローアップ",
-                "1ヶ月後: 中間評価",
-                "3ヶ月後: 総合再評価"
-            ]
-        },
-        "metadata": {
-            "advice_algorithm_version": "1.5",
-            "personalization_level": "standard",
-            "evidence_base": "biomechanics_research_2024"
-        }
-    }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"アドバイス生成中にエラーが発生しました: {str(e)}")
 
 @app.get("/exercises/categories")
 async def get_exercise_categories():

@@ -114,13 +114,68 @@ async def upload_video(file: UploadFile = File(...)):
                         if feature_response.status_code == 200:
                             feature_data = feature_response.json()
                             
-                            return {
-                                "status": "success",
-                                "message": "動画アップロード、骨格解析、特徴量計算が完了しました",
-                                "upload_info": upload_data,
-                                "pose_analysis": pose_data,
-                                "feature_analysis": feature_data
-                            }
+                            # Analysis Serviceに課題分析リクエスト
+                            try:
+                                analysis_request = {
+                                    "cadence": feature_data.get("features", {}).get("cadence", 180.0),
+                                    "knee_angle": feature_data.get("features", {}).get("knee_angle", 165.0),
+                                    "knee_angle_at_landing": feature_data.get("features", {}).get("knee_angle", 165.0),
+                                    "stride_length": feature_data.get("features", {}).get("stride_length", 1.25),
+                                    "contact_time": feature_data.get("features", {}).get("contact_time", 220.0),
+                                    "ground_contact_time": feature_data.get("features", {}).get("contact_time", 220.0)
+                                }
+                                
+                                analysis_response = await client.post(
+                                    "http://analysis:8004/analyze",
+                                    json=analysis_request,
+                                    timeout=60.0  # 1分のタイムアウト
+                                )
+                                
+                                if analysis_response.status_code == 200:
+                                    issue_data = analysis_response.json()
+                                    
+                                    return {
+                                        "status": "success",
+                                        "message": "動画アップロード、骨格解析、特徴量計算、課題分析が完了しました",
+                                        "upload_info": upload_data,
+                                        "pose_analysis": pose_data,
+                                        "feature_analysis": feature_data,
+                                        "issue_analysis": issue_data
+                                    }
+                                else:
+                                    # 課題分析が失敗した場合は特徴量計算まで返す
+                                    return {
+                                        "status": "partial_success",
+                                        "message": "動画アップロード、骨格解析、特徴量計算は成功しましたが、課題分析に失敗しました",
+                                        "upload_info": upload_data,
+                                        "pose_analysis": pose_data,
+                                        "feature_analysis": feature_data,
+                                        "issue_analysis": None,
+                                        "error": f"Analysis service returned {analysis_response.status_code}"
+                                    }
+                                    
+                            except httpx.RequestError as ae:
+                                # 課題分析でネットワークエラーの場合は特徴量計算まで返す
+                                return {
+                                    "status": "partial_success",
+                                    "message": "動画アップロード、骨格解析、特徴量計算は成功しましたが、課題分析サービスに接続できませんでした",
+                                    "upload_info": upload_data,
+                                    "pose_analysis": pose_data,
+                                    "feature_analysis": feature_data,
+                                    "issue_analysis": None,
+                                    "error": str(ae)
+                                }
+                            except Exception as ae:
+                                # 課題分析で他のエラーの場合は特徴量計算まで返す
+                                return {
+                                    "status": "partial_success",
+                                    "message": "動画アップロード、骨格解析、特徴量計算は成功しましたが、課題分析中にエラーが発生しました",
+                                    "upload_info": upload_data,
+                                    "pose_analysis": pose_data,
+                                    "feature_analysis": feature_data,
+                                    "issue_analysis": None,
+                                    "error": str(ae)
+                                }
                         else:
                             # 特徴量計算が失敗した場合は骨格解析まで返す
                             return {

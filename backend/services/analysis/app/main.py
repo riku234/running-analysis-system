@@ -3,11 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 from typing import List, Dict, Any
-from enum import Enum
 
 app = FastAPI(
     title="Analysis Service",
-    description="抽出された特徴量に基づき、ランニングフォームの問題点を特定・分析するサービス",
+    description="特徴量データに基づき、ランニングフォームの課題を判定・分析するサービス",
     version="1.0.0"
 )
 
@@ -20,32 +19,130 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class SeverityLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+# リクエスト・レスポンスのデータモデル
+class FeatureAnalysisRequest(BaseModel):
+    """特徴量データを受け取るリクエストモデル"""
+    cadence: float                 # ケイデンス (steps/min)
+    knee_angle: float             # 平均膝関節角度 (degrees)
+    knee_angle_at_landing: float  # 着地時膝角度 (degrees) - knee_angleと同じ値を使用
+    stride_length: float          # ストライド長 (meters)
+    contact_time: float           # 接地時間 (ms)
+    ground_contact_time: float    # 接地時間 (ms) - contact_timeと同じ値を使用
 
-class AnalysisRequest(BaseModel):
-    video_id: str
-    biomechanical_features: List[Dict[str, Any]]
+class AnalysisResponse(BaseModel):
+    """分析結果レスポンスモデル"""
+    status: str
+    message: str
+    issues: List[str]
+    analysis_summary: Dict[str, Any]
 
-class Issue(BaseModel):
-    issue_id: str
-    category: str
-    title: str
-    description: str
-    severity: SeverityLevel
-    affected_metrics: List[str]
-    confidence_score: float
+def analyze_cadence(cadence: float) -> List[str]:
+    """ケイデンス分析"""
+    issues = []
+    if cadence < 170:
+        issues.append("ピッチが遅く、上下動の大きい走りになっている可能性があります。")
+    elif cadence > 200:
+        issues.append("ピッチが速すぎて、効率的でない短いストライドになっている可能性があります。")
+    return issues
 
-class AnalysisResult(BaseModel):
-    overall_score: float
-    efficiency_rating: str
-    injury_risk_level: SeverityLevel
-    identified_issues: List[Issue]
-    strengths: List[str]
-    form_comparison: Dict[str, Any]
+def analyze_knee_angle(knee_angle_at_landing: float) -> List[str]:
+    """膝角度分析"""
+    issues = []
+    if knee_angle_at_landing >= 170:
+        issues.append("着地時に膝が伸びすぎており、ブレーキ動作と怪我のリスクを高めています。")
+    elif knee_angle_at_landing < 140:
+        issues.append("着地時の膝の曲がりが大きすぎて、推進力が不足している可能性があります。")
+    return issues
+
+def analyze_contact_time(ground_contact_time: float) -> List[str]:
+    """接地時間分析"""
+    issues = []
+    if ground_contact_time > 240:
+        issues.append("地面に足がついている時間が長く、エネルギー効率が低下している可能性があります。")
+    elif ground_contact_time < 150:
+        issues.append("接地時間が短すぎて、十分な推進力を得られていない可能性があります。")
+    return issues
+
+def analyze_stride_length(stride_length: float, cadence: float) -> List[str]:
+    """ストライド長分析"""
+    issues = []
+    
+    # 標準的なストライド長の範囲（1.0-1.6m）
+    if stride_length > 1.6:
+        issues.append("ストライド長が長すぎて、オーバーストライドになっている可能性があります。")
+    elif stride_length < 0.8:
+        issues.append("ストライド長が短すぎて、効率的でない走りになっている可能性があります。")
+    
+    # ケイデンスとストライド長のバランス
+    if cadence > 0 and stride_length > 0:
+        speed_estimate = (cadence / 60) * stride_length * 2  # 推定速度 (m/s)
+        if speed_estimate > 6.0:  # 6m/s以上（かなり速い）
+            if stride_length / (cadence / 60) > 2.5:
+                issues.append("高速走行時にストライド長に依存しすぎており、怪我のリスクが高まっています。")
+    
+    return issues
+
+def calculate_overall_assessment(total_issues: int, features: FeatureAnalysisRequest) -> Dict[str, Any]:
+    """総合評価の計算"""
+    
+    # スコア計算（10点満点）
+    base_score = 10
+    score_deduction = min(total_issues * 1.5, 8)  # 課題1つにつき1.5点減点、最大8点減点
+    overall_score = max(base_score - score_deduction, 2)
+    
+    # 効率性評価
+    efficiency_score = 10
+    if features.cadence < 170 or features.cadence > 200:
+        efficiency_score -= 2
+    if features.ground_contact_time > 240:
+        efficiency_score -= 2
+    if features.stride_length > 1.6 or features.stride_length < 0.8:
+        efficiency_score -= 1.5
+    
+    efficiency_rating = "A" if efficiency_score >= 8 else "B" if efficiency_score >= 6 else "C" if efficiency_score >= 4 else "D"
+    
+    # 怪我リスク評価
+    injury_risk = "低"
+    if features.knee_angle_at_landing >= 170 and features.ground_contact_time > 240:
+        injury_risk = "高"
+    elif features.knee_angle_at_landing >= 170 or features.ground_contact_time > 240 or features.stride_length > 1.6:
+        injury_risk = "中"
+    
+    return {
+        "overall_score": round(overall_score, 1),
+        "efficiency_rating": efficiency_rating,
+        "injury_risk_level": injury_risk,
+        "analyzed_features": {
+            "cadence": f"{features.cadence:.1f} steps/min",
+            "knee_angle": f"{features.knee_angle_at_landing:.1f}°",
+            "contact_time": f"{features.ground_contact_time:.1f} ms",
+            "stride_length": f"{features.stride_length:.2f} m"
+        },
+        "recommendations": generate_recommendations(features, total_issues)
+    }
+
+def generate_recommendations(features: FeatureAnalysisRequest, issue_count: int) -> List[str]:
+    """改善提案の生成"""
+    recommendations = []
+    
+    if features.cadence < 170:
+        recommendations.append("ピッチを向上させるため、短い距離での高頻度ランニングを練習してください。")
+    
+    if features.knee_angle_at_landing >= 170:
+        recommendations.append("着地時の膝の曲げを意識し、足音を小さくする練習をしてください。")
+    
+    if features.ground_contact_time > 240:
+        recommendations.append("地面を軽やかに蹴る意識で、接地時間を短縮してください。")
+    
+    if features.stride_length > 1.6:
+        recommendations.append("歩幅を小さくして、足の回転数を上げることを意識してください。")
+    
+    if issue_count == 0:
+        recommendations.append("現在のフォームは良好です。この調子を維持してください。")
+    elif issue_count >= 3:
+        recommendations.append("複数の課題があります。まずは1つずつ改善に取り組むことをお勧めします。")
+    
+    return recommendations
 
 @app.get("/")
 async def health_check():
@@ -53,136 +150,115 @@ async def health_check():
     return {"status": "healthy", "service": "analysis"}
 
 @app.post("/analyze")
-async def analyze_running_form(request: AnalysisRequest):
+async def analyze_running_form(request: FeatureAnalysisRequest):
     """
-    生体力学的特徴量からランニングフォームを分析する
+    特徴量データからランニングフォームの課題を分析する
     
     Args:
-        request: 動画IDと特徴量データのリスト
+        request: 特徴量データ（ケイデンス、膝角度、接地時間など）
         
     Returns:
-        ランニングフォーム分析結果
+        検出された課題と分析結果
     """
-    # TODO: 各特徴量の正常範囲との比較
-    # TODO: 左右非対称性の検出
-    # TODO: オーバーストライドの検出
-    # TODO: 過度な上下動の検出
-    # TODO: 不適切な着地パターンの識別
-    # TODO: エネルギー効率の評価
-    # TODO: 怪我リスクの評価
-    # TODO: ランニング経済性の計算
-    # TODO: 個人の体型・レベルに応じた補正
-    
-    # ダミーの分析結果
-    identified_issues = [
-        Issue(
-            issue_id="overstride_001",
-            category="stride_mechanics",
-            title="オーバーストライド",
-            description="ストライド長が理想値よりも長く、着地時の衝撃が大きくなっています。",
-            severity=SeverityLevel.MEDIUM,
-            affected_metrics=["stride_length", "ground_contact_time"],
-            confidence_score=0.85
-        ),
-        Issue(
-            issue_id="asymmetry_002", 
-            category="symmetry",
-            title="左右非対称性",
-            description="左右の膝関節角度に5度以上の差があり、フォームの非対称性が見られます。",
-            severity=SeverityLevel.LOW,
-            affected_metrics=["left_knee_angle", "right_knee_angle"],
-            confidence_score=0.92
-        ),
-        Issue(
-            issue_id="vertical_osc_003",
-            category="efficiency",
-            title="過度な上下動",
-            description="垂直方向の振動が理想値を超えており、エネルギー効率が低下しています。",
-            severity=SeverityLevel.MEDIUM,
-            affected_metrics=["vertical_oscillation"],
-            confidence_score=0.78
-        )
-    ]
-    
-    analysis_result = AnalysisResult(
-        overall_score=7.2,
-        efficiency_rating="B+",
-        injury_risk_level=SeverityLevel.MEDIUM,
-        identified_issues=identified_issues,
-        strengths=[
-            "適切なケイデンス（180 spm）",
-            "良好な体幹姿勢",
-            "安定した腕振りリズム"
-        ],
-        form_comparison={
-            "elite_runner_similarity": 0.72,
-            "recreational_runner_percentile": 85,
-            "age_group_ranking": "上位15%"
+    try:
+        # 各特徴量の分析
+        issues = []
+        
+        # ルールA: ケイデンスの評価
+        cadence_issues = analyze_cadence(request.cadence)
+        issues.extend(cadence_issues)
+        
+        # ルールB: 着地時の膝角度の評価
+        knee_issues = analyze_knee_angle(request.knee_angle_at_landing)
+        issues.extend(knee_issues)
+        
+        # ルールC: 接地時間の評価
+        contact_issues = analyze_contact_time(request.ground_contact_time)
+        issues.extend(contact_issues)
+        
+        # 追加分析: ストライド長の評価
+        stride_issues = analyze_stride_length(request.stride_length, request.cadence)
+        issues.extend(stride_issues)
+        
+        # 総合評価の計算
+        analysis_summary = calculate_overall_assessment(len(issues), request)
+        
+        # 結果の作成
+        status = "success"
+        message = f"{len(issues)}個の課題が検出されました" if issues else "フォームに大きな問題は見つかりませんでした"
+        
+        return {
+            "status": status,
+            "message": message,
+            "issues": issues,
+            "analysis_summary": analysis_summary
         }
-    )
-    
-    return {
-        "status": "success",
-        "video_id": request.video_id,
-        "analysis_timestamp": "2025-01-26T10:00:00Z",
-        "result": analysis_result,
-        "metadata": {
-            "analysis_algorithm_version": "2.1",
-            "reference_database": "elite_runners_2024",
-            "processing_time_ms": 245,
-            "total_issues_found": len(identified_issues)
-        }
-    }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析中にエラーが発生しました: {str(e)}")
 
 @app.get("/benchmarks")
 async def get_running_benchmarks():
     """ランニング指標のベンチマーク値を取得"""
     return {
         "cadence": {
-            "elite": {"min": 180, "max": 190, "optimal": 185},
-            "recreational": {"min": 160, "max": 180, "optimal": 170},
-            "beginner": {"min": 150, "max": 170, "optimal": 160}
+            "optimal_range": {"min": 170, "max": 190},
+            "elite_range": {"min": 180, "max": 200},
+            "beginner_range": {"min": 150, "max": 170},
+            "unit": "steps/min"
         },
-        "stride_length": {
-            "formula": "height * 0.43 - 0.65",
-            "range_percentage": {"min": 85, "max": 115}
+        "knee_angle_at_landing": {
+            "optimal_range": {"min": 140, "max": 170},
+            "warning_threshold": 170,
+            "unit": "degrees"
         },
         "ground_contact_time": {
-            "elite": {"min": 0.15, "max": 0.20},
-            "recreational": {"min": 0.20, "max": 0.30},
-            "unit": "seconds"
+            "optimal_range": {"min": 150, "max": 240},
+            "elite_range": {"min": 150, "max": 200},
+            "warning_threshold": 240,
+            "unit": "milliseconds"
         },
-        "vertical_oscillation": {
-            "excellent": {"max": 0.06},
-            "good": {"min": 0.06, "max": 0.08},
-            "fair": {"min": 0.08, "max": 0.10},
-            "poor": {"min": 0.10},
+        "stride_length": {
+            "optimal_range": {"min": 1.0, "max": 1.6},
+            "warning_threshold": 1.6,
             "unit": "meters"
         }
     }
 
-@app.get("/risk-factors")
-async def get_injury_risk_factors():
-    """怪我リスク要因の定義を取得"""
+@app.get("/analysis-rules")
+async def get_analysis_rules():
+    """分析ルールの詳細を取得"""
     return {
-        "high_risk": [
-            "過度なオーバーストライド（理想値の120%以上）",
-            "極端な非対称性（左右差10%以上）",
-            "踵着地と長い接地時間の組み合わせ",
-            "異常に高い垂直振動（0.12m以上）"
-        ],
-        "moderate_risk": [
-            "軽度のオーバーストライド（理想値の110-120%）",
-            "中程度の非対称性（左右差5-10%）",
-            "低いケイデンス（150 spm未満）",
-            "過度な前傾姿勢（8度以上）"
-        ],
-        "protective_factors": [
-            "適切なケイデンス（170-190 spm）",
-            "中足部着地",
-            "良好な左右対称性（左右差5%未満）",
-            "安定した体幹姿勢"
-        ]
+        "cadence_rules": {
+            "slow_cadence": {
+                "threshold": "< 170 steps/min",
+                "issue": "ピッチが遅く、上下動の大きい走りになっている可能性があります。"
+            },
+            "fast_cadence": {
+                "threshold": "> 200 steps/min", 
+                "issue": "ピッチが速すぎて、効率的でない短いストライドになっている可能性があります。"
+            }
+        },
+        "knee_angle_rules": {
+            "extended_knee": {
+                "threshold": ">= 170 degrees",
+                "issue": "着地時に膝が伸びすぎており、ブレーキ動作と怪我のリスクを高めています。"
+            },
+            "over_flexed_knee": {
+                "threshold": "< 140 degrees",
+                "issue": "着地時の膝の曲がりが大きすぎて、推進力が不足している可能性があります。"
+            }
+        },
+        "contact_time_rules": {
+            "long_contact": {
+                "threshold": "> 240 ms",
+                "issue": "地面に足がついている時間が長く、エネルギー効率が低下している可能性があります。"
+            },
+            "short_contact": {
+                "threshold": "< 150 ms",
+                "issue": "接地時間が短すぎて、十分な推進力を得られていない可能性があります。"
+            }
+        }
     }
 
 if __name__ == "__main__":

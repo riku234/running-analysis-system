@@ -4,9 +4,13 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://api_gateway:80/api/:path*',
+        destination: 'http://localhost:80/api/:path*',
       },
     ]
+  },
+  // より長いタイムアウト設定
+  experimental: {
+    proxyTimeout: 300000, // 5分
   },
 }
 
