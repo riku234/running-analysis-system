@@ -5,6 +5,7 @@ import { Upload, FileVideo, CheckCircle, Loader2, PlayCircle } from 'lucide-reac
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useResultStore } from '@/lib/store'
+import { useToast } from '@/hooks/use-toast'
 
 export default function HomePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -14,6 +15,9 @@ export default function HomePage() {
   
   // Zustandストアのアクション
   const { setPoseData, setVideoInfo, setUploadInfo, clearData } = useResultStore()
+  
+  // Toast通知用フック
+  const { toast } = useToast()
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -26,8 +30,16 @@ export default function HomePage() {
     // 動画ファイルの検証
     if (file.type.startsWith('video/')) {
       setSelectedFile(file)
+      toast({
+        title: "ファイル選択完了",
+        description: `${file.name} を選択しました`,
+      })
     } else {
-      alert('動画ファイルを選択してください。')
+      toast({
+        title: "ファイル形式エラー",
+        description: "動画ファイル（MP4, AVI, MOV など）を選択してください。",
+        variant: "destructive",
+      })
     }
   }
 
@@ -52,7 +64,14 @@ export default function HomePage() {
   }, [])
 
   const handleUpload = async () => {
-    if (!selectedFile) return
+    if (!selectedFile) {
+      toast({
+        title: "ファイル未選択",
+        description: "動画ファイルを選択してから解析を開始してください。",
+        variant: "destructive",
+      })
+      return
+    }
 
     setIsUploading(true)
     setUploadProgress(0)
@@ -149,10 +168,17 @@ export default function HomePage() {
       localStorage.setItem(`light_analysis_result_${result.upload_info.file_id}`, JSON.stringify(lightWeightResult))
 
       // 成功メッセージを表示
-      if (result.status === 'success' && result.pose_analysis) {
-        alert(`解析完了！\nファイル: ${result.upload_info.original_filename}\n検出率: ${(result.pose_analysis.summary.detection_rate * 100).toFixed(1)}%`)
+      if (result.status === 'success') {
+        toast({
+          title: "解析完了！",
+          description: `${result.upload_info.original_filename} の解析が完了しました。結果ページに移動します。`,
+        })
       } else {
-        alert(`アップロード成功（骨格解析は部分的）\nファイル: ${result.upload_info.original_filename}\nエラー: ${result.error || 'N/A'}`)
+        toast({
+          title: "部分的な成功",
+          description: `アップロードは成功しましたが、一部の解析でエラーが発生しました。`,
+          variant: "destructive",
+        })
       }
       
       // 結果ページへリダイレクト
@@ -163,18 +189,27 @@ export default function HomePage() {
     } catch (error) {
       console.error('アップロードエラー:', error)
       
-      let errorMessage = 'Unknown error'
+      let errorTitle = '解析に失敗しました'
+      let errorDescription = '不明なエラーが発生しました。時間をおいて再度お試しください。'
+      
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          errorMessage = 'アップロードがタイムアウトしました。大きなファイルの場合、時間がかかることがあります。'
+          errorTitle = 'タイムアウト'
+          errorDescription = 'アップロードがタイムアウトしました。ファイルサイズが大きい場合は時間がかかることがあります。'
         } else {
-          errorMessage = error.message
+          errorDescription = error.message
         }
       }
       
-      alert(`アップロードに失敗しました:\n${errorMessage}`)
+      toast({
+        title: errorTitle,
+        description: errorDescription,
+        variant: "destructive",
+      })
+      
       setUploadProgress(0)
     } finally {
+      // ★ 必ず実行される処理：ボタンを再度有効化
       setIsUploading(false)
     }
   }

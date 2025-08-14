@@ -1,4 +1,5 @@
 import './globals.css'
+import { Toaster } from '@/components/ui/toaster'
 
 export const metadata = {
   title: 'ランニングフォーム自動解析',
@@ -14,6 +15,7 @@ export default function RootLayout({
     <html lang="ja">
       <body>
         {children}
+        <Toaster />
       </body>
     </html>
   )

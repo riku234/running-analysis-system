@@ -9,6 +9,11 @@ import uuid
 from datetime import datetime
 import httpx
 import asyncio
+import logging
+
+# ロギングの設定
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Video Processing Service",
@@ -37,40 +42,53 @@ async def health_check():
 @app.post("/upload")
 async def upload_video(file: UploadFile = File(...)):
     """
-    動画ファイルをアップロードして一時保存する
+    動画ファイルをアップロードして解析パイプラインを実行する（堅牢版）
     
     Args:
         file: アップロードされた動画ファイル
         
     Returns:
-        アップロード結果とファイル情報
+        解析結果またはエラー情報
     """
-    # ファイル形式の検証
-    allowed_extensions = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
-    file_extension = Path(file.filename).suffix.lower()
-    
-    if file_extension not in allowed_extensions:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"サポートされていないファイル形式です。対応形式: {', '.join(allowed_extensions)}"
-        )
-    
-    # ユニークなファイル名を生成
-    unique_id = str(uuid.uuid4())
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_filename = f"{timestamp}_{unique_id}{file_extension}"
-    file_path = UPLOAD_DIR / safe_filename
-    
     try:
-        # ファイルを非同期で保存
-        async with aiofiles.open(file_path, 'wb') as f:
-            content = await file.read()
-            await f.write(content)
+        # ファイル形式の検証
+        allowed_extensions = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
+        file_extension = Path(file.filename).suffix.lower()
         
-        # ファイルサイズを取得
-        file_size = len(content)
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"サポートされていないファイル形式です。対応形式: {', '.join(allowed_extensions)}"
+            )
         
-        # 基本的なアップロード情報
+        # ファイルサイズの制限（例：500MB）
+        file_size = 0
+        temp_content = await file.read()
+        file_size = len(temp_content)
+        
+        max_size = 500 * 1024 * 1024  # 500MB
+        if file_size > max_size:
+            raise HTTPException(
+                status_code=413,
+                detail="ファイルサイズが大きすぎます（最大500MB）"
+            )
+        
+        # ファイルを元の位置にリセット
+        await file.seek(0)
+        
+        # 一意のファイル名を生成
+        unique_id = str(uuid.uuid4())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = f"{timestamp}_{unique_id}{file_extension}"
+        file_path = UPLOAD_DIR / safe_filename
+        
+        # ファイルを保存
+        async with aiofiles.open(file_path, 'wb') as buffer:
+            await buffer.write(temp_content)
+        
+        logger.info(f"ファイルアップロード完了: {safe_filename} ({file_size} bytes)")
+        
+        # アップロード情報
         upload_data = {
             "file_id": unique_id,
             "original_filename": file.filename,
@@ -81,169 +99,139 @@ async def upload_video(file: UploadFile = File(...)):
             "file_extension": file_extension
         }
         
-        # Pose Estimation Serviceに解析リクエスト
-        try:
-            async with httpx.AsyncClient() as client:
+        # 各サービスのURL定義
+        POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
+        FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
+        ANALYSIS_URL = "http://analysis:8004/analyze"
+        ADVICE_GENERATION_URL = "http://advice_generation:8005/generate"
+        
+        # 全サービス連携処理（堅牢版）
+        async with httpx.AsyncClient() as client:
+            try:
+                # Step 1: 骨格推定
+                logger.info("骨格推定サービスを呼び出します")
                 pose_request = {
                     "video_path": f"uploads/{safe_filename}",
                     "confidence_threshold": 0.5
                 }
                 
-                response = await client.post(
-                    "http://pose_estimation:8002/estimate",
+                pose_response = await client.post(
+                    POSE_ESTIMATION_URL,
                     json=pose_request,
                     timeout=300.0  # 5分のタイムアウト
                 )
+                pose_response.raise_for_status()
+                pose_data = pose_response.json()
+                logger.info("骨格推定完了")
                 
-                if response.status_code == 200:
-                    pose_data = response.json()
-                    
-                    # Feature Extraction Serviceに特徴量計算リクエスト
-                    try:
-                        feature_request = {
-                            "pose_data": pose_data.get("pose_data", []),
-                            "video_info": pose_data.get("video_info", {})
-                        }
-                        
-                        feature_response = await client.post(
-                            "http://feature_extraction:8003/extract",
-                            json=feature_request,
-                            timeout=120.0  # 2分のタイムアウト
-                        )
-                        
-                        if feature_response.status_code == 200:
-                            feature_data = feature_response.json()
-                            
-                            # Analysis Serviceに課題分析リクエスト
-                            try:
-                                analysis_request = {
-                                    "cadence": feature_data.get("features", {}).get("cadence", 180.0),
-                                    "knee_angle": feature_data.get("features", {}).get("knee_angle", 165.0),
-                                    "knee_angle_at_landing": feature_data.get("features", {}).get("knee_angle", 165.0),
-                                    "stride_length": feature_data.get("features", {}).get("stride_length", 1.25),
-                                    "contact_time": feature_data.get("features", {}).get("contact_time", 220.0),
-                                    "ground_contact_time": feature_data.get("features", {}).get("contact_time", 220.0)
-                                }
-                                
-                                analysis_response = await client.post(
-                                    "http://analysis:8004/analyze",
-                                    json=analysis_request,
-                                    timeout=60.0  # 1分のタイムアウト
-                                )
-                                
-                                if analysis_response.status_code == 200:
-                                    issue_data = analysis_response.json()
-                                    
-                                    return {
-                                        "status": "success",
-                                        "message": "動画アップロード、骨格解析、特徴量計算、課題分析が完了しました",
-                                        "upload_info": upload_data,
-                                        "pose_analysis": pose_data,
-                                        "feature_analysis": feature_data,
-                                        "issue_analysis": issue_data
-                                    }
-                                else:
-                                    # 課題分析が失敗した場合は特徴量計算まで返す
-                                    return {
-                                        "status": "partial_success",
-                                        "message": "動画アップロード、骨格解析、特徴量計算は成功しましたが、課題分析に失敗しました",
-                                        "upload_info": upload_data,
-                                        "pose_analysis": pose_data,
-                                        "feature_analysis": feature_data,
-                                        "issue_analysis": None,
-                                        "error": f"Analysis service returned {analysis_response.status_code}"
-                                    }
-                                    
-                            except httpx.RequestError as ae:
-                                # 課題分析でネットワークエラーの場合は特徴量計算まで返す
-                                return {
-                                    "status": "partial_success",
-                                    "message": "動画アップロード、骨格解析、特徴量計算は成功しましたが、課題分析サービスに接続できませんでした",
-                                    "upload_info": upload_data,
-                                    "pose_analysis": pose_data,
-                                    "feature_analysis": feature_data,
-                                    "issue_analysis": None,
-                                    "error": str(ae)
-                                }
-                            except Exception as ae:
-                                # 課題分析で他のエラーの場合は特徴量計算まで返す
-                                return {
-                                    "status": "partial_success",
-                                    "message": "動画アップロード、骨格解析、特徴量計算は成功しましたが、課題分析中にエラーが発生しました",
-                                    "upload_info": upload_data,
-                                    "pose_analysis": pose_data,
-                                    "feature_analysis": feature_data,
-                                    "issue_analysis": None,
-                                    "error": str(ae)
-                                }
-                        else:
-                            # 特徴量計算が失敗した場合は骨格解析まで返す
-                            return {
-                                "status": "partial_success",
-                                "message": "動画アップロードと骨格解析は成功しましたが、特徴量計算に失敗しました",
-                                "upload_info": upload_data,
-                                "pose_analysis": pose_data,
-                                "feature_analysis": None,
-                                "error": f"Feature extraction service returned {feature_response.status_code}"
-                            }
-                            
-                    except httpx.RequestError as fe:
-                        # 特徴量計算でネットワークエラーの場合は骨格解析まで返す
-                        return {
-                            "status": "partial_success",
-                            "message": "動画アップロードと骨格解析は成功しましたが、特徴量計算サービスに接続できませんでした",
-                            "upload_info": upload_data,
-                            "pose_analysis": pose_data,
-                            "feature_analysis": None,
-                            "error": str(fe)
-                        }
-                    except Exception as fe:
-                        # 特徴量計算で他のエラーの場合は骨格解析まで返す
-                        return {
-                            "status": "partial_success",
-                            "message": "動画アップロードと骨格解析は成功しましたが、特徴量計算中にエラーが発生しました",
-                            "upload_info": upload_data,
-                            "pose_analysis": pose_data,
-                            "feature_analysis": None,
-                            "error": str(fe)
-                        }
-                else:
-                    # 骨格解析が失敗した場合はアップロード情報のみ返す
-                    return {
-                        "status": "partial_success",
-                        "message": "動画アップロードは成功しましたが、骨格解析に失敗しました",
-                        "upload_info": upload_data,
-                        "pose_analysis": None,
-                        "error": f"Pose estimation service returned {response.status_code}"
+                # Step 2: 特徴量計算
+                logger.info("特徴量計算サービスを呼び出します")
+                feature_request = {
+                    "pose_data": pose_data.get("pose_data", []),
+                    "video_info": pose_data.get("video_info", {})
+                }
+                
+                feature_response = await client.post(
+                    FEATURE_EXTRACTION_URL,
+                    json=feature_request,
+                    timeout=120.0  # 2分のタイムアウト
+                )
+                feature_response.raise_for_status()
+                feature_data = feature_response.json()
+                logger.info("特徴量計算完了")
+                
+                # Step 3: 課題分析
+                logger.info("課題分析サービスを呼び出します")
+                analysis_request = {
+                    "cadence": feature_data.get("features", {}).get("cadence", 180.0),
+                    "knee_angle": feature_data.get("features", {}).get("knee_angle", 165.0),
+                    "knee_angle_at_landing": feature_data.get("features", {}).get("knee_angle", 165.0),
+                    "stride_length": feature_data.get("features", {}).get("stride_length", 1.25),
+                    "contact_time": feature_data.get("features", {}).get("contact_time", 220.0),
+                    "ground_contact_time": feature_data.get("features", {}).get("contact_time", 220.0)
+                }
+                
+                analysis_response = await client.post(
+                    ANALYSIS_URL,
+                    json=analysis_request,
+                    timeout=60.0  # 1分のタイムアウト
+                )
+                analysis_response.raise_for_status()
+                issue_data = analysis_response.json()
+                logger.info("課題分析完了")
+                
+                # Step 4: アドバイス生成（オプション）
+                advice_data = None
+                try:
+                    logger.info("アドバイス生成サービスを呼び出します")
+                    advice_request = {
+                        "video_id": unique_id,
+                        "issues": issue_data.get("issues", [])
                     }
                     
-        except httpx.RequestError as e:
-            # ネットワークエラーの場合はアップロード情報のみ返す
-            return {
-                "status": "partial_success", 
-                "message": "動画アップロードは成功しましたが、骨格解析サービスに接続できませんでした",
-                "upload_info": upload_data,
-                "pose_analysis": None,
-                "error": str(e)
-            }
-        except Exception as e:
-            # その他のエラーの場合
-            return {
-                "status": "partial_success",
-                "message": "動画アップロードは成功しましたが、骨格解析中にエラーが発生しました", 
-                "upload_info": upload_data,
-                "pose_analysis": None,
-                "error": str(e)
-            }
+                    advice_response = await client.post(
+                        ADVICE_GENERATION_URL,
+                        json=advice_request,
+                        timeout=60.0
+                    )
+                    advice_response.raise_for_status()
+                    advice_data = advice_response.json()
+                    logger.info("アドバイス生成完了")
+                    
+                except Exception as e:
+                    logger.warning(f"アドバイス生成でエラーが発生しましたが、処理を続行します: {e}")
+                    # アドバイス生成失敗は致命的ではないので、処理を続行
+                
+                # Step 5: 成功レスポンスの返却
+                response_data = {
+                    "status": "success",
+                    "message": "動画アップロード、骨格解析、特徴量計算、課題分析が完了しました",
+                    "upload_info": upload_data,
+                    "pose_analysis": pose_data,
+                    "feature_analysis": feature_data,
+                    "issue_analysis": issue_data
+                }
+                
+                if advice_data:
+                    response_data["advice_analysis"] = advice_data
+                    response_data["message"] += "、アドバイス生成も完了しました"
+                
+                return response_data
+                
+            except httpx.RequestError as exc:
+                # ネットワークエラー（接続失敗、タイムアウトなど）
+                logger.error(f"サービス接続エラー: {exc}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"解析サービスに接続できません。しばらく待ってから再度お試しください。"
+                )
+                
+            except httpx.HTTPStatusError as exc:
+                # HTTPエラーレスポンス（4xx, 5xx）
+                logger.error(f"サービスエラー: {exc.response.status_code} - {exc.response.text}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"解析中にサーバーエラーが発生しました。管理者にお問い合わせください。"
+                )
+                
+            except Exception as exc:
+                # その他の予期しないエラー
+                logger.error(f"予期しないエラー: {exc}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="予期しないサーバーエラーが発生しました。管理者にお問い合わせください。"
+                )
         
-    except Exception as e:
-        # エラーが発生した場合、既に保存されたファイルを削除
-        if file_path.exists():
-            file_path.unlink()
+    except HTTPException:
+        # 既にHTTPExceptionの場合はそのまま再発生
+        raise
         
+    except Exception as exc:
+        # ファイル操作やその他の例外
+        logger.error(f"アップロード処理でエラー: {exc}")
         raise HTTPException(
             status_code=500,
-            detail=f"ファイルの保存中にエラーが発生しました: {str(e)}"
+            detail="ファイルのアップロード処理中にエラーが発生しました。"
         )
 
 @app.post("/process")
