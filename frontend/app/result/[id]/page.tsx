@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import PoseVisualizer from '../../components/PoseVisualizer'
+import PoseVisualizer from '@/app/components/PoseVisualizer'
 import { useResultStore } from '@/lib/store'
 
 interface AnalysisResult {
@@ -98,6 +98,8 @@ interface AnalysisResult {
 export default function ResultPage({ params }: { params: { id: string } }) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
+  const [zustandSaveLog, setZustandSaveLog] = useState<string>("")
   
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
@@ -105,6 +107,18 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     const fetchResult = async () => {
       try {
+        // デバッグ情報をlocalStorageから読み込み
+        const debugData = localStorage.getItem('lastUploadDebug')
+        if (debugData) {
+          setDebugInfo(JSON.parse(debugData))
+        }
+        
+        // Zustand保存ログを読み込み
+        const saveLog = localStorage.getItem('lastZustandSaveLog')
+        if (saveLog) {
+          setZustandSaveLog(saveLog)
+        }
+        
         // localStorageから軽量な結果データを取得
         const savedResult = localStorage.getItem(`light_analysis_result_${params.id}`)
         if (savedResult) {
@@ -119,6 +133,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               video_info: videoInfo || lightResult.pose_analysis?.video_info
             }
           }
+          
+          // ★★★ データの内容をデバッグ ★★★
+          console.log("📊 localStorage軽量データ:", lightResult)
+          console.log("📊 Zustandのpose_data長さ:", poseData?.length || 0)
+          console.log("📊 完成したcompleteResult:", completeResult)
+          console.log("📊 pose_analysis.pose_data長さ:", completeResult.pose_analysis.pose_data?.length || 0)
           
           setResult(completeResult)
           setLoading(false)
@@ -283,15 +303,53 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {result.pose_analysis ? (
-                  <PoseVisualizer 
-                    videoUrl={videoUrl}
-                    poseData={result.pose_analysis}
-                  />
+                {poseData && poseData.length > 0 ? (
+                  (() => {
+                    // ★★★ ZustandストアからPoseVisualizerに渡すデータをデバッグ ★★★
+                    console.log("🔍 Zustandストアのpose_data長さ:", poseData.length)
+                    console.log("🔍 videoUrl:", videoUrl)
+                    console.log("🔍 最初のフレームデータ:", poseData[0])
+                    
+                    // PoseVisualizerが期待する形式に変換
+                    const poseAnalysisData = {
+                      status: "success",
+                      message: "骨格解析完了",
+                      video_info: videoInfo || {
+                        fps: 30,
+                        total_frames: poseData.length,
+                        duration_seconds: poseData.length / 30,
+                        width: 640,
+                        height: 480
+                      },
+                      pose_data: poseData.map(frame => ({
+                        ...frame,
+                        confidence_score: 0.9 // デフォルト値を設定
+                      })),
+                      summary: {
+                        total_processed_frames: poseData.length,
+                        detected_pose_frames: poseData.filter(frame => frame.landmarks_detected).length,
+                        detection_rate: poseData.filter(frame => frame.landmarks_detected).length / poseData.length,
+                        average_confidence: 0.9, // デフォルト値
+                        mediapipe_landmarks_count: 33
+                      }
+                    }
+                    
+                    console.log("🔍 PoseVisualizerに渡すデータ:", poseAnalysisData)
+                    
+                    return (
+                      <PoseVisualizer 
+                        videoUrl={videoUrl}
+                        poseData={poseAnalysisData}
+                      />
+                    )
+                  })()
                 ) : (
                   <div className="text-center py-12 text-muted-foreground">
                     <AlertTriangle className="h-12 w-12 mx-auto mb-4" />
-                    <p>骨格解析データが利用できません</p>
+                    <p>骨格データが見つかりません</p>
+                    <p className="text-sm mt-2">
+                      Zustandストア内のpose_data: {poseData?.length || 0}フレーム
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -540,6 +598,92 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             </div>
           </CardContent>
         </Card>
+
+        {/* デバッグ情報セクション */}
+        {debugInfo && (
+          <Card className="shadow-xl mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                🔍 デバッグ情報
+              </CardTitle>
+              <CardDescription>
+                最後のアップロードのデバッグ情報（{new Date(debugInfo.timestamp).toLocaleString()}）
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4 text-sm">
+                <div>
+                  <span className="font-medium">利用可能なキー:</span>
+                  <p className="text-muted-foreground bg-gray-100 p-2 rounded">
+                    {JSON.stringify(debugInfo.availableKeys, null, 2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="font-medium">pose_analysis.pose_data 長さ:</span>
+                  <p className="text-muted-foreground">
+                    {debugInfo.pose_analysis_pose_data_length}
+                  </p>
+                </div>
+                                 <div>
+                   <span className="font-medium">pose_data.pose_data 長さ:</span>
+                   <p className="text-muted-foreground">
+                     {debugInfo.pose_data_pose_data_length}
+                   </p>
+                 </div>
+                 <div className="bg-yellow-50 p-3 rounded border-l-4 border-yellow-400">
+                   <span className="font-medium text-yellow-800">🔍 Zustand状態確認:</span>
+                   <div className="mt-2 text-sm text-yellow-700">
+                     <p>現在のZustandストア内のpose_data長さ: <strong>{poseData?.length || 0}</strong></p>
+                     <p>期待値: <strong>{debugInfo.pose_analysis_pose_data_length}</strong></p>
+                     {(poseData?.length || 0) === 0 && debugInfo.pose_analysis_pose_data_length > 0 && (
+                       <p className="text-red-600 font-medium mt-1">
+                         ⚠️ Zustandストアにpose_dataが保存されていません！
+                       </p>
+                     )}
+                     {(poseData?.length || 0) > 0 && (
+                       <p className="text-green-600 font-medium mt-1">
+                         ✅ Zustandストアにpose_dataが正常に保存されています
+                       </p>
+                     )}
+                     {zustandSaveLog && (
+                       <p className="mt-2 text-xs bg-gray-100 p-2 rounded">
+                         <strong>アップロード時のログ:</strong> {zustandSaveLog}
+                       </p>
+                     )}
+                   </div>
+                 </div>
+                 <div>
+                   <span className="font-medium">pose_analysis キー:</span>
+                   <p className="text-muted-foreground bg-gray-100 p-2 rounded text-xs">
+                     {JSON.stringify(debugInfo.pose_analysis_keys, null, 2)}
+                   </p>
+                 </div>
+                 <div>
+                   <span className="font-medium">pose_data キー:</span>
+                   <p className="text-muted-foreground bg-gray-100 p-2 rounded text-xs">
+                     {JSON.stringify(debugInfo.pose_data_keys, null, 2)}
+                   </p>
+                 </div>
+                 {debugInfo.pose_analysis_sample && (
+                   <details className="mt-4">
+                     <summary className="cursor-pointer font-medium">pose_analysis サンプル（最初の2フレーム）</summary>
+                     <pre className="text-xs bg-gray-100 p-3 rounded mt-2 overflow-auto max-h-96">
+                       {JSON.stringify(debugInfo.pose_analysis_sample, null, 2)}
+                     </pre>
+                   </details>
+                 )}
+                 {debugInfo.pose_data_sample && (
+                   <details className="mt-4">
+                     <summary className="cursor-pointer font-medium">pose_data サンプル（最初の2フレーム）</summary>
+                     <pre className="text-xs bg-gray-100 p-3 rounded mt-2 overflow-auto max-h-96">
+                       {JSON.stringify(debugInfo.pose_data_sample, null, 2)}
+                     </pre>
+                   </details>
+                 )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

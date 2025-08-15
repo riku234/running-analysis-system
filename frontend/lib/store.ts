@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 // 骨格データの型定義
 interface PoseKeypoint {
@@ -47,20 +48,40 @@ interface ResultState {
   clearData: () => void;
 }
 
-// Zustandストアの作成
-export const useResultStore = create<ResultState>((set) => ({
-  // 初期状態
-  poseData: null,
-  videoInfo: null,
-  uploadInfo: null,
-  
-  // アクション
-  setPoseData: (data) => set({ poseData: data }),
-  setVideoInfo: (info) => set({ videoInfo: info }),
-  setUploadInfo: (info) => set({ uploadInfo: info }),
-  clearData: () => set({ 
-    poseData: null, 
-    videoInfo: null, 
-    uploadInfo: null 
-  }),
-})); 
+// Zustandストアの作成（永続化付き）
+export const useResultStore = create<ResultState>()(
+  persist(
+    (set) => ({
+      // 初期状態
+      poseData: null,
+      videoInfo: null,
+      uploadInfo: null,
+      
+      // アクション
+      setPoseData: (data) => set({ poseData: data }),
+      setVideoInfo: (info) => set({ videoInfo: info }),
+      setUploadInfo: (info) => set({ uploadInfo: info }),
+      clearData: () => set({ 
+        poseData: null, 
+        videoInfo: null, 
+        uploadInfo: null 
+      }),
+    }),
+    {
+      name: 'result-storage', // localStorage のキー名
+      // 大きなデータなので sessionStorage を使用（タブを閉じると削除）
+      storage: {
+        getItem: (name) => {
+          const item = sessionStorage.getItem(name);
+          return item ? JSON.parse(item) : null;
+        },
+        setItem: (name, value) => {
+          sessionStorage.setItem(name, JSON.stringify(value));
+        },
+        removeItem: (name) => {
+          sessionStorage.removeItem(name);
+        },
+      },
+    }
+  )
+); 

@@ -136,11 +136,80 @@ export default function HomePage() {
 
       const result = await response.json()
       console.log('アップロード成功:', result)
+      
+      // ★★★ デバッグ: レスポンス構造を確認 & localStorage保存 ★★★
+      const debugInfo = {
+        timestamp: new Date().toISOString(),
+        availableKeys: Object.keys(result),
+        pose_analysis_pose_data_length: result.pose_analysis?.pose_data?.length || 0,
+        pose_data_pose_data_length: result.pose_data?.pose_data?.length || 0,
+        pose_analysis_keys: result.pose_analysis ? Object.keys(result.pose_analysis) : [],
+        pose_data_keys: result.pose_data ? Object.keys(result.pose_data) : [],
+        // サンプルデータ（最初の2フレームのみ）
+        pose_analysis_sample: result.pose_analysis?.pose_data ? result.pose_analysis.pose_data.slice(0, 2) : null,
+        pose_data_sample: result.pose_data?.pose_data ? result.pose_data.pose_data.slice(0, 2) : null,
+        video_info: result.pose_analysis?.video_info || result.video_info,
+        has_pose_analysis: !!result.pose_analysis,
+        has_pose_data: !!result.pose_data
+      }
+      
+      // localStorageに保存（軽量版）
+      try {
+        localStorage.setItem('lastUploadDebug', JSON.stringify(debugInfo, null, 2))
+      } catch (storageError) {
+        console.log("📤 ストレージエラー - さらに軽量化します:", storageError)
+        // 更に軽量化
+        const minimalDebugInfo = {
+          timestamp: debugInfo.timestamp,
+          availableKeys: debugInfo.availableKeys,
+          pose_analysis_pose_data_length: debugInfo.pose_analysis_pose_data_length,
+          pose_data_pose_data_length: debugInfo.pose_data_pose_data_length,
+          has_pose_analysis: debugInfo.has_pose_analysis,
+          has_pose_data: debugInfo.has_pose_data
+        }
+        localStorage.setItem('lastUploadDebug', JSON.stringify(minimalDebugInfo))
+      }
+      
+      console.log("📤 バックエンドレスポンス構造調査:")
+      console.log("📤 利用可能なキー:", debugInfo.availableKeys)
+      console.log("📤 pose_analysis有無:", debugInfo.has_pose_analysis)
+      console.log("📤 pose_data有無:", debugInfo.has_pose_data)
+      console.log("📤 pose_analysis.pose_data フレーム数:", debugInfo.pose_analysis_pose_data_length)
+      console.log("📤 pose_data.pose_data フレーム数:", debugInfo.pose_data_pose_data_length)
+      console.log("📤 pose_analysis キー:", debugInfo.pose_analysis_keys)
+      console.log("📤 pose_data キー:", debugInfo.pose_data_keys)
+      console.log("📤 デバッグ情報をlocalStorageに保存しました！")
+      // ★★★ デバッグここまで ★★★
 
       // 巨大なpose_dataはZustandストアに保存
-      if (result.pose_analysis?.pose_data) {
+      console.log("💾 Zustand保存チェック開始")
+      console.log("💾 result.pose_analysis?.pose_data:", !!result.pose_analysis?.pose_data, result.pose_analysis?.pose_data?.length)
+      console.log("💾 result.pose_data?.pose_data:", !!result.pose_data?.pose_data, result.pose_data?.pose_data?.length)
+      
+      let zustandSaveLog = ""
+      if (result.pose_analysis?.pose_data && result.pose_analysis.pose_data.length > 0) {
+        zustandSaveLog = `💾 Zustandに保存: pose_analysis.pose_data ${result.pose_analysis.pose_data.length}`
+        console.log(zustandSaveLog)
         setPoseData(result.pose_analysis.pose_data)
+      } else if (result.pose_data?.pose_data && result.pose_data.pose_data.length > 0) {
+        zustandSaveLog = `💾 Zustandに保存: pose_data.pose_data ${result.pose_data.pose_data.length}`
+        console.log(zustandSaveLog)
+        setPoseData(result.pose_data.pose_data)
+      } else {
+        zustandSaveLog = "⚠️ pose_dataが見つかりません - Zustandに保存されませんでした"
+        console.warn(zustandSaveLog)
+        console.warn("⚠️ デバッグ:", {
+          pose_analysis_exists: !!result.pose_analysis,
+          pose_analysis_pose_data_exists: !!result.pose_analysis?.pose_data,
+          pose_analysis_pose_data_length: result.pose_analysis?.pose_data?.length,
+          pose_data_exists: !!result.pose_data,
+          pose_data_pose_data_exists: !!result.pose_data?.pose_data,
+          pose_data_pose_data_length: result.pose_data?.pose_data?.length
+        })
       }
+      
+      // Zustand保存ログをlocalStorageに保存
+      localStorage.setItem('lastZustandSaveLog', zustandSaveLog)
       if (result.pose_analysis?.video_info) {
         setVideoInfo(result.pose_analysis.video_info)
       }
