@@ -1,0 +1,236 @@
+version: '3.8'
+
+services:
+  # API Gateway (Nginx) - 本番環境用設定
+  api_gateway:
+    build:
+      context: ./backend/api_gateway
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+      - "443:443"  # HTTPS用
+    depends_on:
+      - video_processing
+      - pose_estimation
+      - feature_extraction
+      - analysis
+      - advice_generation
+    volumes:
+      - ./ssl-certs:/etc/ssl/certs:ro  # SSL証明書
+      - ./nginx-prod.conf:/etc/nginx/nginx.conf:ro  # 本番設定
+    networks:
+      - app_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (Next.js) - 本番環境用
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod  # 本番用Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${API_URL:-http://localhost}
+      - NODE_OPTIONS=--max-old-space-size=512  # メモリ制限
+    depends_on:
+      - api_gateway
+    networks:
+      - app_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 640M
+          cpus: '0.3'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend Services
+  video_processing:
+    build:
+      context: ./backend/services/video_processing
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+      - MAX_FILE_SIZE=50MB  # ファイルサイズ制限を下げる
+      - WORKERS=1  # ワーカー数を制限
+    volumes:
+      - video_storage:/app/uploads
+      - ./logs:/app/logs  # ログファイル
+    networks:
+      - app_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.3'
+        reservations:
+          memory: 192M
+          cpus: '0.2'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  pose_estimation:
+    build:
+      context: ./backend/services/pose_estimation
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+      - WORKERS=1  # ワーカー数を制限
+    volumes:
+      - video_storage:/app/uploads
+      - model_cache:/app/models
+      - ./logs:/app/logs
+    networks:
+      - app_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M  # 機械学習モデル用により多くメモリ
+          cpus: '0.4'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  feature_extraction:
+    build:
+      context: ./backend/services/feature_extraction
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+      - WORKERS=1  # ワーカー数を制限
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - app_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  analysis:
+    build:
+      context: ./backend/services/analysis
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+      - WORKERS=1  # ワーカー数を制限
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - app_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  advice_generation:
+    build:
+      context: ./backend/services/advice_generation
+      dockerfile: Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+      - WORKERS=1  # ワーカー数を制限
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - app_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ボリューム定義 - 本番環境用
+volumes:
+  video_storage:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/running-analysis/uploads  # EC2の永続ストレージ
+  model_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/running-analysis/models
+
+# ネットワーク定義
+networks:
+  app_network:
+    driver: bridge 

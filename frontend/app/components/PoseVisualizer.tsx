@@ -81,15 +81,28 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
   
   // キーポイントを描画
   const drawKeypoints = (ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number) => {
+    console.log('🎨 drawKeypoints呼び出し:', {
+      keypointsLength: keypoints.length,
+      videoWidth,
+      videoHeight,
+      firstKeypoint: keypoints[0]
+    })
+    
     ctx.fillStyle = '#ff0000'
     ctx.strokeStyle = '#00ff00'
     ctx.lineWidth = 2
     
+    let drawnPoints = 0
+    
     // キーポイントを描画
     keypoints.forEach((point, index) => {
-      if (point.visibility > 0.5) { // 信頼度が高いポイントのみ描画
+      if (point.visibility > 0.3) { // 信頼度閾値を下げて、より多くのポイントを表示
         const x = point.x * videoWidth
         const y = point.y * videoHeight
+        
+        if (index === 0) {
+          console.log('🔴 最初のキーポイント描画:', { index, x, y, visibility: point.visibility })
+        }
         
         // ポイントを描画
         ctx.beginPath()
@@ -101,8 +114,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
         ctx.font = '10px Arial'
         ctx.fillText(index.toString(), x + 5, y - 5)
         ctx.fillStyle = '#ff0000'
+        
+        drawnPoints++
       }
     })
+    
+    console.log('✨ 描画されたポイント数:', drawnPoints)
     
     // 骨格の線を描画
     ctx.strokeStyle = '#00ff00'
@@ -113,7 +130,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
       const endPoint = keypoints[endIdx]
       
       if (startPoint && endPoint && 
-          startPoint.visibility > 0.5 && endPoint.visibility > 0.5) {
+          startPoint.visibility > 0.3 && endPoint.visibility > 0.3) {
         const startX = startPoint.x * videoWidth
         const startY = startPoint.y * videoHeight
         const endX = endPoint.x * videoWidth
@@ -138,8 +155,20 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
     if (!ctx) return
     
     // Canvasサイズを動画サイズに合わせる
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    const newWidth = video.videoWidth || video.offsetWidth || 640
+    const newHeight = video.videoHeight || video.offsetHeight || 360
+    
+    console.log('📐 Canvas サイズ設定:', {
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      offsetWidth: video.offsetWidth,
+      offsetHeight: video.offsetHeight,
+      newWidth,
+      newHeight
+    })
+    
+    canvas.width = newWidth
+    canvas.height = newHeight
     canvas.style.width = video.offsetWidth + 'px'
     canvas.style.height = video.offsetHeight + 'px'
     
@@ -148,8 +177,18 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
     
     // 現在のフレームの骨格データを取得
     const frameData = getCurrentFrameData()
+    console.log('🎬 updateCanvas呼び出し:', {
+      currentFrame,
+      frameData: frameData ? {
+        frame_number: frameData.frame_number,
+        landmarks_detected: frameData.landmarks_detected,
+        keypointsLength: frameData.keypoints?.length
+      } : null,
+      canvasSize: { width: canvas.width, height: canvas.height }
+    })
     
     if (frameData && frameData.landmarks_detected) {
+      console.log('✅ フレームデータ有効、キーポイント描画開始')
       drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height)
       
       // 信頼度を表示
@@ -158,6 +197,8 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
       ctx.fillStyle = '#000000'
       ctx.font = '14px Arial'
       ctx.fillText(`信頼度: ${(frameData.confidence_score * 100).toFixed(1)}%`, 15, 30)
+    } else {
+      console.log('❌ フレームデータなしまたは骨格検出なし:', frameData)
     }
   }
   

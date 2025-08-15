@@ -130,8 +130,6 @@ interface AnalysisResult {
 export default function ResultPage({ params }: { params: { id: string } }) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
-  const [debugInfo, setDebugInfo] = useState<any>(null)
-  const [zustandSaveLog, setZustandSaveLog] = useState<string>("")
   
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
@@ -139,18 +137,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     const fetchResult = async () => {
       try {
-        // デバッグ情報をlocalStorageから読み込み
-        const debugData = localStorage.getItem('lastUploadDebug')
-        if (debugData) {
-          setDebugInfo(JSON.parse(debugData))
-        }
-        
-        // Zustand保存ログを読み込み
-        const saveLog = localStorage.getItem('lastZustandSaveLog')
-        if (saveLog) {
-          setZustandSaveLog(saveLog)
-        }
-        
         // localStorageから軽量な結果データを取得
         const savedResult = localStorage.getItem(`light_analysis_result_${params.id}`)
         if (savedResult) {
@@ -607,50 +593,20 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* フッター情報 */}
-        <Card className="shadow-lg">
-          <CardHeader>
-            <CardTitle>動画情報</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <span className="font-medium">ファイルサイズ:</span>
-                <p className="text-muted-foreground">
-                  {(result.upload_info.file_size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
-              <div>
-                <span className="font-medium">アップロード日時:</span>
-                <p className="text-muted-foreground">
-                  {new Date(result.upload_info.upload_timestamp).toLocaleString('ja-JP')}
-                </p>
-              </div>
-              {result.pose_analysis && (
-                <>
-                  <div>
-                    <span className="font-medium">動画時間:</span>
-                    <p className="text-muted-foreground">
-                      {result.pose_analysis.video_info.duration_seconds.toFixed(1)}秒
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium">解像度:</span>
-                    <p className="text-muted-foreground">
-                      {result.pose_analysis.video_info.width}×{result.pose_analysis.video_info.height}
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
                   {/* アドバイスセクション */}
           {(() => {
+            // デバッグログ: アドバイスデータの存在確認
+            console.log("💡 [FRONTEND] アドバイスデータの確認:");
+            console.log("  - advice_analysis存在:", !!result?.advice_analysis);
+            console.log("  - advice_results存在:", !!result?.advice_results);
+
             // advice_resultsまたはadvice_analysisからアドバイスリストを取得
             const adviceList = result?.advice_results?.advice_list || result?.advice_analysis?.advice_list || [];
-            
+
+            console.log("  - advice_results.advice_listの長さ:", result?.advice_results?.advice_list?.length || 0);
+            console.log("  - advice_analysis.advice_listの長さ:", result?.advice_analysis?.advice_list?.length || 0);
+            console.log("  - 統合されたadviceListの長さ:", adviceList.length);
+
             if (adviceList.length > 0) {
               return (
                 <Card className="shadow-xl mt-6">
@@ -697,91 +653,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             }
           })()}
 
-          {/* デバッグ情報セクション */}
-          {debugInfo && (
-            <Card className="shadow-xl mt-6">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  🔍 デバッグ情報
-                </CardTitle>
-                <CardDescription>
-                  最後のアップロードのデバッグ情報（{new Date(debugInfo.timestamp).toLocaleString()}）
-                </CardDescription>
-              </CardHeader>
-            <CardContent>
-              <div className="space-y-4 text-sm">
-                <div>
-                  <span className="font-medium">利用可能なキー:</span>
-                  <p className="text-muted-foreground bg-gray-100 p-2 rounded">
-                    {JSON.stringify(debugInfo.availableKeys, null, 2)}
-                  </p>
-                </div>
-                <div>
-                  <span className="font-medium">pose_analysis.pose_data 長さ:</span>
-                  <p className="text-muted-foreground">
-                    {debugInfo.pose_analysis_pose_data_length}
-                  </p>
-                </div>
-                                 <div>
-                   <span className="font-medium">pose_data.pose_data 長さ:</span>
-                   <p className="text-muted-foreground">
-                     {debugInfo.pose_data_pose_data_length}
-                   </p>
-                 </div>
-                 <div className="bg-yellow-50 p-3 rounded border-l-4 border-yellow-400">
-                   <span className="font-medium text-yellow-800">🔍 Zustand状態確認:</span>
-                   <div className="mt-2 text-sm text-yellow-700">
-                     <p>現在のZustandストア内のpose_data長さ: <strong>{poseData?.length || 0}</strong></p>
-                     <p>期待値: <strong>{debugInfo.pose_analysis_pose_data_length}</strong></p>
-                     {(poseData?.length || 0) === 0 && debugInfo.pose_analysis_pose_data_length > 0 && (
-                       <p className="text-red-600 font-medium mt-1">
-                         ⚠️ Zustandストアにpose_dataが保存されていません！
-                       </p>
-                     )}
-                     {(poseData?.length || 0) > 0 && (
-                       <p className="text-green-600 font-medium mt-1">
-                         ✅ Zustandストアにpose_dataが正常に保存されています
-                       </p>
-                     )}
-                     {zustandSaveLog && (
-                       <p className="mt-2 text-xs bg-gray-100 p-2 rounded">
-                         <strong>アップロード時のログ:</strong> {zustandSaveLog}
-                       </p>
-                     )}
-                   </div>
-                 </div>
-                 <div>
-                   <span className="font-medium">pose_analysis キー:</span>
-                   <p className="text-muted-foreground bg-gray-100 p-2 rounded text-xs">
-                     {JSON.stringify(debugInfo.pose_analysis_keys, null, 2)}
-                   </p>
-                 </div>
-                 <div>
-                   <span className="font-medium">pose_data キー:</span>
-                   <p className="text-muted-foreground bg-gray-100 p-2 rounded text-xs">
-                     {JSON.stringify(debugInfo.pose_data_keys, null, 2)}
-                   </p>
-                 </div>
-                 {debugInfo.pose_analysis_sample && (
-                   <details className="mt-4">
-                     <summary className="cursor-pointer font-medium">pose_analysis サンプル（最初の2フレーム）</summary>
-                     <pre className="text-xs bg-gray-100 p-3 rounded mt-2 overflow-auto max-h-96">
-                       {JSON.stringify(debugInfo.pose_analysis_sample, null, 2)}
-                     </pre>
-                   </details>
-                 )}
-                 {debugInfo.pose_data_sample && (
-                   <details className="mt-4">
-                     <summary className="cursor-pointer font-medium">pose_data サンプル（最初の2フレーム）</summary>
-                     <pre className="text-xs bg-gray-100 p-3 rounded mt-2 overflow-auto max-h-96">
-                       {JSON.stringify(debugInfo.pose_data_sample, null, 2)}
-                     </pre>
-                   </details>
-                 )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   )
