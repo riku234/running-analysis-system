@@ -161,6 +161,15 @@ async def analyze_running_form(request: FeatureAnalysisRequest):
         検出された課題と分析結果
     """
     try:
+        # ★★★ デバッグログ: 受け取った特徴量データを出力 ★★★
+        print("=" * 60)
+        print("🔍 [ANALYSIS SERVICE] 受け取った特徴量データ:")
+        print(f"   - ケイデンス: {request.cadence} steps/min")
+        print(f"   - 膝角度: {request.knee_angle_at_landing}°")
+        print(f"   - 接地時間: {request.ground_contact_time} ms")
+        print(f"   - ストライド長: {request.stride_length} m")
+        print("=" * 60)
+        
         # 各特徴量の分析
         issues = []
         
@@ -187,6 +196,16 @@ async def analyze_running_form(request: FeatureAnalysisRequest):
         status = "success"
         message = f"{len(issues)}個の課題が検出されました" if issues else "フォームに大きな問題は見つかりませんでした"
         
+        # ★★★ デバッグログ: 検出された課題リストを出力 ★★★
+        print("🎯 [ANALYSIS SERVICE] 検出された課題リスト:")
+        if issues:
+            for i, issue in enumerate(issues, 1):
+                print(f"   {i}. {issue}")
+        else:
+            print("   課題は検出されませんでした")
+        print(f"📊 総合スコア: {analysis_summary.get('overall_score', 'N/A')}")
+        print("=" * 60)
+        
         return {
             "status": status,
             "message": message,
@@ -195,6 +214,7 @@ async def analyze_running_form(request: FeatureAnalysisRequest):
         }
         
     except Exception as e:
+        print(f"❌ [ANALYSIS SERVICE] エラー発生: {str(e)}")
         raise HTTPException(status_code=500, detail=f"分析中にエラーが発生しました: {str(e)}")
 
 @app.get("/benchmarks")

@@ -231,6 +231,8 @@ export default function HomePage() {
         },
         feature_analysis: result.feature_analysis, // 特徴量データは軽量なので保存
         issue_analysis: result.issue_analysis, // 課題分析結果も軽量なので保存
+        advice_results: result.advice_results, // ★ アドバイス結果を追加
+        advice_analysis: result.advice_analysis, // ★ 後方互換性のため
         error: result.error
       }
       

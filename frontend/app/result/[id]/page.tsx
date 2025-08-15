@@ -78,6 +78,38 @@ interface AnalysisResult {
       analysis_method: string
     }
   }
+  advice_analysis?: {
+    status: string
+    message: string
+    video_id: string
+    advice_list: Array<{
+      issue: string
+      title: string
+      description: string
+      exercise: string
+    }>
+    summary: {
+      total_issues: number
+      total_advice: number
+      generation_timestamp: string
+    }
+  }
+  advice_results?: {
+    status: string
+    message: string
+    video_id: string
+    advice_list: Array<{
+      issue: string
+      title: string
+      description: string
+      exercise: string
+    }>
+    summary: {
+      total_issues: number
+      total_advice: number
+      generation_timestamp: string
+    }
+  }
   issue_analysis?: {
     status: string
     message: string
@@ -139,6 +171,21 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           console.log("📊 Zustandのpose_data長さ:", poseData?.length || 0)
           console.log("📊 完成したcompleteResult:", completeResult)
           console.log("📊 pose_analysis.pose_data長さ:", completeResult.pose_analysis.pose_data?.length || 0)
+          
+          // ★★★ アドバイスデータのデバッグ ★★★
+          console.log("============================================================")
+          console.log("💡 [FRONTEND] アドバイスデータの確認:")
+          console.log("   - advice_analysis存在:", !!completeResult.advice_analysis)
+          console.log("   - advice_results存在:", !!completeResult.advice_results)
+          if (completeResult.advice_analysis) {
+            console.log("   - advice_analysis内容:", completeResult.advice_analysis)
+            console.log("   - advice_listの長さ:", completeResult.advice_analysis.advice_list?.length || 0)
+          }
+          if (completeResult.advice_results) {
+            console.log("   - advice_results内容:", completeResult.advice_results)
+            console.log("   - advice_results.advice_listの長さ:", completeResult.advice_results.advice_list?.length || 0)
+          }
+          console.log("============================================================")
           
           setResult(completeResult)
           setLoading(false)
@@ -599,17 +646,68 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </CardContent>
         </Card>
 
-        {/* デバッグ情報セクション */}
-        {debugInfo && (
-          <Card className="shadow-xl mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                🔍 デバッグ情報
-              </CardTitle>
-              <CardDescription>
-                最後のアップロードのデバッグ情報（{new Date(debugInfo.timestamp).toLocaleString()}）
-              </CardDescription>
-            </CardHeader>
+                  {/* アドバイスセクション */}
+          {(() => {
+            // advice_resultsまたはadvice_analysisからアドバイスリストを取得
+            const adviceList = result?.advice_results?.advice_list || result?.advice_analysis?.advice_list || [];
+            
+            if (adviceList.length > 0) {
+              return (
+                <Card className="shadow-xl mt-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      💡 改善アドバイス
+                    </CardTitle>
+                    <CardDescription>
+                      検出された課題に基づく具体的な改善提案
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-6">
+                      {adviceList.map((advice: any, index: number) => (
+                        <div key={index} className="border-l-4 border-blue-500 pl-4">
+                          <h3 className="font-semibold text-lg mb-2">{advice.title}</h3>
+                          <p className="text-gray-700 mb-3">{advice.description}</p>
+                          <div className="bg-blue-50 p-3 rounded-md">
+                            <h4 className="font-medium text-blue-800 mb-1">推奨エクササイズ:</h4>
+                            <p className="text-blue-700">{advice.exercise}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            } else {
+              // アドバイスがない場合の表示
+              return (
+                <Card className="shadow-xl mt-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      ✨ 素晴らしい走りです！
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-gray-700">
+                      今回の分析では、特に改善を要する大きな課題は見つかりませんでした。現在の良いフォームを維持しましょう！
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            }
+          })()}
+
+          {/* デバッグ情報セクション */}
+          {debugInfo && (
+            <Card className="shadow-xl mt-6">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  🔍 デバッグ情報
+                </CardTitle>
+                <CardDescription>
+                  最後のアップロードのデバッグ情報（{new Date(debugInfo.timestamp).toLocaleString()}）
+                </CardDescription>
+              </CardHeader>
             <CardContent>
               <div className="space-y-4 text-sm">
                 <div>

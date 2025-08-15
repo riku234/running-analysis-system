@@ -160,8 +160,7 @@ async def upload_video(file: UploadFile = File(...)):
                 issue_data = analysis_response.json()
                 logger.info("課題分析完了")
                 
-                # Step 4: アドバイス生成（オプション）
-                advice_data = None
+                # Step 4: アドバイス生成（必須）
                 try:
                     logger.info("アドバイス生成サービスを呼び出します")
                     advice_request = {
@@ -180,7 +179,18 @@ async def upload_video(file: UploadFile = File(...)):
                     
                 except Exception as e:
                     logger.warning(f"アドバイス生成でエラーが発生しましたが、処理を続行します: {e}")
-                    # アドバイス生成失敗は致命的ではないので、処理を続行
+                    # アドバイス生成に失敗した場合は空の結果をセット
+                    advice_data = {
+                        "status": "error",
+                        "message": "アドバイス生成に失敗しました",
+                        "video_id": unique_id,
+                        "advice_list": [],
+                        "summary": {
+                            "total_issues": 0,
+                            "total_advice": 0,
+                            "generation_timestamp": ""
+                        }
+                    }
                 
                 # Step 5: 成功レスポンスの返却
                 response_data = {
@@ -189,12 +199,40 @@ async def upload_video(file: UploadFile = File(...)):
                     "upload_info": upload_data,
                     "pose_analysis": pose_data,
                     "feature_analysis": feature_data,
-                    "issue_analysis": issue_data
+                    "issue_analysis": issue_data,
+                    "advice_results": advice_data  # 必ずadvice_resultsキーを含める
                 }
                 
-                if advice_data:
-                    response_data["advice_analysis"] = advice_data
+                if advice_data and advice_data.get("status") == "success":
+                    response_data["advice_analysis"] = advice_data  # 後方互換性のため
                     response_data["message"] += "、アドバイス生成も完了しました"
+                else:
+                    response_data["message"] += "、アドバイス生成でエラーが発生しました"
+                
+                # ★★★ デバッグログ: フロントエンドに返却する最終レスポンスを出力 ★★★
+                print("=" * 80)
+                print("📤 [VIDEO PROCESSING SERVICE] フロントエンドに返却する最終レスポンス:")
+                print(f"   - ステータス: {response_data.get('status')}")
+                print(f"   - メッセージ: {response_data.get('message')}")
+                print(f"   - アップロード情報: {'✅' if response_data.get('upload_info') else '❌'}")
+                print(f"   - 骨格解析データ: {'✅' if response_data.get('pose_analysis') else '❌'}")
+                print(f"   - 特徴量データ: {'✅' if response_data.get('feature_analysis') else '❌'}")
+                print(f"   - 課題分析データ: {'✅' if response_data.get('issue_analysis') else '❌'}")
+                print(f"   - アドバイスデータ: {'✅' if response_data.get('advice_analysis') else '❌'}")
+                
+                if response_data.get('issue_analysis'):
+                    issues = response_data['issue_analysis'].get('issues', [])
+                    print(f"   - 検出された課題数: {len(issues)}")
+                    for i, issue in enumerate(issues[:3], 1):  # 最初の3つだけ表示
+                        print(f"     {i}. {issue[:50]}...")
+                
+                if response_data.get('advice_analysis'):
+                    advice_list = response_data['advice_analysis'].get('advice_list', [])
+                    print(f"   - 生成されたアドバイス数: {len(advice_list)}")
+                    for i, advice in enumerate(advice_list[:3], 1):  # 最初の3つだけ表示
+                        print(f"     {i}. {advice.get('title', 'N/A')}")
+                
+                print("=" * 80)
                 
                 return response_data
                 

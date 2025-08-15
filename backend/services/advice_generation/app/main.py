@@ -68,6 +68,18 @@ async def generate_advice(request: AdviceRequest):
         具体的な改善アドバイス
     """
     try:
+        # ★★★ デバッグログ: 受け取った課題リストを出力 ★★★
+        print("=" * 60)
+        print("🔍 [ADVICE GENERATION SERVICE] 受け取った課題リスト:")
+        print(f"   - 動画ID: {request.video_id}")
+        print(f"   - 課題数: {len(request.issues)}")
+        if request.issues:
+            for i, issue in enumerate(request.issues, 1):
+                print(f"   {i}. {issue}")
+        else:
+            print("   課題は受け取っていません")
+        print("=" * 60)
+        
         advice_list = []
         
         # 各課題に対してアドバイスデータベースから対応するアドバイスを取得
@@ -91,6 +103,17 @@ async def generate_advice(request: AdviceRequest):
                 "exercise": "練習ドリル: 週に1回、自分のランニング動画を撮影してフォームをチェックしてみましょう。"
             }]
         
+        # ★★★ デバッグログ: 生成されたアドバイスリストを出力 ★★★
+        print("💡 [ADVICE GENERATION SERVICE] 生成されたアドバイスリスト:")
+        if advice_list:
+            for i, advice in enumerate(advice_list, 1):
+                print(f"   {i}. {advice['title']}")
+                print(f"      課題: {advice['issue']}")
+                print(f"      説明: {advice['description'][:50]}...")
+        else:
+            print("   アドバイスが生成されませんでした")
+        print("=" * 60)
+        
         return AdviceResponse(
             status="success",
             message=f"{len(advice_list)}つのアドバイスを生成しました",
@@ -98,6 +121,7 @@ async def generate_advice(request: AdviceRequest):
         )
         
     except Exception as e:
+        print(f"❌ [ADVICE GENERATION SERVICE] エラー発生: {str(e)}")
         raise HTTPException(status_code=500, detail=f"アドバイス生成中にエラーが発生しました: {str(e)}")
 
 @app.get("/exercises/categories")
