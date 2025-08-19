@@ -219,41 +219,43 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
         />
       </div>
 
-      {/* 解析情報パネル */}
-      <div className="mt-4 bg-gray-50 rounded-lg p-4">
-        <h3 className="text-lg font-semibold mb-3">骨格解析結果</h3>
-        
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="bg-white rounded p-3">
-            <h4 className="font-medium text-gray-700 mb-2">動画情報</h4>
-            <div className="text-sm space-y-1">
-              <div>解像度: {poseData.video_info.width} × {poseData.video_info.height}</div>
-              <div>フレームレート: {poseData.video_info.fps.toFixed(1)} FPS</div>
-              <div>総フレーム数: {poseData.video_info.total_frames}</div>
-              <div>動画時間: {poseData.video_info.duration_seconds.toFixed(1)}秒</div>
+      {/* 解析情報パネル - 開発環境でのみ表示 */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-4 bg-gray-50 rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-3">骨格解析結果（開発環境のみ）</h3>
+          
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="bg-white rounded p-3">
+              <h4 className="font-medium text-gray-700 mb-2">動画情報</h4>
+              <div className="text-sm space-y-1">
+                <div>解像度: {poseData.video_info.width} × {poseData.video_info.height}</div>
+                <div>フレームレート: {poseData.video_info.fps.toFixed(1)} FPS</div>
+                <div>総フレーム数: {poseData.video_info.total_frames}</div>
+                <div>動画時間: {poseData.video_info.duration_seconds.toFixed(1)}秒</div>
+              </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded p-3">
-            <h4 className="font-medium text-gray-700 mb-2">検出統計</h4>
-            <div className="text-sm space-y-1">
-              <div>検出フレーム: {poseData.summary.detected_pose_frames}</div>
-              <div>検出率: {(poseData.summary.detection_rate * 100).toFixed(1)}%</div>
-              <div>平均信頼度: {(poseData.summary.average_confidence * 100).toFixed(1)}%</div>
-              <div>ランドマーク数: {poseData.summary.mediapipe_landmarks_count}</div>
+            <div className="bg-white rounded p-3">
+              <h4 className="font-medium text-gray-700 mb-2">検出統計</h4>
+              <div className="text-sm space-y-1">
+                <div>検出フレーム: {poseData.summary.detected_pose_frames}</div>
+                <div>検出率: {(poseData.summary.detection_rate * 100).toFixed(1)}%</div>
+                <div>平均信頼度: {(poseData.summary.average_confidence * 100).toFixed(1)}%</div>
+                <div>ランドマーク数: {poseData.summary.mediapipe_landmarks_count}</div>
+              </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded p-3">
-            <h4 className="font-medium text-gray-700 mb-2">現在のフレーム</h4>
-            <div className="text-sm space-y-1">
-              <div>フレーム番号: {currentFrame}</div>
-              <div>時刻: {(currentFrame / (poseData.video_info.fps || 30)).toFixed(2)}秒</div>
-              <div>骨格検出: {getCurrentFrameData()?.landmarks_detected ? 'あり' : 'なし'}</div>
+            <div className="bg-white rounded p-3">
+              <h4 className="font-medium text-gray-700 mb-2">現在のフレーム</h4>
+              <div className="text-sm space-y-1">
+                <div>フレーム番号: {currentFrame}</div>
+                <div>時刻: {(currentFrame / (poseData.video_info.fps || 30)).toFixed(2)}秒</div>
+                <div>骨格検出: {getCurrentFrameData()?.landmarks_detected ? 'あり' : 'なし'}</div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 } 

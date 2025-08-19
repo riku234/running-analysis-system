@@ -87,6 +87,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8005:8005"
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
     networks:

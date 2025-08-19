@@ -49,8 +49,8 @@ interface AnalysisResult {
         visibility: number
       }>
       landmarks_detected: boolean
-      confidence_score: number
-    }>
+    confidence_score: number
+  }>
     summary: {
       total_processed_frames: number
       detected_pose_frames: number
@@ -66,8 +66,8 @@ interface AnalysisResult {
       knee_angle: number
       left_knee_angle: number
       right_knee_angle: number
-      cadence: number
-      stride_length: number
+    cadence: number
+    stride_length: number
       contact_time: number
     }
     analysis_details: {
@@ -257,10 +257,10 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 total_issues: 1,
                 overall_assessment: "1つの改善点が見つかりました"
               }
-            }
-          })
-          setLoading(false)
-        }, 1500)
+        }
+      })
+      setLoading(false)
+    }, 1500)
       } catch (error) {
         console.error('結果取得エラー:', error)
         setLoading(false)
@@ -311,7 +311,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   return (
     <div className="min-h-screen bg-gradient-running">
       <div className="container mx-auto p-6 space-y-6">
-        {/* ヘッダー */}
+      {/* ヘッダー */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-primary-gradient">解析結果</h1>
@@ -330,7 +330,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             {result.pose_analysis && (
               <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
                 検出率: {(result.pose_analysis.summary.detection_rate * 100).toFixed(1)}%
-              </div>
+        </div>
             )}
           </div>
         </div>
@@ -419,17 +419,17 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                       <div className="bg-green-50 p-3 rounded-lg border border-green-200">
                         <div className="text-2xl font-bold text-green-700">
                           {(result.pose_analysis.summary.detection_rate * 100).toFixed(1)}%
-                        </div>
+        </div>
                         <div className="text-sm text-green-600">骨格検出率</div>
-                      </div>
-                      
+      </div>
+
                       <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
                         <div className="text-2xl font-bold text-blue-700">
                           {(result.pose_analysis.summary.average_confidence * 100).toFixed(1)}%
                         </div>
                         <div className="text-sm text-blue-600">平均信頼度</div>
-                      </div>
-                      
+      </div>
+
                       <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
                         <div className="text-2xl font-bold text-purple-700">
                           {result.pose_analysis.summary.detected_pose_frames}
@@ -510,7 +510,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   <div className="text-center py-6 text-muted-foreground">
                     <Clock className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">計算中...</p>
-                  </div>
+          </div>
                 )}
               </CardContent>
             </Card>
@@ -534,12 +534,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                       L: {result.feature_analysis.features.left_knee_angle.toFixed(1)}° 
                       R: {result.feature_analysis.features.right_knee_angle.toFixed(1)}°
                     </div>
-                  </div>
+                </div>
                 ) : (
                   <div className="text-center py-6 text-muted-foreground">
                     <BarChart3 className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">計算中...</p>
-                  </div>
+              </div>
                 )}
               </CardContent>
             </Card>
@@ -557,28 +557,28 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   <div className="space-y-3">
                     <div className="text-sm text-muted-foreground">
                       {result.issue_analysis.analysis_details.total_issues}個の改善点が検出されました
-                    </div>
+                </div>
                     {result.issue_analysis.issues.length > 0 ? (
                       <div className="space-y-2">
                         {result.issue_analysis.issues.map((issue, index) => (
                           <div key={index} className="flex items-start space-x-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
                             <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
                             <span className="text-sm text-amber-800">{issue}</span>
-                          </div>
+              </div>
                         ))}
-                      </div>
+                </div>
                     ) : (
                       <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg border border-green-200">
                         <CheckCircle className="h-4 w-4 text-green-600" />
                         <span className="text-sm text-green-800">フォームに大きな問題は見つかりませんでした</span>
-                      </div>
+              </div>
                     )}
-                  </div>
+                </div>
                 ) : (
                   <div className="text-center py-6 text-muted-foreground">
                     <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">分析中...</p>
-                  </div>
+              </div>
                 )}
               </CardContent>
             </Card>
@@ -607,44 +607,46 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* フッター情報 */}
-        <Card className="shadow-lg">
-          <CardHeader>
-            <CardTitle>動画情報</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <span className="font-medium">ファイルサイズ:</span>
-                <p className="text-muted-foreground">
-                  {(result.upload_info.file_size / 1024 / 1024).toFixed(2)} MB
-                </p>
+        {/* 動画情報 - 開発環境でのみ詳細表示 */}
+        {process.env.NODE_ENV === 'development' && (
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle>動画情報（開発環境のみ）</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="font-medium">ファイルサイズ:</span>
+                  <p className="text-muted-foreground">
+                    {(result.upload_info.file_size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                </div>
+                <div>
+                  <span className="font-medium">アップロード日時:</span>
+                  <p className="text-muted-foreground">
+                    {new Date(result.upload_info.upload_timestamp).toLocaleString('ja-JP')}
+                  </p>
+                </div>
+                {result.pose_analysis && (
+                  <>
+                    <div>
+                      <span className="font-medium">動画時間:</span>
+                      <p className="text-muted-foreground">
+                        {result.pose_analysis.video_info.duration_seconds.toFixed(1)}秒
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium">解像度:</span>
+                      <p className="text-muted-foreground">
+                        {result.pose_analysis.video_info.width}×{result.pose_analysis.video_info.height}
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
-              <div>
-                <span className="font-medium">アップロード日時:</span>
-                <p className="text-muted-foreground">
-                  {new Date(result.upload_info.upload_timestamp).toLocaleString('ja-JP')}
-                </p>
-              </div>
-              {result.pose_analysis && (
-                <>
-                  <div>
-                    <span className="font-medium">動画時間:</span>
-                    <p className="text-muted-foreground">
-                      {result.pose_analysis.video_info.duration_seconds.toFixed(1)}秒
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium">解像度:</span>
-                    <p className="text-muted-foreground">
-                      {result.pose_analysis.video_info.width}×{result.pose_analysis.video_info.height}
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
                   {/* アドバイスセクション */}
           {(() => {
@@ -671,10 +673,10 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                           <div className="bg-blue-50 p-3 rounded-md">
                             <h4 className="font-medium text-blue-800 mb-1">推奨エクササイズ:</h4>
                             <p className="text-blue-700">{advice.exercise}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+              </div>
+            </div>
+          ))}
+        </div>
                   </CardContent>
                 </Card>
               );
@@ -697,12 +699,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             }
           })()}
 
-          {/* デバッグ情報セクション */}
-          {debugInfo && (
+          {/* デバッグ情報セクション - 本番環境では非表示 */}
+          {process.env.NODE_ENV === 'development' && debugInfo && (
             <Card className="shadow-xl mt-6">
               <CardHeader>
                 <CardTitle className="flex items-center">
-                  🔍 デバッグ情報
+                  🔍 デバッグ情報（開発環境のみ）
                 </CardTitle>
                 <CardDescription>
                   最後のアップロードのデバッグ情報（{new Date(debugInfo.timestamp).toLocaleString()}）
@@ -721,13 +723,13 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   <p className="text-muted-foreground">
                     {debugInfo.pose_analysis_pose_data_length}
                   </p>
-                </div>
+          </div>
                                  <div>
                    <span className="font-medium">pose_data.pose_data 長さ:</span>
                    <p className="text-muted-foreground">
                      {debugInfo.pose_data_pose_data_length}
                    </p>
-                 </div>
+        </div>
                  <div className="bg-yellow-50 p-3 rounded border-l-4 border-yellow-400">
                    <span className="font-medium text-yellow-800">🔍 Zustand状態確認:</span>
                    <div className="mt-2 text-sm text-yellow-700">
@@ -748,8 +750,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                          <strong>アップロード時のログ:</strong> {zustandSaveLog}
                        </p>
                      )}
-                   </div>
-                 </div>
+          </div>
+        </div>
                  <div>
                    <span className="font-medium">pose_analysis キー:</span>
                    <p className="text-muted-foreground bg-gray-100 p-2 rounded text-xs">
