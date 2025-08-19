@@ -5,12 +5,11 @@ import uvicorn
 from typing import List, Dict, Any, Optional
 import math
 import numpy as np
-import random
 
 app = FastAPI(
     title="Feature Extraction Service",
-    description="骨格データから関節角度、ストライド長、ケイデンスなどの生体力学的特徴量を計算するサービス",
-    version="1.0.0"
+    description="骨格データから5つの主要な関節角度を計算するサービス",
+    version="2.0.0"
 )
 
 # CORS設定
@@ -43,11 +42,17 @@ class PoseAnalysisRequest(BaseModel):
 class FeatureExtractionResponse(BaseModel):
     status: str
     message: str
-    features: Dict[str, float]
+    features: Dict[str, Any]
     analysis_details: Dict[str, Any]
 
-# MediaPipeランドマークのインデックス定義
+# MediaPipeランドマークのインデックス定義（完全版）
 LANDMARK_INDICES = {
+    'left_shoulder': 11,
+    'right_shoulder': 12,
+    'left_elbow': 13,
+    'right_elbow': 14,
+    'left_wrist': 15,
+    'right_wrist': 16,
     'left_hip': 23,
     'right_hip': 24,
     'left_knee': 25,
@@ -58,139 +63,189 @@ LANDMARK_INDICES = {
     'right_foot_index': 32
 }
 
-def calculate_angle(point1: KeyPoint, point2: KeyPoint, point3: KeyPoint) -> float:
+def calculate_angle(p1: KeyPoint, p2: KeyPoint, p3: KeyPoint) -> Optional[float]:
     """
-    3つの点から角度を計算する（point2が頂点）
+    3つのキーポイント（p1, p2, p3）を受け取り、p2を頂点とする角度を計算する
+    
+    Args:
+        p1: 第1のキーポイント
+        p2: 頂点となるキーポイント
+        p3: 第3のキーポイント
+    
+    Returns:
+        角度（度数法）または None（無効な入力の場合）
     """
-    # ベクトルを計算
-    vector1 = np.array([point1.x - point2.x, point1.y - point2.y])
-    vector2 = np.array([point3.x - point2.x, point3.y - point2.y])
-    
-    # ベクトルの長さ
-    length1 = np.linalg.norm(vector1)
-    length2 = np.linalg.norm(vector2)
-    
-    if length1 == 0 or length2 == 0:
-        return 0.0
-    
-    # 内積から角度を計算
-    cos_angle = np.dot(vector1, vector2) / (length1 * length2)
-    # 数値誤差対策
-    cos_angle = np.clip(cos_angle, -1.0, 1.0)
-    
-    # ラジアンから度に変換
-    angle_rad = np.arccos(cos_angle)
-    angle_deg = np.degrees(angle_rad)
-    
-    return angle_deg
+    try:
+        # 入力の妥当性をチェック
+        if any(kp.visibility < 0.5 for kp in [p1, p2, p3]):
+            return None
+        
+        # ベクトル p2->p1 と p2->p3 を作成
+        vector1 = np.array([p1.x - p2.x, p1.y - p2.y])
+        vector2 = np.array([p3.x - p2.x, p3.y - p2.y])
+        
+        # ベクトルの長さを計算
+        length1 = np.linalg.norm(vector1)
+        length2 = np.linalg.norm(vector2)
+        
+        # ベクトルの長さが0の場合は無効
+        if length1 == 0 or length2 == 0:
+            return None
+        
+        # 内積を利用して角度を計算
+        cos_angle = np.dot(vector1, vector2) / (length1 * length2)
+        
+        # 数値誤差対策：cosの値を[-1, 1]にクリップ
+        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+        
+        # ラジアンから度数法に変換
+        angle_rad = np.arccos(cos_angle)
+        angle_deg = np.degrees(angle_rad)
+        
+        return angle_deg
+        
+    except Exception:
+        return None
 
-def detect_ground_contact(pose_frames: List[PoseFrame]) -> List[int]:
+def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
     """
-    足の接地タイミングを検出する（簡易版）
-    実際には足首のy座標の変化や速度を分析するが、ここではダミー実装
+    体幹角度を計算する
+    肩の中心点と腰の中心点をつなぐベクトルと垂直ベクトルとの角度
     """
-    ground_contacts = []
-    
-    if len(pose_frames) < 10:
-        return ground_contacts
-    
-    # 簡易的に定期的な接地を仮定
-    step_interval = len(pose_frames) // 6  # 6回の接地を仮定
-    
-    for i in range(0, len(pose_frames), step_interval):
-        if i < len(pose_frames):
-            ground_contacts.append(i)
-    
-    return ground_contacts
+    try:
+        left_shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
+        right_shoulder = keypoints[LANDMARK_INDICES['right_shoulder']]
+        left_hip = keypoints[LANDMARK_INDICES['left_hip']]
+        right_hip = keypoints[LANDMARK_INDICES['right_hip']]
+        
+        # すべてのキーポイントが有効か確認
+        if any(kp.visibility < 0.5 for kp in [left_shoulder, right_shoulder, left_hip, right_hip]):
+            return None
+        
+        # 肩の中心点と腰の中心点を計算
+        shoulder_center_x = (left_shoulder.x + right_shoulder.x) / 2
+        shoulder_center_y = (left_shoulder.y + right_shoulder.y) / 2
+        hip_center_x = (left_hip.x + right_hip.x) / 2
+        hip_center_y = (left_hip.y + right_hip.y) / 2
+        
+        # 体幹ベクトル（腰から肩へ）
+        trunk_vector = np.array([shoulder_center_x - hip_center_x, shoulder_center_y - hip_center_y])
+        
+        # 垂直ベクトル（上向き）
+        vertical_vector = np.array([0, -1])
+        
+        # ベクトルの長さを計算
+        trunk_length = np.linalg.norm(trunk_vector)
+        if trunk_length == 0:
+            return None
+        
+        # 角度を計算
+        cos_angle = np.dot(trunk_vector, vertical_vector) / trunk_length
+        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+        
+        angle_rad = np.arccos(cos_angle)
+        angle_deg = np.degrees(angle_rad)
+        
+        return angle_deg
+        
+    except Exception:
+        return None
 
-def calculate_cadence(pose_frames: List[PoseFrame], fps: float) -> float:
+def extract_joint_angles_from_frame(keypoints: List[KeyPoint]) -> Dict[str, Optional[float]]:
     """
-    ケイデンス（1分間の歩数）を計算する
+    1フレームから全ての関節角度を抽出する
     """
-    if len(pose_frames) == 0 or fps <= 0:
-        return 0.0
-    
-    # 接地タイミングを検出
-    ground_contacts = detect_ground_contact(pose_frames)
-    
-    if len(ground_contacts) < 2:
-        return 0.0
-    
-    # 動画の総時間（秒）
-    total_time_seconds = len(pose_frames) / fps
-    
-    # 1分間あたりの歩数を計算
-    steps_per_minute = (len(ground_contacts) / total_time_seconds) * 60
-    
-    return round(steps_per_minute, 1)
-
-def calculate_knee_angle(pose_frames: List[PoseFrame]) -> Dict[str, float]:
-    """
-    膝関節の角度を計算する（左右それぞれ）
-    """
-    angles = {'left_knee': 0.0, 'right_knee': 0.0}
-    
-    valid_frames = [frame for frame in pose_frames if frame.landmarks_detected and len(frame.keypoints) >= 33]
-    
-    if not valid_frames:
-        return angles
-    
-    # 中央付近のフレームを使用（姿勢が安定している可能性が高い）
-    mid_frame = valid_frames[len(valid_frames) // 2]
-    keypoints = mid_frame.keypoints
+    angles = {}
     
     try:
-        # 左膝の角度（腰-膝-足首）
+        # ① 体幹角度
+        angles['trunk_angle'] = calculate_trunk_angle(keypoints)
+        
+        # 肩の中心点を計算（股関節角度用）
+        left_shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
+        right_shoulder = keypoints[LANDMARK_INDICES['right_shoulder']]
+        if left_shoulder.visibility > 0.5 and right_shoulder.visibility > 0.5:
+            shoulder_center = KeyPoint(
+                x=(left_shoulder.x + right_shoulder.x) / 2,
+                y=(left_shoulder.y + right_shoulder.y) / 2,
+                z=(left_shoulder.z + right_shoulder.z) / 2,
+                visibility=min(left_shoulder.visibility, right_shoulder.visibility)
+            )
+        else:
+            shoulder_center = None
+        
+        # ② 股関節角度（左右）
+        if shoulder_center:
+            left_hip = keypoints[LANDMARK_INDICES['left_hip']]
+            left_knee = keypoints[LANDMARK_INDICES['left_knee']]
+            angles['left_hip_angle'] = calculate_angle(shoulder_center, left_hip, left_knee)
+            
+            right_hip = keypoints[LANDMARK_INDICES['right_hip']]
+            right_knee = keypoints[LANDMARK_INDICES['right_knee']]
+            angles['right_hip_angle'] = calculate_angle(shoulder_center, right_hip, right_knee)
+        else:
+            angles['left_hip_angle'] = None
+            angles['right_hip_angle'] = None
+        
+        # ③ 膝関節角度（左右）
         left_hip = keypoints[LANDMARK_INDICES['left_hip']]
         left_knee = keypoints[LANDMARK_INDICES['left_knee']]
         left_ankle = keypoints[LANDMARK_INDICES['left_ankle']]
+        angles['left_knee_angle'] = calculate_angle(left_hip, left_knee, left_ankle)
         
-        if all(kp.visibility > 0.5 for kp in [left_hip, left_knee, left_ankle]):
-            angles['left_knee'] = calculate_angle(left_hip, left_knee, left_ankle)
-        
-        # 右膝の角度（腰-膝-足首）
         right_hip = keypoints[LANDMARK_INDICES['right_hip']]
         right_knee = keypoints[LANDMARK_INDICES['right_knee']]
         right_ankle = keypoints[LANDMARK_INDICES['right_ankle']]
+        angles['right_knee_angle'] = calculate_angle(right_hip, right_knee, right_ankle)
         
-        if all(kp.visibility > 0.5 for kp in [right_hip, right_knee, right_ankle]):
-            angles['right_knee'] = calculate_angle(right_hip, right_knee, right_ankle)
-            
+        # ④ 足関節角度（左右）
+        left_knee = keypoints[LANDMARK_INDICES['left_knee']]
+        left_ankle = keypoints[LANDMARK_INDICES['left_ankle']]
+        left_foot_index = keypoints[LANDMARK_INDICES['left_foot_index']]
+        angles['left_ankle_angle'] = calculate_angle(left_knee, left_ankle, left_foot_index)
+        
+        right_knee = keypoints[LANDMARK_INDICES['right_knee']]
+        right_ankle = keypoints[LANDMARK_INDICES['right_ankle']]
+        right_foot_index = keypoints[LANDMARK_INDICES['right_foot_index']]
+        angles['right_ankle_angle'] = calculate_angle(right_knee, right_ankle, right_foot_index)
+        
+        # ⑤ 肘関節角度（左右）
+        left_shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
+        left_elbow = keypoints[LANDMARK_INDICES['left_elbow']]
+        left_wrist = keypoints[LANDMARK_INDICES['left_wrist']]
+        angles['left_elbow_angle'] = calculate_angle(left_shoulder, left_elbow, left_wrist)
+        
+        right_shoulder = keypoints[LANDMARK_INDICES['right_shoulder']]
+        right_elbow = keypoints[LANDMARK_INDICES['right_elbow']]
+        right_wrist = keypoints[LANDMARK_INDICES['right_wrist']]
+        angles['right_elbow_angle'] = calculate_angle(right_shoulder, right_elbow, right_wrist)
+        
     except (IndexError, KeyError):
-        pass
+        # キーポイントが不足している場合はすべてNoneを返す
+        for key in ['trunk_angle', 'left_hip_angle', 'right_hip_angle', 
+                   'left_knee_angle', 'right_knee_angle', 'left_ankle_angle', 
+                   'right_ankle_angle', 'left_elbow_angle', 'right_elbow_angle']:
+            angles[key] = None
     
     return angles
 
-def calculate_stride_length(pose_frames: List[PoseFrame]) -> float:
+def calculate_angle_statistics(angle_values: List[float]) -> Dict[str, float]:
     """
-    ストライド長を計算する（簡易版）
-    実際には足の軌跡から計算するが、ここではダミー実装
+    角度の統計値（平均、最小、最大）を計算する
     """
-    if len(pose_frames) == 0:
-        return 0.0
+    if not angle_values:
+        return {"avg": 0.0, "min": 0.0, "max": 0.0}
     
-    # ダミー値：一般的なランニングのストライド長範囲
-    # 実際の実装では足の座標の変化から計算
-    base_stride = random.uniform(1.0, 1.5)  # 1.0-1.5メートル
-    
-    return round(base_stride, 2)
-
-def calculate_contact_time(pose_frames: List[PoseFrame], fps: float) -> float:
-    """
-    接地時間を計算する（簡易版）
-    """
-    if len(pose_frames) == 0 or fps <= 0:
-        return 0.0
-    
-    # ダミー値：一般的なランニングの接地時間
-    contact_time_ms = random.uniform(200, 300)  # 200-300ミリ秒
-    
-    return round(contact_time_ms, 1)
+    return {
+        "avg": round(np.mean(angle_values), 1),
+        "min": round(np.min(angle_values), 1),
+        "max": round(np.max(angle_values), 1)
+    }
 
 @app.post("/extract", response_model=FeatureExtractionResponse)
 async def extract_features(request: PoseAnalysisRequest):
     """
-    骨格データから特徴量を抽出する
+    骨格データから5つの主要な関節角度を抽出する
     """
     try:
         pose_data = request.pose_data
@@ -199,13 +254,17 @@ async def extract_features(request: PoseAnalysisRequest):
         
         if not pose_data:
             # 空のデータの場合はデフォルト値を返す
+            default_stats = {"avg": 0.0, "min": 0.0, "max": 0.0}
             features = {
-                "knee_angle": 165.0,
-                "left_knee_angle": 165.0,
-                "right_knee_angle": 165.0,
-                "cadence": 180.0,
-                "stride_length": 1.25,
-                "contact_time": 250.0
+                "trunk_angle": default_stats.copy(),
+                "left_hip_angle": default_stats.copy(),
+                "right_hip_angle": default_stats.copy(),
+                "left_knee_angle": default_stats.copy(),
+                "right_knee_angle": default_stats.copy(),
+                "left_ankle_angle": default_stats.copy(),
+                "right_ankle_angle": default_stats.copy(),
+                "left_elbow_angle": default_stats.copy(),
+                "right_elbow_angle": default_stats.copy()
             }
             
             analysis_details = {
@@ -223,39 +282,54 @@ async def extract_features(request: PoseAnalysisRequest):
                 analysis_details=analysis_details
             )
         
-        # 各特徴量を計算
-        knee_angles = calculate_knee_angle(pose_data)
-        cadence = calculate_cadence(pose_data, fps)
-        stride_length = calculate_stride_length(pose_data)
-        contact_time = calculate_contact_time(pose_data, fps)
-        
-        # 平均膝角度を計算
-        avg_knee_angle = np.mean([angle for angle in knee_angles.values() if angle > 0])
-        if np.isnan(avg_knee_angle):
-            avg_knee_angle = 165.0  # デフォルト値
-        
-        # 特徴量をまとめる
-        features = {
-            "knee_angle": round(avg_knee_angle, 1),
-            "left_knee_angle": round(knee_angles['left_knee'], 1),
-            "right_knee_angle": round(knee_angles['right_knee'], 1),
-            "cadence": cadence,
-            "stride_length": stride_length,
-            "contact_time": contact_time
+        # 各角度の時系列データを格納する辞書
+        angle_timeseries = {
+            'trunk_angle': [],
+            'left_hip_angle': [],
+            'right_hip_angle': [],
+            'left_knee_angle': [],
+            'right_knee_angle': [],
+            'left_ankle_angle': [],
+            'right_ankle_angle': [],
+            'left_elbow_angle': [],
+            'right_elbow_angle': []
         }
+        
+        valid_frame_count = 0
+        
+        # 全フレームをループ処理
+        for frame in pose_data:
+            if not frame.landmarks_detected or len(frame.keypoints) < 33:
+                continue
+            
+            # フレームから角度を抽出
+            frame_angles = extract_joint_angles_from_frame(frame.keypoints)
+            
+            # 有効な角度を時系列データに追加
+            for angle_name, angle_value in frame_angles.items():
+                if angle_value is not None and not np.isnan(angle_value):
+                    angle_timeseries[angle_name].append(angle_value)
+            
+            valid_frame_count += 1
+        
+        # 各角度の統計値を計算
+        features = {}
+        for angle_name, values in angle_timeseries.items():
+            features[angle_name] = calculate_angle_statistics(values)
         
         # 分析詳細
         analysis_details = {
             "total_frames_analyzed": len(pose_data),
-            "valid_frames": len([f for f in pose_data if f.landmarks_detected]),
-            "detection_rate": len([f for f in pose_data if f.landmarks_detected]) / len(pose_data) if pose_data else 0,
+            "valid_frames": valid_frame_count,
+            "detection_rate": valid_frame_count / len(pose_data) if pose_data else 0,
             "video_duration": len(pose_data) / fps if fps > 0 else 0,
-            "analysis_method": "mediapipe_pose_landmarks"
+            "analysis_method": "mediapipe_pose_landmarks_v2",
+            "angle_data_points": {name: len(values) for name, values in angle_timeseries.items()}
         }
         
         return FeatureExtractionResponse(
             status="success",
-            message=f"{len(pose_data)}フレームから特徴量を抽出しました",
+            message=f"{len(pose_data)}フレームから5つの主要関節角度を抽出しました",
             features=features,
             analysis_details=analysis_details
         )
@@ -268,7 +342,7 @@ async def health_check():
     """
     ヘルスチェックエンドポイント
     """
-    return {"status": "healthy", "service": "feature_extraction"}
+    return {"status": "healthy", "service": "feature_extraction", "version": "2.0.0"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8003) 
