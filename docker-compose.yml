@@ -48,7 +48,7 @@ services:
       context: ./backend/services/pose_estimation
       dockerfile: Dockerfile
     ports:
-      - "8002:8003"
+      - "8002:8002"
     environment:
       - PYTHONPATH=/app
     volumes:
