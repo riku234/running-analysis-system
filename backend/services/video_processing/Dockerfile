@@ -4,18 +4,13 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 # 作業ディレクトリを設定
 WORKDIR /app
 
-# dnfを使ってPython3とFFmpeg、OpenCV依存関係をインストール
+# dnfを使ってPython3と最小限の依存関係をインストール
 RUN dnf update -y && \
     dnf install -y \
         python3 \
         python3-pip \
         git \
-        ffmpeg \
-        mesa-libGL-devel \
-        libX11-devel \
-        libXext-devel \
-        libXrender-devel \
-        glibc-devel \
+        which \
     && dnf clean all
 
 # 依存関係をコピーしてインストール

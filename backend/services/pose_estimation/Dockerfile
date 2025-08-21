@@ -4,25 +4,13 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 # 作業ディレクトリを設定
 WORKDIR /app
 
-# dnfを使ってPython3とMediaPipe/OpenCV依存関係をインストール
+# dnfを使ってPython3と最小限の依存関係をインストール
 RUN dnf update -y && \
     dnf install -y \
         python3 \
         python3-pip \
         git \
-        glibc-devel \
-        libX11-devel \
-        libXext-devel \
-        libXrender-devel \
-        mesa-libGL-devel \
-        libxcb-devel \
-        libXrandr-devel \
-        libXcursor-devel \
-        libXcomposite-devel \
-        alsa-lib-devel \
-        libXi-devel \
-        libXtst-devel \
-        gtk3-devel \
+        which \
     && dnf clean all
 
 # 依存関係をコピーしてインストール
