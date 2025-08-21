@@ -11,12 +11,11 @@ RUN dnf update -y && \
         python3-pip \
         git \
         ffmpeg \
-        mesa-libGL \
-        libXext \
-        libXrender \
-        libgomp \
-        glibc \
-        libSM \
+        mesa-libGL-devel \
+        libX11-devel \
+        libXext-devel \
+        libXrender-devel \
+        glibc-devel \
     && dnf clean all
 
 # 依存関係をコピーしてインストール

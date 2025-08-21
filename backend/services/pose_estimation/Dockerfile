@@ -10,20 +10,19 @@ RUN dnf update -y && \
         python3 \
         python3-pip \
         git \
-        glibc \
-        libSM \
-        libXext \
-        libXrender \
-        libgomp \
-        mesa-libGL \
-        libxcb \
-        libXrandr \
-        libXcursor \
-        libXcomposite \
-        alsa-lib \
-        libXi \
-        libXtst \
-        gtk3 \
+        glibc-devel \
+        libX11-devel \
+        libXext-devel \
+        libXrender-devel \
+        mesa-libGL-devel \
+        libxcb-devel \
+        libXrandr-devel \
+        libXcursor-devel \
+        libXcomposite-devel \
+        alsa-lib-devel \
+        libXi-devel \
+        libXtst-devel \
+        gtk3-devel \
     && dnf clean all
 
 # 依存関係をコピーしてインストール
