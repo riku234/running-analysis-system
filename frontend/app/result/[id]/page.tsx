@@ -63,12 +63,20 @@ interface AnalysisResult {
     status: string
     message: string
     features: {
-      knee_angle: number
-      left_knee_angle: number
-      right_knee_angle: number
-    cadence: number
-    stride_length: number
-      contact_time: number
+      trunk_angle?: { avg: number; min: number; max: number }
+      left_hip_angle?: { avg: number; min: number; max: number }
+      right_hip_angle?: { avg: number; min: number; max: number }
+      left_knee_angle?: { avg: number; min: number; max: number }
+      right_knee_angle?: { avg: number; min: number; max: number }
+      left_ankle_angle?: { avg: number; min: number; max: number }
+      right_ankle_angle?: { avg: number; min: number; max: number }
+      left_elbow_angle?: { avg: number; min: number; max: number }
+      right_elbow_angle?: { avg: number; min: number; max: number }
+      // 後方互換性のため旧フィールドも保持
+      knee_angle?: number
+      cadence?: number
+      stride_length?: number
+      contact_time?: number
     }
     analysis_details: {
       total_frames_analyzed: number
@@ -193,8 +201,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         }
         
         // localStorageにデータがない場合はダミーデータで動作確認
-        setTimeout(() => {
-          setResult({
+    setTimeout(() => {
+      setResult({
             status: "success",
             message: "動画アップロード、骨格解析、特徴量計算が完了しました",
             upload_info: {
@@ -229,9 +237,16 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               status: "success",
               message: "300フレームから特徴量を抽出しました",
               features: {
-                knee_angle: 165.7,
-                left_knee_angle: 164.2,
-                right_knee_angle: 167.1,
+                trunk_angle: { avg: 15.2, min: 12.1, max: 18.5 },
+                left_hip_angle: { avg: 140.8, min: 110.3, max: 165.2 },
+                right_hip_angle: { avg: 142.1, min: 112.5, max: 168.0 },
+                left_knee_angle: { avg: 155.6, min: 130.8, max: 178.1 },
+                right_knee_angle: { avg: 154.9, min: 128.9, max: 177.5 },
+                left_ankle_angle: { avg: 85.3, min: 70.1, max: 95.4 },
+                right_ankle_angle: { avg: 86.1, min: 72.3, max: 98.2 },
+                left_elbow_angle: { avg: 95.7, min: 75.4, max: 115.8 },
+                right_elbow_angle: { avg: 94.8, min: 74.9, max: 114.5 },
+                // 後方互換性のため
                 cadence: 182.0,
                 stride_length: 1.35,
                 contact_time: 245.5
@@ -515,27 +530,69 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            {/* 膝角度カード */}
+            {/* 関節角度カード */}
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Activity className="h-5 w-5 mr-2" />
-                  膝角度
+                  関節角度
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {result.feature_analysis ? (
-                  <div className="text-center py-4">
-                    <div className="text-3xl font-bold text-indigo-600">
-                      {result.feature_analysis.features.knee_angle.toFixed(1)}
-                    </div>
-                    <div className="text-sm text-indigo-500">degrees</div>
-                    <div className="text-xs text-muted-foreground mt-2">
-                      L: {result.feature_analysis.features.left_knee_angle.toFixed(1)}° 
-                      R: {result.feature_analysis.features.right_knee_angle.toFixed(1)}°
-                    </div>
+                {result.feature_analysis?.features && (
+                  <div className="space-y-4">
+                    {/* 膝角度 */}
+                    {result.feature_analysis.features.left_knee_angle && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-indigo-600">
+                            左膝: {result.feature_analysis.features.left_knee_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            平均 {result.feature_analysis.features.left_knee_angle.min.toFixed(1)}°-{result.feature_analysis.features.left_knee_angle.max.toFixed(1)}°
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-indigo-600">
+                            右膝: {result.feature_analysis.features.right_knee_angle?.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            平均 {result.feature_analysis.features.right_knee_angle?.min.toFixed(1)}°-{result.feature_analysis.features.right_knee_angle?.max.toFixed(1)}°
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 体幹角度 */}
+                    {result.feature_analysis.features.trunk_angle && (
+                      <div className="text-center border-t pt-2">
+                        <div className="text-lg font-bold text-green-600">
+                          体幹前傾: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}°
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          範囲 {result.feature_analysis.features.trunk_angle.min.toFixed(1)}°-{result.feature_analysis.features.trunk_angle.max.toFixed(1)}°
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 股関節角度 */}
+                    {result.feature_analysis.features.left_hip_angle && (
+                      <div className="grid grid-cols-2 gap-4 border-t pt-2">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-purple-600">
+                            左股関節: {result.feature_analysis.features.left_hip_angle.avg.toFixed(1)}°
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-purple-600">
+                            右股関節: {result.feature_analysis.features.right_hip_angle?.avg.toFixed(1)}°
+                          </div>
+                        </div>
+                      </div>
+                    )}
                 </div>
-                ) : (
+                )} 
+                {!result.feature_analysis && (
                   <div className="text-center py-6 text-muted-foreground">
                     <BarChart3 className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">計算中...</p>

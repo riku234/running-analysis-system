@@ -27,21 +27,21 @@ export default function HomePage() {
   }
 
   const handleFile = (file: File) => {
-    // 動画ファイルの検証
-    if (file.type.startsWith('video/')) {
-      setSelectedFile(file)
+      // 動画ファイルの検証
+      if (file.type.startsWith('video/')) {
+        setSelectedFile(file)
       toast({
         title: "ファイル選択完了",
         description: `${file.name} を選択しました`,
       })
-    } else {
+      } else {
       toast({
         title: "ファイル形式エラー",
         description: "動画ファイル（MP4, AVI, MOV など）を選択してください。",
         variant: "destructive",
       })
+      }
     }
-  }
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -117,7 +117,7 @@ export default function HomePage() {
         try {
           const contentType = response.headers.get('content-type')
           if (contentType && contentType.includes('application/json')) {
-            const errorData = await response.json()
+        const errorData = await response.json()
             errorMessage = errorData.detail || errorMessage
           } else {
             // JSONでない場合はテキストとして読み取る
@@ -136,7 +136,7 @@ export default function HomePage() {
 
       const result = await response.json()
       console.log('アップロード成功:', result)
-      
+
       // ★★★ デバッグ: レスポンス構造を確認 & localStorage保存 ★★★
       const debugInfo = {
         timestamp: new Date().toISOString(),
@@ -292,11 +292,11 @@ export default function HomePage() {
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold tracking-tight text-primary-gradient">
             ランニングフォーム自動解析
-          </h1>
+        </h1>
           <p className="text-xl text-muted-foreground max-w-lg mx-auto">
             動画ファイルをアップロードして、あなたの走り方を分析しましょう
-          </p>
-        </div>
+            </p>
+          </div>
 
         {/* メインカード */}
         <Card className="shadow-xl border-0">
@@ -334,8 +334,8 @@ export default function HomePage() {
                       </p>
                       <p className="text-sm text-muted-foreground">
                         クリックして別のファイルを選択
-                      </p>
-                    </div>
+            </p>
+          </div>
                   </>
                 ) : (
                   <>
@@ -346,23 +346,23 @@ export default function HomePage() {
                       </p>
                       <p className="text-sm text-muted-foreground">
                         またはクリックして選択
-                      </p>
-                    </div>
+            </p>
+          </div>
                   </>
                 )}
-              </div>
-              
-              <input
-                id="video-upload"
-                type="file"
-                accept="video/*"
-                onChange={handleFileSelect}
+      </div>
+
+            <input
+              id="video-upload"
+              type="file"
+              accept="video/*"
+              onChange={handleFileSelect}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
-            </div>
+        </div>
 
-            {/* 選択されたファイル情報 */}
-            {selectedFile && (
+        {/* 選択されたファイル情報 */}
+        {selectedFile && (
               <Card className="bg-green-50 border-green-200">
                 <CardContent className="p-4">
                   <div className="flex items-center space-x-3">
@@ -372,34 +372,34 @@ export default function HomePage() {
                         {selectedFile.name}
                       </p>
                       <p className="text-sm text-green-600">
-                        サイズ: {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
-                      </p>
-                    </div>
-                  </div>
+                  サイズ: {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                </p>
+              </div>
+            </div>
                 </CardContent>
               </Card>
-            )}
+        )}
 
-            {/* アップロード進捗 */}
-            {isUploading && (
+        {/* アップロード進捗 */}
+        {isUploading && (
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium">解析中...</span>
                   <span className="text-sm text-muted-foreground">{uploadProgress}%</span>
-                </div>
+            </div>
                 <div className="w-full bg-secondary rounded-full h-2">
-                  <div
+              <div
                     className="bg-primary h-2 rounded-full transition-all duration-500 ease-out"
-                    style={{ width: `${uploadProgress}%` }}
+                style={{ width: `${uploadProgress}%` }}
                   />
-                </div>
-              </div>
-            )}
+            </div>
+          </div>
+        )}
 
-            {/* アップロードボタン */}
+        {/* アップロードボタン */}
             <Button
-              onClick={handleUpload}
-              disabled={!selectedFile || isUploading}
+          onClick={handleUpload}
+          disabled={!selectedFile || isUploading}
               className="w-full h-12 text-base"
               size="lg"
             >
@@ -429,7 +429,7 @@ export default function HomePage() {
               <p>• ランナーが画面中央に映っている</p>
               <p>• 10秒以上の動画を推奨</p>
               <p>• 対応形式: MP4, AVI, MOV</p>
-            </div>
+      </div>
           </CardContent>
         </Card>
       </div>
