@@ -1,12 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 静的サイトエクスポート設定
-  output: 'export',
-  trailingSlash: true,
+  // 開発・本番両対応の設定
   images: {
     unoptimized: true
   },
   
+  // API プロキシ設定を復活（本番では外部URLに変更）
   async rewrites() {
     return [
       {
@@ -15,6 +14,7 @@ const nextConfig = {
       },
     ]
   },
+  
   // より長いタイムアウト設定
   experimental: {
     proxyTimeout: 300000, // 5分
