@@ -152,12 +152,14 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
     if (frameData && frameData.landmarks_detected) {
       drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height)
       
-      // 信頼度を表示
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(10, 10, 200, 30)
-      ctx.fillStyle = '#000000'
-      ctx.font = '14px Arial'
-      ctx.fillText(`信頼度: ${(frameData.confidence_score * 100).toFixed(1)}%`, 15, 30)
+      // 信頼度を表示（本番環境では非表示）
+      if (false) {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(10, 10, 200, 30)
+        ctx.fillStyle = '#000000'
+        ctx.font = '14px Arial'
+        ctx.fillText(`信頼度: ${(frameData.confidence_score * 100).toFixed(1)}%`, 15, 30)
+      }
     }
   }
   
@@ -220,7 +222,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
       </div>
 
       {/* 解析情報パネル - 開発環境でのみ表示 */}
-      {process.env.NODE_ENV === 'development' && (
+      {false && process.env.NODE_ENV === 'development' && (
         <div className="mt-4 bg-gray-50 rounded-lg p-4">
           <h3 className="text-lg font-semibold mb-3">骨格解析結果（開発環境のみ）</h3>
           

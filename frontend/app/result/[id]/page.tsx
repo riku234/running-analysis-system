@@ -342,7 +342,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             }`}>
               {result.status === 'success' ? '解析完了' : '部分的に完了'}
             </div>
-            {result.pose_analysis && (
+            {false && result.pose_analysis && (
               <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
                 検出率: {(result.pose_analysis.summary.detection_rate * 100).toFixed(1)}%
         </div>
@@ -428,7 +428,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {result.pose_analysis && (
+                {false && result.pose_analysis && (
                   <>
                     <div className="grid grid-cols-1 gap-3">
                       <div className="bg-green-50 p-3 rounded-lg border border-green-200">
@@ -466,7 +466,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {result.feature_analysis ? (
+                {false && result.feature_analysis ? (
                   <div className="text-center py-4">
                     <div className="text-3xl font-bold text-orange-600">
                       {result.feature_analysis.features.cadence}
@@ -482,6 +482,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
+            {false && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -505,7 +506,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 )}
               </CardContent>
             </Card>
+            )}
 
+            {false && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -529,6 +532,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 )}
               </CardContent>
             </Card>
+            )}
 
             {/* 関節角度カード */}
             <Card className="shadow-lg">
