@@ -226,11 +226,11 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               },
               pose_data: [], // 実際の実装では骨格データが入る
               summary: {
-                total_processed_frames: 300,
-                detected_pose_frames: 285,
-                detection_rate: 0.95,
-                average_confidence: 0.87,
-                mediapipe_landmarks_count: 33
+                total_processed_frames: 0,
+                detected_pose_frames: 0,
+                detection_rate: 0,
+                average_confidence: 0,
+                mediapipe_landmarks_count: 0
               }
             },
             feature_analysis: {
@@ -246,16 +246,16 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 right_ankle_angle: { avg: 86.1, min: 72.3, max: 98.2 },
                 left_elbow_angle: { avg: 95.7, min: 75.4, max: 115.8 },
                 right_elbow_angle: { avg: 94.8, min: 74.9, max: 114.5 },
-                // 後方互換性のため
-                cadence: 182.0,
-                stride_length: 1.35,
-                contact_time: 245.5
+                // 後方互換性のため - デバッグ情報は非表示
+                // cadence: 182.0,
+                // stride_length: 1.35,
+                // contact_time: 245.5
               },
               analysis_details: {
-                total_frames_analyzed: 300,
-                valid_frames: 285,
-                detection_rate: 0.95,
-                video_duration: 10.0,
+                total_frames_analyzed: 0,
+                valid_frames: 0,
+                detection_rate: 0,
+                video_duration: 0,
                 analysis_method: "mediapipe_pose_landmarks"
               }
             },
@@ -265,9 +265,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               issues: ["地面に足がついている時間が長く、エネルギー効率が低下している可能性があります。"],
               analysis_details: {
                 analyzed_metrics: {
-                  cadence: { value: 182.0, unit: "steps/min", threshold: 170, status: "良好" },
+                  cadence: undefined as any, // デバッグ情報削除
                   knee_angle_at_landing: { value: 165.7, unit: "degrees", threshold: 170, status: "良好" },
-                  ground_contact_time: { value: 245.5, unit: "ms", threshold: 240, status: "要改善" }
+                  ground_contact_time: undefined as any // デバッグ情報削除
                 },
                 total_issues: 1,
                 overall_assessment: "1つの改善点が見つかりました"
