@@ -545,33 +545,11 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               <CardContent>
                 {result.feature_analysis?.features && (
                   <div className="space-y-4">
-                    {/* 膝角度 */}
-                    {result.feature_analysis.features.left_knee_angle && (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="text-center">
-                          <div className="text-lg font-bold text-indigo-600">
-                            左膝: {result.feature_analysis.features.left_knee_angle.avg.toFixed(1)}°
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            平均 {result.feature_analysis.features.left_knee_angle.min.toFixed(1)}°-{result.feature_analysis.features.left_knee_angle.max.toFixed(1)}°
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-lg font-bold text-indigo-600">
-                            右膝: {result.feature_analysis.features.right_knee_angle?.avg.toFixed(1)}°
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            平均 {result.feature_analysis.features.right_knee_angle?.min.toFixed(1)}°-{result.feature_analysis.features.right_knee_angle?.max.toFixed(1)}°
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    
                     {/* 体幹角度 */}
                     {result.feature_analysis.features.trunk_angle && (
-                      <div className="text-center border-t pt-2">
+                      <div className="text-center">
                         <div className="text-lg font-bold text-green-600">
-                          体幹前傾: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}°
+                          体幹角度: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}°
                         </div>
                         <div className="text-xs text-muted-foreground">
                           範囲 {result.feature_analysis.features.trunk_angle.min.toFixed(1)}°-{result.feature_analysis.features.trunk_angle.max.toFixed(1)}°
@@ -586,15 +564,87 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                           <div className="text-lg font-bold text-purple-600">
                             左股関節: {result.feature_analysis.features.left_hip_angle.avg.toFixed(1)}°
                           </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.left_hip_angle.min.toFixed(1)}°-{result.feature_analysis.features.left_hip_angle.max.toFixed(1)}°
+                          </div>
                         </div>
                         <div className="text-center">
                           <div className="text-lg font-bold text-purple-600">
                             右股関節: {result.feature_analysis.features.right_hip_angle?.avg.toFixed(1)}°
                           </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.right_hip_angle?.min.toFixed(1)}°-{result.feature_analysis.features.right_hip_angle?.max.toFixed(1)}°
+                          </div>
                         </div>
                       </div>
                     )}
-                </div>
+
+                    {/* 膝関節角度 */}
+                    {result.feature_analysis.features.left_knee_angle && (
+                      <div className="grid grid-cols-2 gap-4 border-t pt-2">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-indigo-600">
+                            左膝関節: {result.feature_analysis.features.left_knee_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.left_knee_angle.min.toFixed(1)}°-{result.feature_analysis.features.left_knee_angle.max.toFixed(1)}°
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-indigo-600">
+                            右膝関節: {result.feature_analysis.features.right_knee_angle?.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.right_knee_angle?.min.toFixed(1)}°-{result.feature_analysis.features.right_knee_angle?.max.toFixed(1)}°
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 足関節角度 */}
+                    {result.feature_analysis.features.left_ankle_angle && (
+                      <div className="grid grid-cols-2 gap-4 border-t pt-2">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-orange-600">
+                            左足関節: {result.feature_analysis.features.left_ankle_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.left_ankle_angle.min.toFixed(1)}°-{result.feature_analysis.features.left_ankle_angle.max.toFixed(1)}°
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-orange-600">
+                            右足関節: {result.feature_analysis.features.right_ankle_angle?.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.right_ankle_angle?.min.toFixed(1)}°-{result.feature_analysis.features.right_ankle_angle?.max.toFixed(1)}°
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 肘関節角度 */}
+                    {result.feature_analysis.features.left_elbow_angle && (
+                      <div className="grid grid-cols-2 gap-4 border-t pt-2">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-cyan-600">
+                            左肘関節: {result.feature_analysis.features.left_elbow_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.left_elbow_angle.min.toFixed(1)}°-{result.feature_analysis.features.left_elbow_angle.max.toFixed(1)}°
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-cyan-600">
+                            右肘関節: {result.feature_analysis.features.right_elbow_angle?.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.feature_analysis.features.right_elbow_angle?.min.toFixed(1)}°-{result.feature_analysis.features.right_elbow_angle?.max.toFixed(1)}°
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )} 
                 {!result.feature_analysis && (
                   <div className="text-center py-6 text-muted-foreground">
