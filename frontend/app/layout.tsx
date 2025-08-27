@@ -14,7 +14,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body>
-        {children}
+            {children}
         <Toaster />
       </body>
     </html>

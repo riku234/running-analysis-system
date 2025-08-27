@@ -62,16 +62,12 @@ const LANDMARK_INDICES = {
 }
 
 // 関節角度の状態管理
-interface JointAngles {
+interface AbsoluteAngles {
   trunk_angle: number | null
-  left_hip_angle: number | null
-  right_hip_angle: number | null
-  left_knee_angle: number | null
-  right_knee_angle: number | null
-  left_ankle_angle: number | null
-  right_ankle_angle: number | null
-  left_elbow_angle: number | null
-  right_elbow_angle: number | null
+  left_thigh_angle: number | null
+  right_thigh_angle: number | null
+  left_lower_leg_angle: number | null
+  right_lower_leg_angle: number | null
 }
 
 // MediaPipeの骨格接続定義（33個のランドマーク用）
@@ -176,78 +172,138 @@ const calculateTrunkAngle = (keypoints: KeyPoint[]): number | null => {
   }
 }
 
-// 1フレームから全ての関節角度を抽出
-const extractJointAnglesFromFrame = (keypoints: KeyPoint[]): JointAngles => {
-  const angles: JointAngles = {
+// 絶対角度計算関数
+const calculateAbsoluteAngleWithVertical = (vector: [number, number], forwardPositive: boolean = true): number | null => {
+  try {
+    const length = Math.sqrt(vector[0] * vector[0] + vector[1] * vector[1])
+    if (length === 0) return null
+
+    // 鉛直軸（下向き）: [0, 1]
+    const verticalVector: [number, number] = [0, 1]
+    
+    // ベクトルを正規化
+    const normalizedVector: [number, number] = [vector[0] / length, vector[1] / length]
+    
+    // 内積を使って角度を計算
+    const cosAngle = normalizedVector[0] * verticalVector[0] + normalizedVector[1] * verticalVector[1]
+    const clippedCosAngle = Math.max(-1, Math.min(1, cosAngle))
+    
+    // ラジアンで角度を計算
+    let angleRad = Math.acos(clippedCosAngle)
+    
+    // x成分の符号で左右を判定
+    if (vector[0] < 0) {
+      angleRad = -angleRad
+    }
+    
+    // 度数法に変換
+    let angleDeg = (angleRad * 180) / Math.PI
+    
+    // forwardPositiveがfalseの場合は符号を反転
+    if (!forwardPositive) {
+      angleDeg = -angleDeg
+    }
+    
+    return angleDeg
+  } catch (error) {
+    return null
+  }
+}
+
+// 新仕様：体幹絶対角度計算
+const calculateAbsoluteTrunkAngle = (keypoints: KeyPoint[]): number | null => {
+  try {
+    const leftShoulder = keypoints[LANDMARK_INDICES.left_shoulder]
+    const rightShoulder = keypoints[LANDMARK_INDICES.right_shoulder]
+    const leftHip = keypoints[LANDMARK_INDICES.left_hip]
+    const rightHip = keypoints[LANDMARK_INDICES.right_hip]
+    
+    if ([leftShoulder, rightShoulder, leftHip, rightHip].some(kp => kp.visibility < 0.5)) {
+      return null
+    }
+    
+    // 肩の中心点と股関節の中心点を計算
+    const shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2
+    const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2
+    const hipCenterX = (leftHip.x + rightHip.x) / 2
+    const hipCenterY = (leftHip.y + rightHip.y) / 2
+    
+    // 体幹ベクトル（股関節中点→肩中点）
+    const trunkVector: [number, number] = [shoulderCenterX - hipCenterX, shoulderCenterY - hipCenterY]
+    
+    // 絶対角度を計算（前傾を正とする）
+    return calculateAbsoluteAngleWithVertical(trunkVector, true)
+  } catch (error) {
+    return null
+  }
+}
+
+// 新仕様：大腿絶対角度計算
+const calculateAbsoluteThighAngle = (hip: KeyPoint, knee: KeyPoint): number | null => {
+  try {
+    if (hip.visibility < 0.5 || knee.visibility < 0.5) {
+      return null
+    }
+    
+    // 大腿ベクトル（股関節→膝）
+    const thighVector: [number, number] = [knee.x - hip.x, knee.y - hip.y]
+    
+    // 絶対角度を計算（後方を正とする）
+    return calculateAbsoluteAngleWithVertical(thighVector, false)
+  } catch (error) {
+    return null
+  }
+}
+
+// 新仕様：下腿絶対角度計算
+const calculateAbsoluteLowerLegAngle = (knee: KeyPoint, ankle: KeyPoint): number | null => {
+  try {
+    if (knee.visibility < 0.5 || ankle.visibility < 0.5) {
+      return null
+    }
+    
+    // 下腿ベクトル（膝→足首）
+    const lowerLegVector: [number, number] = [ankle.x - knee.x, ankle.y - knee.y]
+    
+    // 絶対角度を計算（後方を正とする）
+    return calculateAbsoluteAngleWithVertical(lowerLegVector, false)
+  } catch (error) {
+    return null
+  }
+}
+
+// 1フレームから新仕様の絶対角度を抽出
+const extractAbsoluteAnglesFromFrame = (keypoints: KeyPoint[]): AbsoluteAngles => {
+  const angles: AbsoluteAngles = {
     trunk_angle: null,
-    left_hip_angle: null,
-    right_hip_angle: null,
-    left_knee_angle: null,
-    right_knee_angle: null,
-    left_ankle_angle: null,
-    right_ankle_angle: null,
-    left_elbow_angle: null,
-    right_elbow_angle: null
+    left_thigh_angle: null,
+    right_thigh_angle: null,
+    left_lower_leg_angle: null,
+    right_lower_leg_angle: null
   }
 
   try {
     // ① 体幹角度
-    angles.trunk_angle = calculateTrunkAngle(keypoints)
+    angles.trunk_angle = calculateAbsoluteTrunkAngle(keypoints)
 
-    // 肩の中心点を計算（股関節角度用）
-    const leftShoulder = keypoints[LANDMARK_INDICES.left_shoulder]
-    const rightShoulder = keypoints[LANDMARK_INDICES.right_shoulder]
-    
-    let shoulderCenter: KeyPoint | null = null
-    if (leftShoulder.visibility > 0.5 && rightShoulder.visibility > 0.5) {
-      shoulderCenter = {
-        x: (leftShoulder.x + rightShoulder.x) / 2,
-        y: (leftShoulder.y + rightShoulder.y) / 2,
-        z: (leftShoulder.z + rightShoulder.z) / 2,
-        visibility: Math.min(leftShoulder.visibility, rightShoulder.visibility)
-      }
-    }
-
-    // ② 股関節角度（左右）
-    if (shoulderCenter) {
-      const leftHip = keypoints[LANDMARK_INDICES.left_hip]
-      const leftKnee = keypoints[LANDMARK_INDICES.left_knee]
-      angles.left_hip_angle = calculateAngle(shoulderCenter, leftHip, leftKnee)
-
-      const rightHip = keypoints[LANDMARK_INDICES.right_hip]
-      const rightKnee = keypoints[LANDMARK_INDICES.right_knee]
-      angles.right_hip_angle = calculateAngle(shoulderCenter, rightHip, rightKnee)
-    }
-
-    // ③ 膝関節角度（左右）
+    // ② 大腿角度（左右）
     const leftHip = keypoints[LANDMARK_INDICES.left_hip]
     const leftKnee = keypoints[LANDMARK_INDICES.left_knee]
-    const leftAnkle = keypoints[LANDMARK_INDICES.left_ankle]
-    angles.left_knee_angle = calculateAngle(leftHip, leftKnee, leftAnkle)
+    angles.left_thigh_angle = calculateAbsoluteThighAngle(leftHip, leftKnee)
 
     const rightHip = keypoints[LANDMARK_INDICES.right_hip]
     const rightKnee = keypoints[LANDMARK_INDICES.right_knee]
+    angles.right_thigh_angle = calculateAbsoluteThighAngle(rightHip, rightKnee)
+
+    // ③ 下腿角度（左右）
+    const leftAnkle = keypoints[LANDMARK_INDICES.left_ankle]
+    angles.left_lower_leg_angle = calculateAbsoluteLowerLegAngle(leftKnee, leftAnkle)
+
     const rightAnkle = keypoints[LANDMARK_INDICES.right_ankle]
-    angles.right_knee_angle = calculateAngle(rightHip, rightKnee, rightAnkle)
-
-    // ④ 足関節角度（左右）
-    const leftFootIndex = keypoints[LANDMARK_INDICES.left_foot_index]
-    angles.left_ankle_angle = calculateAngle(leftKnee, leftAnkle, leftFootIndex)
-
-    const rightFootIndex = keypoints[LANDMARK_INDICES.right_foot_index]
-    angles.right_ankle_angle = calculateAngle(rightKnee, rightAnkle, rightFootIndex)
-
-    // ⑤ 肘関節角度（左右）
-    const leftElbow = keypoints[LANDMARK_INDICES.left_elbow]
-    const leftWrist = keypoints[LANDMARK_INDICES.left_wrist]
-    angles.left_elbow_angle = calculateAngle(leftShoulder, leftElbow, leftWrist)
-
-    const rightElbow = keypoints[LANDMARK_INDICES.right_elbow]
-    const rightWrist = keypoints[LANDMARK_INDICES.right_wrist]
-    angles.right_elbow_angle = calculateAngle(rightShoulder, rightElbow, rightWrist)
+    angles.right_lower_leg_angle = calculateAbsoluteLowerLegAngle(rightKnee, rightAnkle)
 
   } catch (error) {
-    console.warn('関節角度の計算でエラーが発生しました:', error)
+    console.warn('絶対角度の計算でエラーが発生しました:', error)
   }
 
   return angles
@@ -257,16 +313,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [currentFrame, setCurrentFrame] = useState(0)
-  const [currentJointAngles, setCurrentJointAngles] = useState<JointAngles>({
+  const [currentAbsoluteAngles, setCurrentAbsoluteAngles] = useState<AbsoluteAngles>({
     trunk_angle: null,
-    left_hip_angle: null,
-    right_hip_angle: null,
-    left_knee_angle: null,
-    right_knee_angle: null,
-    left_ankle_angle: null,
-    right_ankle_angle: null,
-    left_elbow_angle: null,
-    right_elbow_angle: null
+    left_thigh_angle: null,
+    right_thigh_angle: null,
+    left_lower_leg_angle: null,
+    right_lower_leg_angle: null
   })
   
   // 動画の現在時刻から対応するフレームを取得
@@ -353,9 +405,9 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
     if (frameData && frameData.landmarks_detected) {
       drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height)
       
-      // リアルタイムで関節角度を計算・更新
-      const jointAngles = extractJointAnglesFromFrame(frameData.keypoints)
-      setCurrentJointAngles(jointAngles)
+      // リアルタイムで絶対角度を計算・更新
+      const absoluteAngles = extractAbsoluteAnglesFromFrame(frameData.keypoints)
+      setCurrentAbsoluteAngles(absoluteAngles)
       
       // 信頼度を表示（本番環境では非表示）
       if (false) {
@@ -367,16 +419,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
       }
     } else {
       // 骨格が検出されていない場合は角度をリセット
-      setCurrentJointAngles({
+      setCurrentAbsoluteAngles({
         trunk_angle: null,
-        left_hip_angle: null,
-        right_hip_angle: null,
-        left_knee_angle: null,
-        right_knee_angle: null,
-        left_ankle_angle: null,
-        right_ankle_angle: null,
-        left_elbow_angle: null,
-        right_elbow_angle: null
+        left_thigh_angle: null,
+        right_thigh_angle: null,
+        left_lower_leg_angle: null,
+        right_lower_leg_angle: null
       })
     }
   }
@@ -451,107 +499,72 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
             </h3>
             
             <div className="space-y-4">
+              {/* 絶対角度表示ヘッダー */}
+              <div className="bg-blue-100 rounded-lg p-3 text-center">
+                <h3 className="font-bold text-blue-800">絶対角度リアルタイム表示</h3>
+                <p className="text-xs text-blue-600 mt-1">鉛直軸を基準とした角度測定</p>
+              </div>
+
               {/* 体幹角度 */}
-              <div className="bg-blue-50 rounded-lg p-3">
-                <h4 className="font-medium text-blue-800 mb-2">体幹角度</h4>
-                <div className="text-lg font-bold text-blue-600">
-                  {currentJointAngles.trunk_angle !== null ? 
-                    `${currentJointAngles.trunk_angle.toFixed(1)}°` : 
+              <div className="bg-green-50 rounded-lg p-3">
+                <h4 className="font-medium text-green-800 mb-2">体幹角度（前傾/後傾）</h4>
+                <div className="text-lg font-bold text-green-600">
+                  {currentAbsoluteAngles.trunk_angle !== null ? 
+                    `${currentAbsoluteAngles.trunk_angle.toFixed(1)}°` : 
                     '計算中...'}
                 </div>
+                <div className="text-xs text-green-500 mt-1">正: 前傾 / 負: 後傾</div>
               </div>
 
-              {/* 股関節角度 */}
-              <div className="bg-green-50 rounded-lg p-3">
-                <h4 className="font-medium text-green-800 mb-2">股関節角度</h4>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-gray-600">左:</span>
-                    <div className="font-bold text-green-600">
-                      {currentJointAngles.left_hip_angle !== null ? 
-                        `${currentJointAngles.left_hip_angle.toFixed(1)}°` : 
-                        '--'}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">右:</span>
-                    <div className="font-bold text-green-600">
-                      {currentJointAngles.right_hip_angle !== null ? 
-                        `${currentJointAngles.right_hip_angle.toFixed(1)}°` : 
-                        '--'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 膝関節角度 */}
+              {/* 大腿角度 */}
               <div className="bg-purple-50 rounded-lg p-3">
-                <h4 className="font-medium text-purple-800 mb-2">膝関節角度</h4>
+                <h4 className="font-medium text-purple-800 mb-2">大腿角度（前後方向）</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-gray-600">左:</span>
                     <div className="font-bold text-purple-600">
-                      {currentJointAngles.left_knee_angle !== null ? 
-                        `${currentJointAngles.left_knee_angle.toFixed(1)}°` : 
+                      {currentAbsoluteAngles.left_thigh_angle !== null ? 
+                        `${currentAbsoluteAngles.left_thigh_angle.toFixed(1)}°` : 
                         '--'}
                     </div>
                   </div>
                   <div>
                     <span className="text-gray-600">右:</span>
                     <div className="font-bold text-purple-600">
-                      {currentJointAngles.right_knee_angle !== null ? 
-                        `${currentJointAngles.right_knee_angle.toFixed(1)}°` : 
+                      {currentAbsoluteAngles.right_thigh_angle !== null ? 
+                        `${currentAbsoluteAngles.right_thigh_angle.toFixed(1)}°` : 
                         '--'}
                     </div>
                   </div>
                 </div>
+                <div className="text-xs text-purple-500 mt-1 text-center">正: 後方 / 負: 前方</div>
               </div>
 
-              {/* 足関節角度 */}
-              <div className="bg-orange-50 rounded-lg p-3">
-                <h4 className="font-medium text-orange-800 mb-2">足関節角度</h4>
+              {/* 下腿角度 */}
+              <div className="bg-indigo-50 rounded-lg p-3">
+                <h4 className="font-medium text-indigo-800 mb-2">下腿角度（前後方向）</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-gray-600">左:</span>
-                    <div className="font-bold text-orange-600">
-                      {currentJointAngles.left_ankle_angle !== null ? 
-                        `${currentJointAngles.left_ankle_angle.toFixed(1)}°` : 
+                    <div className="font-bold text-indigo-600">
+                      {currentAbsoluteAngles.left_lower_leg_angle !== null ? 
+                        `${currentAbsoluteAngles.left_lower_leg_angle.toFixed(1)}°` : 
                         '--'}
                     </div>
                   </div>
                   <div>
                     <span className="text-gray-600">右:</span>
-                    <div className="font-bold text-orange-600">
-                      {currentJointAngles.right_ankle_angle !== null ? 
-                        `${currentJointAngles.right_ankle_angle.toFixed(1)}°` : 
+                    <div className="font-bold text-indigo-600">
+                      {currentAbsoluteAngles.right_lower_leg_angle !== null ? 
+                        `${currentAbsoluteAngles.right_lower_leg_angle.toFixed(1)}°` : 
                         '--'}
                     </div>
                   </div>
                 </div>
+                <div className="text-xs text-indigo-500 mt-1 text-center">正: 後方 / 負: 前方</div>
               </div>
 
-              {/* 肘関節角度 */}
-              <div className="bg-cyan-50 rounded-lg p-3">
-                <h4 className="font-medium text-cyan-800 mb-2">肘関節角度</h4>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-gray-600">左:</span>
-                    <div className="font-bold text-cyan-600">
-                      {currentJointAngles.left_elbow_angle !== null ? 
-                        `${currentJointAngles.left_elbow_angle.toFixed(1)}°` : 
-                        '--'}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">右:</span>
-                    <div className="font-bold text-cyan-600">
-                      {currentJointAngles.right_elbow_angle !== null ? 
-                        `${currentJointAngles.right_elbow_angle.toFixed(1)}°` : 
-                        '--'}
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
               {/* フレーム情報 */}
               <div className="bg-gray-50 rounded-lg p-3 mt-4">

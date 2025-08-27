@@ -349,13 +349,13 @@ async def get_analysis_parameters():
                 "description": "股関節角度",
                 "sides": ["left", "right"],
                 "unit": "degrees"
-            },
+        },
             {
                 "name": "knee_angle",
                 "description": "膝関節角度", 
                 "sides": ["left", "right"],
                 "unit": "degrees"
-            },
+        },
             {
                 "name": "ankle_angle",
                 "description": "足関節角度",
@@ -367,7 +367,7 @@ async def get_analysis_parameters():
                 "description": "肘関節角度",
                 "sides": ["left", "right"],
                 "unit": "degrees"
-            }
+        }
         ],
         "analysis_method": {
             "threshold_calculation": "標準偏差 × 1.5",
