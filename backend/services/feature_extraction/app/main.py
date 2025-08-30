@@ -8,8 +8,8 @@ import numpy as np
 
 app = FastAPI(
     title="Feature Extraction Service",
-    description="骨格データから絶対角度・重心上下動・ピッチを計算するサービス（自動サイクル検出機能付き）",
-    version="3.2.0"
+    description="骨格データから絶対角度・重心上下動・ピッチを計算するサービス（自動身長推定・サイクル検出機能付き）",
+    version="3.3.0"
 )
 
 # CORS設定
@@ -185,24 +185,90 @@ def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Opt
 # 新機能：重心上下動とピッチの計算
 # =============================================================================
 
-def calculate_vertical_oscillation(time_series_keypoints: List[List[KeyPoint]], runner_height: float) -> Optional[float]:
+def calculate_skeletal_height(frame_keypoints: List[KeyPoint]) -> Optional[float]:
     """
-    重心上下動を計算する
+    1フレームの骨格データから「骨格上の全長」を計算する
+    
+    Args:
+        frame_keypoints: 1フレーム分のキーポイントデータ
+    
+    Returns:
+        骨格上の全長（float型）または None
+    """
+    try:
+        if len(frame_keypoints) < 33:
+            return None
+        
+        # 必要なキーポイントを取得
+        left_ankle = frame_keypoints[LANDMARK_INDICES['left_ankle']]
+        right_ankle = frame_keypoints[LANDMARK_INDICES['right_ankle']]
+        left_knee = frame_keypoints[LANDMARK_INDICES['left_knee']]
+        right_knee = frame_keypoints[LANDMARK_INDICES['right_knee']]
+        left_hip = frame_keypoints[LANDMARK_INDICES['left_hip']]
+        right_hip = frame_keypoints[LANDMARK_INDICES['right_hip']]
+        left_shoulder = frame_keypoints[LANDMARK_INDICES['left_shoulder']]
+        right_shoulder = frame_keypoints[LANDMARK_INDICES['right_shoulder']]
+        
+        # 鼻（頭部の代表点）
+        nose = frame_keypoints[0]  # MediaPipeの鼻のインデックス
+        
+        # 可視性チェック（0.5以上で有効とする）
+        required_points = [left_ankle, right_ankle, left_knee, right_knee, 
+                          left_hip, right_hip, left_shoulder, right_shoulder, nose]
+        
+        for point in required_points:
+            if point.visibility < 0.5:
+                return None
+        
+        # 各セグメントの長さを計算
+        
+        # 1. 下腿長: 足首から膝までの距離（左右の平均）
+        left_lower_leg = math.sqrt((left_knee.x - left_ankle.x)**2 + (left_knee.y - left_ankle.y)**2)
+        right_lower_leg = math.sqrt((right_knee.x - right_ankle.x)**2 + (right_knee.y - right_ankle.y)**2)
+        avg_lower_leg_length = (left_lower_leg + right_lower_leg) / 2
+        
+        # 2. 大腿長: 膝から股関節までの距離（左右の平均）
+        left_thigh = math.sqrt((left_hip.x - left_knee.x)**2 + (left_hip.y - left_knee.y)**2)
+        right_thigh = math.sqrt((right_hip.x - right_knee.x)**2 + (right_hip.y - right_knee.y)**2)
+        avg_thigh_length = (left_thigh + right_thigh) / 2
+        
+        # 3. 体幹長: 股関節の中点から肩の中点までの距離
+        hip_center_x = (left_hip.x + right_hip.x) / 2
+        hip_center_y = (left_hip.y + right_hip.y) / 2
+        shoulder_center_x = (left_shoulder.x + right_shoulder.x) / 2
+        shoulder_center_y = (left_shoulder.y + right_shoulder.y) / 2
+        trunk_length = math.sqrt((shoulder_center_x - hip_center_x)**2 + (shoulder_center_y - hip_center_y)**2)
+        
+        # 4. 頭部長: 肩の中点から鼻までの距離
+        head_length = math.sqrt((nose.x - shoulder_center_x)**2 + (nose.y - shoulder_center_y)**2)
+        
+        # 骨格上の全長を計算
+        total_skeletal_height = avg_lower_leg_length + avg_thigh_length + trunk_length + head_length
+        
+        return total_skeletal_height
+        
+    except Exception as e:
+        print(f"骨格身長計算エラー: {str(e)}")
+        return None
+
+def calculate_vertical_oscillation(time_series_keypoints: List[List[KeyPoint]]) -> Optional[float]:
+    """
+    重心上下動を計算する（骨格データから自動的に基準身長を算出）
     
     Args:
         time_series_keypoints: 1サイクル分の連続したフレームのキーポイントデータ
-        runner_height: ランナーの身長（メートル単位）
     
     Returns:
-        重心の上下動の身長比（float型）または None
+        計算上の平均身長を基準とした重心上下動の比率（float型）または None
     """
     try:
-        if not time_series_keypoints or runner_height <= 0:
+        if not time_series_keypoints:
             return None
         
         center_of_mass_y_positions = []
+        skeletal_heights = []
         
-        # 各フレームで重心のY座標を計算
+        # 各フレームで重心のY座標と骨格身長を計算
         for frame_keypoints in time_series_keypoints:
             if len(frame_keypoints) < 33:  # MediaPipeの最小ランドマーク数
                 continue
@@ -217,20 +283,32 @@ def calculate_vertical_oscillation(time_series_keypoints: List[List[KeyPoint]], 
             # 左右股関節の中点を重心として定義
             center_of_mass_y = (left_hip.y + right_hip.y) / 2
             center_of_mass_y_positions.append(center_of_mass_y)
+            
+            # このフレームの骨格身長を計算
+            skeletal_height = calculate_skeletal_height(frame_keypoints)
+            if skeletal_height is not None:
+                skeletal_heights.append(skeletal_height)
         
         # 有効なデータが不足している場合
-        if len(center_of_mass_y_positions) < 3:
+        if len(center_of_mass_y_positions) < 3 or len(skeletal_heights) < 3:
             return None
         
-        # 最大値と最小値の差を計算（上下動の絶対距離）
+        # 「計算上の平均身長」を算出
+        avg_skeletal_height = np.mean(skeletal_heights)
+        
+        # 重心のY座標の最大値と最小値の差を計算（分子）
         max_y = max(center_of_mass_y_positions)
         min_y = min(center_of_mass_y_positions)
         vertical_displacement = max_y - min_y
         
-        # 身長に対する比率を計算
-        # 注意: MediaPipeの座標は正規化されているため、実際の距離変換が必要
-        # ここでは座標系での変位を身長比として近似計算
-        vertical_oscillation_ratio = vertical_displacement / runner_height if runner_height > 0 else None
+        # 重心上下動の比率を計算（分子 / 分母）
+        vertical_oscillation_ratio = vertical_displacement / avg_skeletal_height if avg_skeletal_height > 0 else None
+        
+        print(f"📏 骨格身長計算詳細:")
+        print(f"   - 有効フレーム数: {len(skeletal_heights)}")
+        print(f"   - 計算上の平均身長: {avg_skeletal_height:.6f} (正規化座標)")
+        print(f"   - 重心上下動: {vertical_displacement:.6f} (正規化座標)")
+        print(f"   - 上下動比率: {vertical_oscillation_ratio:.6f}")
         
         return vertical_oscillation_ratio
         
@@ -336,14 +414,13 @@ def detect_running_cycles(pose_data: List[PoseFrame]) -> int:
         print(f"サイクル検出エラー: {str(e)}")
         return 1
 
-def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float, runner_height: float = 1.7) -> Dict[str, Optional[float]]:
+def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float) -> Dict[str, Optional[float]]:
     """
     ランニングサイクルの分析（重心上下動とピッチを含む）
     
     Args:
         pose_data: 骨格推定データ
         video_fps: 動画フレームレート
-        runner_height: ランナーの身長（デフォルト1.7m）
     
     Returns:
         分析結果（重心上下動、ピッチ）
@@ -369,8 +446,8 @@ def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float, runner_h
         print(f"   - 検出サイクル数: {detected_cycles}")
         print(f"   - 1サイクル平均フレーム数: {avg_frames_per_cycle:.1f}")
         
-        # 重心上下動を計算（全期間で計算）
-        vertical_oscillation = calculate_vertical_oscillation(time_series_keypoints, runner_height)
+        # 重心上下動を計算（骨格データから自動的に基準身長を算出）
+        vertical_oscillation = calculate_vertical_oscillation(time_series_keypoints)
         
         # ピッチを計算（1サイクル平均を使用）
         pitch = calculate_pitch(avg_frames_per_cycle, video_fps)
@@ -477,9 +554,8 @@ async def extract_features(request: PoseAnalysisRequest):
         # 新機能: ランニングサイクル分析（重心上下動とピッチ）
         print("🔄 ランニングサイクル分析を実行中...")
         video_fps = request.video_info.get("fps", 30)
-        runner_height = request.video_info.get("runner_height", 1.7)  # デフォルト身長1.7m
         
-        running_cycle_analysis = analyze_running_cycle(request.pose_data, video_fps, runner_height)
+        running_cycle_analysis = analyze_running_cycle(request.pose_data, video_fps)
         
         print(f"📊 重心上下動: {running_cycle_analysis.get('vertical_oscillation', 'N/A')}")
         print(f"🏃 ピッチ: {running_cycle_analysis.get('pitch', 'N/A')} SPM")
@@ -526,13 +602,14 @@ async def health_check():
     return {
         "service": "Feature Extraction Service",
         "status": "healthy",
-        "version": "3.2.0",
-        "description": "絶対角度・重心上下動・ピッチを計算するサービス（自動サイクル検出機能付き）",
+        "version": "3.3.0",
+        "description": "絶対角度・重心上下動・ピッチを計算するサービス（自動身長推定・サイクル検出機能付き）",
         "features": [
             "絶対角度計算（体幹・大腿・下腿）",
             "重心上下動（Vertical Oscillation）",
             "ピッチ・ケイデンス（Steps Per Minute）",
-            "自動ランニングサイクル検出"
+            "自動ランニングサイクル検出",
+            "骨格データからの自動身長推定"
         ]
     }
 
