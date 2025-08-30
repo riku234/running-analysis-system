@@ -8,8 +8,8 @@ import numpy as np
 
 app = FastAPI(
     title="Feature Extraction Service",
-    description="骨格データから絶対角度・重心上下動・ピッチを計算するサービス（自動身長推定・サイクル検出機能付き）",
-    version="3.3.0"
+    description="骨格データから絶対角度・重心上下動・ピッチを計算するサービス（足接地検出・自動身長推定機能付き）",
+    version="3.4.0"
 )
 
 # CORS設定
@@ -318,7 +318,7 @@ def calculate_vertical_oscillation(time_series_keypoints: List[List[KeyPoint]]) 
 
 def calculate_pitch(num_frames_in_cycle: int, video_fps: float) -> Optional[float]:
     """
-    ピッチ（ケイデンス）を計算する
+    ピッチ（ケイデンス）を計算する（レガシー関数）
     
     Args:
         num_frames_in_cycle: 1サイクルにかかったフレーム数
@@ -345,6 +345,156 @@ def calculate_pitch(num_frames_in_cycle: int, video_fps: float) -> Optional[floa
         
     except Exception as e:
         print(f"ピッチ計算エラー: {str(e)}")
+        return None
+
+def calculate_pitch_from_keypoints(time_series_keypoints: List[List[KeyPoint]], video_fps: float) -> Optional[float]:
+    """
+    骨格キーポイントから足の接地検出に基づいてピッチ（ケイデンス）を正確に計算する
+    
+    Args:
+        time_series_keypoints: 全フレームの骨格データ
+        video_fps: 動画のフレームレート
+    
+    Returns:
+        動画全体の平均ピッチ（SPM単位、float型）または None
+    """
+    try:
+        if not time_series_keypoints or video_fps <= 0:
+            return None
+        
+        print(f"🦶 フットストライク検出開始...")
+        
+        # ステップ1: フットストライク（接地）の検出
+        
+        # a. データ抽出: 左右の足首のY座標を時系列データとして抽出
+        left_ankle_y = []
+        right_ankle_y = []
+        valid_frame_indices = []
+        
+        for frame_idx, frame_keypoints in enumerate(time_series_keypoints):
+            if len(frame_keypoints) < 33:
+                continue
+                
+            left_ankle = frame_keypoints[LANDMARK_INDICES['left_ankle']]
+            right_ankle = frame_keypoints[LANDMARK_INDICES['right_ankle']]
+            
+            # 足首の可視性チェック
+            if left_ankle.visibility > 0.5 and right_ankle.visibility > 0.5:
+                left_ankle_y.append(left_ankle.y)
+                right_ankle_y.append(right_ankle.y)
+                valid_frame_indices.append(frame_idx)
+        
+        if len(left_ankle_y) < 10:  # 最小フレーム数チェック
+            print(f"❌ 有効フレーム数が不足: {len(left_ankle_y)}")
+            return None
+        
+        # b. 平滑化: 移動平均フィルタを適用
+        def moving_average(data, window_size=5):
+            """移動平均フィルタ"""
+            if len(data) < window_size:
+                return data
+            smoothed = []
+            for i in range(len(data)):
+                start = max(0, i - window_size // 2)
+                end = min(len(data), i + window_size // 2 + 1)
+                smoothed.append(np.mean(data[start:end]))
+            return smoothed
+        
+        left_ankle_y_smooth = moving_average(left_ankle_y, window_size=5)
+        right_ankle_y_smooth = moving_average(right_ankle_y, window_size=5)
+        
+        # c. 極小値の検出: 足が地面に最も近づいた瞬間（接地）を検出
+        def detect_foot_strikes(ankle_y_data, min_distance=8):
+            """足の接地（極小値）を検出（改良版）"""
+            strikes = []
+            
+            if len(ankle_y_data) < 5:
+                return strikes
+            
+            # より堅牢な極小値検出（3点窓）
+            for i in range(2, len(ankle_y_data) - 2):
+                # 中心点が周囲の点より低いかチェック（3点窓）
+                center = ankle_y_data[i]
+                left = ankle_y_data[i-1]
+                right = ankle_y_data[i+1]
+                left2 = ankle_y_data[i-2]
+                right2 = ankle_y_data[i+2]
+                
+                # より厳密な極小値判定
+                is_local_minimum = (center <= left and center <= right and 
+                                   center <= left2 and center <= right2)
+                
+                # 前回の接地から十分な距離があるかチェック
+                if is_local_minimum and (not strikes or (i - strikes[-1]) >= min_distance):
+                    strikes.append(i)
+            
+            # 閾値ベースのバックアップ検出
+            if len(strikes) < 2:
+                # データの下位25%を接地候補として検出
+                threshold = np.percentile(ankle_y_data, 25)
+                
+                for i in range(1, len(ankle_y_data) - 1):
+                    if (ankle_y_data[i] <= threshold and 
+                        ankle_y_data[i] <= ankle_y_data[i-1] and 
+                        ankle_y_data[i] <= ankle_y_data[i+1]):
+                        
+                        if not strikes or (i - strikes[-1]) >= min_distance:
+                            strikes.append(i)
+            
+            return strikes
+        
+        # 左右の足の接地フレームを検出
+        left_foot_strikes = detect_foot_strikes(left_ankle_y_smooth)
+        right_foot_strikes = detect_foot_strikes(right_ankle_y_smooth)
+        
+        print(f"🦶 接地検出結果:")
+        print(f"   - 左足接地: {len(left_foot_strikes)}回 {left_foot_strikes}")
+        print(f"   - 右足接地: {len(right_foot_strikes)}回 {right_foot_strikes}")
+        
+        # ステップ2: ランニングサイクルの定義と期間の計算
+        
+        # 右足の接地を基準にサイクル期間を計算（左足でも可）
+        primary_foot_strikes = right_foot_strikes if len(right_foot_strikes) >= len(left_foot_strikes) else left_foot_strikes
+        foot_type = "右足" if len(right_foot_strikes) >= len(left_foot_strikes) else "左足"
+        
+        if len(primary_foot_strikes) < 2:
+            print(f"❌ 検出された接地が不足: {len(primary_foot_strikes)}回")
+            return None
+        
+        # a. サイクル期間のリスト作成: 隣り合う接地間のフレーム数
+        cycle_lengths_in_frames = []
+        for i in range(1, len(primary_foot_strikes)):
+            cycle_length = primary_foot_strikes[i] - primary_foot_strikes[i-1]
+            cycle_lengths_in_frames.append(cycle_length)
+        
+        print(f"📊 サイクル分析結果（{foot_type}基準）:")
+        print(f"   - 検出サイクル数: {len(cycle_lengths_in_frames)}")
+        print(f"   - サイクル長（フレーム）: {cycle_lengths_in_frames}")
+        
+        # ステップ3: ピッチ（ケイデンス）の計算
+        
+        # a. サイクルごとのピッチ計算
+        cycle_pitches = []
+        for total_frames in cycle_lengths_in_frames:
+            # サイクル時間を秒単位で計算
+            cycle_time_seconds = total_frames / video_fps
+            
+            # ピッチ（SPM）を計算: 1サイクル = 2歩
+            pitch_spm = (2 / cycle_time_seconds) * 60
+            cycle_pitches.append(pitch_spm)
+        
+        # b. 平均ピッチの算出
+        average_pitch = np.mean(cycle_pitches)
+        
+        print(f"🏃 ピッチ計算詳細:")
+        print(f"   - 各サイクルのピッチ: {[f'{p:.1f}' for p in cycle_pitches]} SPM")
+        print(f"   - 平均ピッチ: {average_pitch:.1f} SPM")
+        print(f"   - 標準偏差: {np.std(cycle_pitches):.1f} SPM")
+        
+        return average_pitch
+        
+    except Exception as e:
+        print(f"高精度ピッチ計算エラー: {str(e)}")
         return None
 
 def detect_running_cycles(pose_data: List[PoseFrame]) -> int:
@@ -449,8 +599,20 @@ def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float) -> Dict[
         # 重心上下動を計算（骨格データから自動的に基準身長を算出）
         vertical_oscillation = calculate_vertical_oscillation(time_series_keypoints)
         
-        # ピッチを計算（1サイクル平均を使用）
-        pitch = calculate_pitch(avg_frames_per_cycle, video_fps)
+        # 新機能: 高精度ピッチ計算（足の接地検出ベース）
+        print("🏃 高精度ピッチ計算を実行中...")
+        accurate_pitch = calculate_pitch_from_keypoints(time_series_keypoints, video_fps)
+        
+        # レガシーピッチ計算（比較用）
+        legacy_pitch = calculate_pitch(avg_frames_per_cycle, video_fps)
+        
+        # 高精度計算が成功した場合はそれを使用、失敗した場合はレガシー計算を使用
+        pitch = accurate_pitch if accurate_pitch is not None else legacy_pitch
+        
+        print(f"📊 ピッチ計算比較:")
+        print(f"   - 高精度ピッチ: {accurate_pitch:.1f} SPM" if accurate_pitch else "   - 高精度ピッチ: 計算失敗")
+        print(f"   - レガシーピッチ: {legacy_pitch:.1f} SPM" if legacy_pitch else "   - レガシーピッチ: 計算失敗")
+        print(f"   - 採用ピッチ: {pitch:.1f} SPM" if pitch else "   - 採用ピッチ: 計算失敗")
         
         return {
             "vertical_oscillation": vertical_oscillation,
@@ -458,7 +620,10 @@ def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float) -> Dict[
             "cycle_frames": int(avg_frames_per_cycle),
             "valid_frames": len(valid_frames),
             "detected_cycles": detected_cycles,
-            "total_video_duration": len(valid_frames) / video_fps
+            "total_video_duration": len(valid_frames) / video_fps,
+            "accurate_pitch": accurate_pitch,
+            "legacy_pitch": legacy_pitch,
+            "pitch_calculation_method": "足接地検出ベース" if accurate_pitch is not None else "重心サイクル推定ベース"
         }
         
     except Exception as e:
@@ -602,12 +767,14 @@ async def health_check():
     return {
         "service": "Feature Extraction Service",
         "status": "healthy",
-        "version": "3.3.0",
-        "description": "絶対角度・重心上下動・ピッチを計算するサービス（自動身長推定・サイクル検出機能付き）",
+        "version": "3.4.0",
+        "description": "絶対角度・重心上下動・ピッチを計算するサービス（足接地検出・自動身長推定機能付き）",
         "features": [
             "絶対角度計算（体幹・大腿・下腿）",
             "重心上下動（Vertical Oscillation）",
             "ピッチ・ケイデンス（Steps Per Minute）",
+            "高精度足接地検出システム",
+            "フットストライクベースのピッチ計算",
             "自動ランニングサイクル検出",
             "骨格データからの自動身長推定"
         ]
