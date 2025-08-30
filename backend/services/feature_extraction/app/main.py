@@ -8,8 +8,8 @@ import numpy as np
 
 app = FastAPI(
     title="Feature Extraction Service",
-    description="骨格データから絶対角度・重心上下動・ピッチを計算するサービス",
-    version="3.1.0"
+    description="骨格データから絶対角度・重心上下動・ピッチを計算するサービス（自動サイクル検出機能付き）",
+    version="3.2.0"
 )
 
 # CORS設定
@@ -269,6 +269,73 @@ def calculate_pitch(num_frames_in_cycle: int, video_fps: float) -> Optional[floa
         print(f"ピッチ計算エラー: {str(e)}")
         return None
 
+def detect_running_cycles(pose_data: List[PoseFrame]) -> int:
+    """
+    重心の上下動からランニングサイクル数を検出する
+    
+    Args:
+        pose_data: 骨格推定データ
+    
+    Returns:
+        検出されたランニングサイクル数
+    """
+    try:
+        # 有効なフレームのみを抽出
+        valid_frames = [frame for frame in pose_data if frame.landmarks_detected and len(frame.keypoints) >= 33]
+        
+        if len(valid_frames) < 10:
+            return 1  # 最小限のデータの場合は1サイクルとする
+        
+        # 重心のY座標を抽出
+        center_of_mass_y = []
+        for frame in valid_frames:
+            left_hip = frame.keypoints[LANDMARK_INDICES['left_hip']]
+            right_hip = frame.keypoints[LANDMARK_INDICES['right_hip']]
+            
+            if left_hip.visibility > 0.5 and right_hip.visibility > 0.5:
+                y_coord = (left_hip.y + right_hip.y) / 2
+                center_of_mass_y.append(y_coord)
+        
+        if len(center_of_mass_y) < 5:
+            return 1
+        
+        # 重心の上下動のピークを検出してサイクル数を推定
+        # 簡易的な実装：平均値以上の点の数を数え、サイクル数を推定
+        y_mean = np.mean(center_of_mass_y)
+        y_std = np.std(center_of_mass_y)
+        
+        # 閾値を設定（平均値 + 標準偏差の半分）
+        threshold = y_mean + y_std * 0.3
+        
+        # 閾値を超える点を検出
+        above_threshold = [y > threshold for y in center_of_mass_y]
+        
+        # 連続する True の塊を数える（ピーク検出）
+        peaks = 0
+        in_peak = False
+        
+        for is_above in above_threshold:
+            if is_above and not in_peak:
+                peaks += 1
+                in_peak = True
+            elif not is_above:
+                in_peak = False
+        
+        # ピーク数からサイクル数を推定
+        # ランニングでは1サイクルに約1-2回のピークが発生する
+        estimated_cycles = max(1, peaks // 2)  # 保守的に見積もり
+        
+        print(f"🔍 サイクル検出詳細:")
+        print(f"   - 有効フレーム数: {len(center_of_mass_y)}")
+        print(f"   - 検出されたピーク数: {peaks}")
+        print(f"   - 推定サイクル数: {estimated_cycles}")
+        
+        return estimated_cycles
+        
+    except Exception as e:
+        print(f"サイクル検出エラー: {str(e)}")
+        return 1
+
 def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float, runner_height: float = 1.7) -> Dict[str, Optional[float]]:
     """
     ランニングサイクルの分析（重心上下動とピッチを含む）
@@ -291,21 +358,30 @@ def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float, runner_h
         # 全フレームのキーポイントデータを抽出
         time_series_keypoints = [frame.keypoints for frame in valid_frames]
         
-        # 1サイクルのフレーム数（簡易的に全フレーム数を使用）
-        # 実際のアプリケーションでは、歩行サイクル検出アルゴリズムが必要
-        num_frames_in_cycle = len(valid_frames)
+        # ランニングサイクル数を検出
+        detected_cycles = detect_running_cycles(pose_data)
         
-        # 重心上下動を計算
+        # 1サイクルあたりの平均フレーム数を計算
+        avg_frames_per_cycle = len(valid_frames) / detected_cycles
+        
+        print(f"📊 サイクル分析結果:")
+        print(f"   - 全フレーム数: {len(valid_frames)}")
+        print(f"   - 検出サイクル数: {detected_cycles}")
+        print(f"   - 1サイクル平均フレーム数: {avg_frames_per_cycle:.1f}")
+        
+        # 重心上下動を計算（全期間で計算）
         vertical_oscillation = calculate_vertical_oscillation(time_series_keypoints, runner_height)
         
-        # ピッチを計算
-        pitch = calculate_pitch(num_frames_in_cycle, video_fps)
+        # ピッチを計算（1サイクル平均を使用）
+        pitch = calculate_pitch(avg_frames_per_cycle, video_fps)
         
         return {
             "vertical_oscillation": vertical_oscillation,
             "pitch": pitch,
-            "cycle_frames": num_frames_in_cycle,
-            "valid_frames": len(valid_frames)
+            "cycle_frames": int(avg_frames_per_cycle),
+            "valid_frames": len(valid_frames),
+            "detected_cycles": detected_cycles,
+            "total_video_duration": len(valid_frames) / video_fps
         }
         
     except Exception as e:
@@ -450,12 +526,13 @@ async def health_check():
     return {
         "service": "Feature Extraction Service",
         "status": "healthy",
-        "version": "3.1.0",
-        "description": "絶対角度・重心上下動・ピッチを計算するサービス",
+        "version": "3.2.0",
+        "description": "絶対角度・重心上下動・ピッチを計算するサービス（自動サイクル検出機能付き）",
         "features": [
             "絶対角度計算（体幹・大腿・下腿）",
             "重心上下動（Vertical Oscillation）",
-            "ピッチ・ケイデンス（Steps Per Minute）"
+            "ピッチ・ケイデンス（Steps Per Minute）",
+            "自動ランニングサイクル検出"
         ]
     }
 
