@@ -510,6 +510,70 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
+            {/* ランニングメトリクスカード */}
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Activity className="h-5 w-5 mr-2" />
+                  ランニングメトリクス
+                </CardTitle>
+                <div className="text-sm text-muted-foreground mt-1">
+                  重心上下動とピッチ（ケイデンス）
+                </div>
+              </CardHeader>
+              <CardContent>
+                {result.feature_analysis?.features && (
+                  <div className="space-y-4">
+                    {/* 重心上下動 */}
+                    {(result.feature_analysis.features as any)?.running_metrics?.vertical_oscillation && (
+                      <div className="text-center p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                        <div className="text-lg font-bold text-emerald-700">
+                          重心上下動: {((result.feature_analysis.features as any).running_metrics.vertical_oscillation * 100).toFixed(1)}%
+                        </div>
+                        <div className="text-xs text-emerald-600 mt-1">
+                          身長に対する上下動の比率
+                        </div>
+                        <div className="text-xs text-emerald-500 mt-1">
+                          理想値: 5-8%程度
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* ピッチ（ケイデンス） */}
+                    {(result.feature_analysis.features as any)?.running_metrics?.pitch && (
+                      <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="text-lg font-bold text-blue-700">
+                          ピッチ: {((result.feature_analysis.features as any).running_metrics.pitch).toFixed(0)} SPM
+                        </div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          1分間あたりの歩数（Steps Per Minute）
+                        </div>
+                        <div className="text-xs text-blue-500 mt-1">
+                          理想値: 180 SPM前後
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* データが不足している場合 */}
+                    {(!(result.feature_analysis.features as any)?.running_metrics?.vertical_oscillation && 
+                      !(result.feature_analysis.features as any)?.running_metrics?.pitch) && (
+                      <div className="text-center py-6 text-muted-foreground">
+                        <Activity className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm">データ不足のため計算できませんでした</p>
+                        <p className="text-xs mt-1">より長い動画での分析をお試しください</p>
+                      </div>
+                    )}
+                </div>
+                )}
+                {!result.feature_analysis && (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Activity className="h-8 w-8 mx-auto mb-2" />
+                    <p className="text-sm">計算中...</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* 課題分析カード */}
             <Card className="shadow-lg">
               <CardHeader>

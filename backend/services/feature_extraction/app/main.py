@@ -8,8 +8,8 @@ import numpy as np
 
 app = FastAPI(
     title="Feature Extraction Service",
-    description="骨格データから絶対角度（体幹・大腿・下腿）を計算するサービス",
-    version="3.0.0"
+    description="骨格データから絶対角度・重心上下動・ピッチを計算するサービス",
+    version="3.1.0"
 )
 
 # CORS設定
@@ -181,6 +181,137 @@ def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Opt
     except Exception:
         return None
 
+# =============================================================================
+# 新機能：重心上下動とピッチの計算
+# =============================================================================
+
+def calculate_vertical_oscillation(time_series_keypoints: List[List[KeyPoint]], runner_height: float) -> Optional[float]:
+    """
+    重心上下動を計算する
+    
+    Args:
+        time_series_keypoints: 1サイクル分の連続したフレームのキーポイントデータ
+        runner_height: ランナーの身長（メートル単位）
+    
+    Returns:
+        重心の上下動の身長比（float型）または None
+    """
+    try:
+        if not time_series_keypoints or runner_height <= 0:
+            return None
+        
+        center_of_mass_y_positions = []
+        
+        # 各フレームで重心のY座標を計算
+        for frame_keypoints in time_series_keypoints:
+            if len(frame_keypoints) < 33:  # MediaPipeの最小ランドマーク数
+                continue
+                
+            left_hip = frame_keypoints[LANDMARK_INDICES['left_hip']]
+            right_hip = frame_keypoints[LANDMARK_INDICES['right_hip']]
+            
+            # 股関節の可視性チェック
+            if left_hip.visibility < 0.5 or right_hip.visibility < 0.5:
+                continue
+            
+            # 左右股関節の中点を重心として定義
+            center_of_mass_y = (left_hip.y + right_hip.y) / 2
+            center_of_mass_y_positions.append(center_of_mass_y)
+        
+        # 有効なデータが不足している場合
+        if len(center_of_mass_y_positions) < 3:
+            return None
+        
+        # 最大値と最小値の差を計算（上下動の絶対距離）
+        max_y = max(center_of_mass_y_positions)
+        min_y = min(center_of_mass_y_positions)
+        vertical_displacement = max_y - min_y
+        
+        # 身長に対する比率を計算
+        # 注意: MediaPipeの座標は正規化されているため、実際の距離変換が必要
+        # ここでは座標系での変位を身長比として近似計算
+        vertical_oscillation_ratio = vertical_displacement / runner_height if runner_height > 0 else None
+        
+        return vertical_oscillation_ratio
+        
+    except Exception as e:
+        print(f"重心上下動計算エラー: {str(e)}")
+        return None
+
+def calculate_pitch(num_frames_in_cycle: int, video_fps: float) -> Optional[float]:
+    """
+    ピッチ（ケイデンス）を計算する
+    
+    Args:
+        num_frames_in_cycle: 1サイクルにかかったフレーム数
+        video_fps: 動画のフレームレート（例: 30）
+    
+    Returns:
+        ピッチ（ケイデンス）をSPM単位で表した数値（float型）または None
+    """
+    try:
+        if num_frames_in_cycle <= 0 or video_fps <= 0:
+            return None
+        
+        # 1サイクルの所要時間を秒単位で計算
+        cycle_duration_seconds = num_frames_in_cycle / video_fps
+        
+        # ランニングの1サイクル = 2歩（右足接地 + 左足接地）
+        steps_per_cycle = 2
+        
+        # 1分間あたりの歩数（SPM: Steps Per Minute）を計算
+        # 計算式: (steps_per_cycle / cycle_duration_seconds) * 60
+        steps_per_minute = (steps_per_cycle / cycle_duration_seconds) * 60
+        
+        return steps_per_minute
+        
+    except Exception as e:
+        print(f"ピッチ計算エラー: {str(e)}")
+        return None
+
+def analyze_running_cycle(pose_data: List[PoseFrame], video_fps: float, runner_height: float = 1.7) -> Dict[str, Optional[float]]:
+    """
+    ランニングサイクルの分析（重心上下動とピッチを含む）
+    
+    Args:
+        pose_data: 骨格推定データ
+        video_fps: 動画フレームレート
+        runner_height: ランナーの身長（デフォルト1.7m）
+    
+    Returns:
+        分析結果（重心上下動、ピッチ）
+    """
+    try:
+        # 有効なフレームのみを抽出
+        valid_frames = [frame for frame in pose_data if frame.landmarks_detected and len(frame.keypoints) >= 33]
+        
+        if len(valid_frames) < 10:  # 最小フレーム数チェック
+            return {"vertical_oscillation": None, "pitch": None}
+        
+        # 全フレームのキーポイントデータを抽出
+        time_series_keypoints = [frame.keypoints for frame in valid_frames]
+        
+        # 1サイクルのフレーム数（簡易的に全フレーム数を使用）
+        # 実際のアプリケーションでは、歩行サイクル検出アルゴリズムが必要
+        num_frames_in_cycle = len(valid_frames)
+        
+        # 重心上下動を計算
+        vertical_oscillation = calculate_vertical_oscillation(time_series_keypoints, runner_height)
+        
+        # ピッチを計算
+        pitch = calculate_pitch(num_frames_in_cycle, video_fps)
+        
+        return {
+            "vertical_oscillation": vertical_oscillation,
+            "pitch": pitch,
+            "cycle_frames": num_frames_in_cycle,
+            "valid_frames": len(valid_frames)
+        }
+        
+    except Exception as e:
+        print(f"ランニングサイクル分析エラー: {str(e)}")
+        return {"vertical_oscillation": None, "pitch": None}
+
 def extract_absolute_angles_from_frame(keypoints: List[KeyPoint]) -> Dict[str, Optional[float]]:
     """
     1フレームから新仕様の絶対角度を抽出する
@@ -267,11 +398,27 @@ async def extract_features(request: PoseAnalysisRequest):
                            if frame[angle_key] is not None]
             angle_stats[angle_key] = calculate_angle_statistics(valid_values)
         
+        # 新機能: ランニングサイクル分析（重心上下動とピッチ）
+        print("🔄 ランニングサイクル分析を実行中...")
+        video_fps = request.video_info.get("fps", 30)
+        runner_height = request.video_info.get("runner_height", 1.7)  # デフォルト身長1.7m
+        
+        running_cycle_analysis = analyze_running_cycle(request.pose_data, video_fps, runner_height)
+        
+        print(f"📊 重心上下動: {running_cycle_analysis.get('vertical_oscillation', 'N/A')}")
+        print(f"🏃 ピッチ: {running_cycle_analysis.get('pitch', 'N/A')} SPM")
+        
         # レスポンスを構築
         features = {
             "angle_data": all_angles,
             "angle_statistics": angle_stats,
-            "frame_count": len(all_angles)
+            "frame_count": len(all_angles),
+            "running_metrics": {
+                "vertical_oscillation": running_cycle_analysis.get('vertical_oscillation'),
+                "pitch": running_cycle_analysis.get('pitch'),
+                "vertical_oscillation_ratio": running_cycle_analysis.get('vertical_oscillation'),
+                "cadence_spm": running_cycle_analysis.get('pitch')
+            }
         }
         
         analysis_details = {
@@ -286,7 +433,7 @@ async def extract_features(request: PoseAnalysisRequest):
         
         return FeatureExtractionResponse(
             status="success",
-            message="絶対角度の特徴量抽出が完了しました",
+            message="絶対角度・重心上下動・ピッチの特徴量抽出が完了しました",
             features=features,
             analysis_details=analysis_details
         )
@@ -303,8 +450,13 @@ async def health_check():
     return {
         "service": "Feature Extraction Service",
         "status": "healthy",
-        "version": "3.0.0",
-        "description": "絶対角度（体幹・大腿・下腿）を計算するサービス"
+        "version": "3.1.0",
+        "description": "絶対角度・重心上下動・ピッチを計算するサービス",
+        "features": [
+            "絶対角度計算（体幹・大腿・下腿）",
+            "重心上下動（Vertical Oscillation）",
+            "ピッチ・ケイデンス（Steps Per Minute）"
+        ]
     }
 
 if __name__ == "__main__":
