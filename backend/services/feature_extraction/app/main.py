@@ -113,7 +113,7 @@ def calculate_absolute_angle_with_vertical(vector: np.ndarray, forward_positive:
 def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
     """
     体幹角度を計算する
-    定義: 体幹ベクトル（股関節中点→肩中点）と鉛直軸がなす角度
+    定義: 体幹ベクトル（肩中点→股関節中点）と鉛直軸がなす角度
     正: 前傾、負: 後傾
     """
     try:
@@ -132,8 +132,8 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
         hip_center_x = (left_hip.x + right_hip.x) / 2
         hip_center_y = (left_hip.y + right_hip.y) / 2
         
-        # 体幹ベクトル（股関節中点→肩中点）
-        trunk_vector = np.array([shoulder_center_x - hip_center_x, shoulder_center_y - hip_center_y])
+        # 体幹ベクトル（肩中点→股関節中点）- 下向きベクトルで0度近辺の値にする
+        trunk_vector = np.array([hip_center_x - shoulder_center_x, hip_center_y - shoulder_center_y])
         
         # 絶対角度を計算（前傾を正とする）
         return calculate_absolute_angle_with_vertical(trunk_vector, forward_positive=True)
