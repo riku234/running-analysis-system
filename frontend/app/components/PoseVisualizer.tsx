@@ -147,26 +147,11 @@ const calculateTrunkAngle = (keypoints: KeyPoint[]): number | null => {
     const hipCenterX = (leftHip.x + rightHip.x) / 2
     const hipCenterY = (leftHip.y + rightHip.y) / 2
 
-    // 体幹ベクトル（腰から肩へ）
-    const trunkVector = [shoulderCenterX - hipCenterX, shoulderCenterY - hipCenterY]
+    // 体幹ベクトル（肩から腰へ）- バックエンドと同じ方向に修正
+    const trunkVector: [number, number] = [hipCenterX - shoulderCenterX, hipCenterY - shoulderCenterY]
 
-    // 垂直ベクトル（上向き）
-    const verticalVector = [0, -1]
-
-    // ベクトルの長さを計算
-    const trunkLength = Math.sqrt(trunkVector[0] ** 2 + trunkVector[1] ** 2)
-    if (trunkLength === 0) {
-      return null
-    }
-
-    // 角度を計算
-    const cosAngle = (trunkVector[0] * verticalVector[0] + trunkVector[1] * verticalVector[1]) / trunkLength
-    const clippedCosAngle = Math.max(-1, Math.min(1, cosAngle))
-
-    const angleRad = Math.acos(clippedCosAngle)
-    const angleDeg = (angleRad * 180) / Math.PI
-
-    return angleDeg
+    // 絶対角度計算関数を使用（バックエンドと同じロジック）
+    return calculateAbsoluteAngleWithVertical(trunkVector, true)
   } catch (error) {
     return null
   }
@@ -228,8 +213,8 @@ const calculateAbsoluteTrunkAngle = (keypoints: KeyPoint[]): number | null => {
     const hipCenterX = (leftHip.x + rightHip.x) / 2
     const hipCenterY = (leftHip.y + rightHip.y) / 2
     
-    // 体幹ベクトル（股関節中点→肩中点）
-    const trunkVector: [number, number] = [shoulderCenterX - hipCenterX, shoulderCenterY - hipCenterY]
+    // 体幹ベクトル（肩中点→股関節中点）- バックエンドと同じ方向に修正
+    const trunkVector: [number, number] = [hipCenterX - shoulderCenterX, hipCenterY - shoulderCenterY]
     
     // 絶対角度を計算（前傾を正とする）
     return calculateAbsoluteAngleWithVertical(trunkVector, true)
