@@ -65,7 +65,7 @@ LANDMARK_INDICES = {
 
 def calculate_absolute_angle_with_vertical(vector: np.ndarray, forward_positive: bool = True) -> Optional[float]:
     """
-    ベクトルと鉛直軸がなす角度を計算する
+    ベクトルと鉛直軸がなす角度を計算する（atan2ベース、0度前後の値）
     
     Args:
         vector: 対象ベクトル [x, y]
@@ -73,7 +73,7 @@ def calculate_absolute_angle_with_vertical(vector: np.ndarray, forward_positive:
                           Falseの場合、後方への傾きを正とする
     
     Returns:
-        角度（度数法、-180～+180）または None
+        角度（度数法、-90～+90程度）または None
     """
     try:
         # ベクトルの長さをチェック
@@ -81,22 +81,10 @@ def calculate_absolute_angle_with_vertical(vector: np.ndarray, forward_positive:
         if length == 0:
             return None
         
-        # 鉛直軸（下向き）: [0, 1] （画像座標系では下がy正方向）
-        vertical_vector = np.array([0, 1])
-        
-        # ベクトルを正規化
-        normalized_vector = vector / length
-        
-        # 内積を使って角度を計算
-        cos_angle = np.dot(normalized_vector, vertical_vector)
-        cos_angle = np.clip(cos_angle, -1.0, 1.0)
-        
-        # ラジアンで角度を計算
-        angle_rad = np.arccos(cos_angle)
-        
-        # x成分の符号で左右を判定
-        if vector[0] < 0:  # 左方向（後方）
-            angle_rad = -angle_rad
+        # atan2を使用してより正確な角度計算
+        # 鉛直軸（下向き）からの角度を計算
+        # atan2(x, y) は y軸（下向き）からの角度を計算
+        angle_rad = np.arctan2(vector[0], vector[1])
         
         # 度数法に変換
         angle_deg = np.degrees(angle_rad)
@@ -159,8 +147,8 @@ def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[
         if hip.visibility < 0.5 or knee.visibility < 0.5:
             return None
         
-        # 大腿ベクトル（膝→股関節）
-        thigh_vector = np.array([hip.x - knee.x, hip.y - knee.y])
+        # 大腿ベクトル（股関節→膝）- 下向きベクトルにするため
+        thigh_vector = np.array([knee.x - hip.x, knee.y - hip.y])
         
         # 絶対角度を計算（後方を正とする）
         return calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=True)
@@ -179,8 +167,8 @@ def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Opt
         if knee.visibility < 0.5 or ankle.visibility < 0.5:
             return None
         
-        # 下腿ベクトル（足首→膝）
-        lower_leg_vector = np.array([knee.x - ankle.x, knee.y - ankle.y])
+        # 下腿ベクトル（膝→足首）- 下向きベクトルにするため
+        lower_leg_vector = np.array([ankle.x - knee.x, ankle.y - knee.y])
         
         # 絶対角度を計算（後方を正とする）
         return calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=True)

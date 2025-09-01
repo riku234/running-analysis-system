@@ -157,29 +157,16 @@ const calculateTrunkAngle = (keypoints: KeyPoint[]): number | null => {
   }
 }
 
-// 絶対角度計算関数
+// 絶対角度計算関数（atan2ベース、0度前後の値）
 const calculateAbsoluteAngleWithVertical = (vector: [number, number], forwardPositive: boolean = true): number | null => {
   try {
     const length = Math.sqrt(vector[0] * vector[0] + vector[1] * vector[1])
     if (length === 0) return null
 
-    // 鉛直軸（下向き）: [0, 1]
-    const verticalVector: [number, number] = [0, 1]
-    
-    // ベクトルを正規化
-    const normalizedVector: [number, number] = [vector[0] / length, vector[1] / length]
-    
-    // 内積を使って角度を計算
-    const cosAngle = normalizedVector[0] * verticalVector[0] + normalizedVector[1] * verticalVector[1]
-    const clippedCosAngle = Math.max(-1, Math.min(1, cosAngle))
-    
-    // ラジアンで角度を計算
-    let angleRad = Math.acos(clippedCosAngle)
-    
-    // x成分の符号で左右を判定
-    if (vector[0] < 0) {
-      angleRad = -angleRad
-    }
+    // atan2を使用してより正確な角度計算
+    // 鉛直軸（下向き）からの角度を計算
+    // atan2(x, y) は y軸（下向き）からの角度を計算
+    const angleRad = Math.atan2(vector[0], vector[1])
     
     // 度数法に変換
     let angleDeg = (angleRad * 180) / Math.PI
@@ -230,8 +217,8 @@ const calculateAbsoluteThighAngle = (hip: KeyPoint, knee: KeyPoint): number | nu
       return null
     }
     
-    // 大腿ベクトル（膝→股関節）- バックエンドと同じ方向に修正
-    const thighVector: [number, number] = [hip.x - knee.x, hip.y - knee.y]
+    // 大腿ベクトル（股関節→膝）- 下向きベクトルにするため
+    const thighVector: [number, number] = [knee.x - hip.x, knee.y - hip.y]
     
     // 絶対角度を計算（後方を正とする）
     return calculateAbsoluteAngleWithVertical(thighVector, true)
@@ -247,8 +234,8 @@ const calculateAbsoluteLowerLegAngle = (knee: KeyPoint, ankle: KeyPoint): number
       return null
     }
     
-    // 下腿ベクトル（足首→膝）- バックエンドと同じ方向に修正
-    const lowerLegVector: [number, number] = [knee.x - ankle.x, knee.y - ankle.y]
+    // 下腿ベクトル（膝→足首）- 下向きベクトルにするため
+    const lowerLegVector: [number, number] = [ankle.x - knee.x, ankle.y - knee.y]
     
     // 絶対角度を計算（後方を正とする）
     return calculateAbsoluteAngleWithVertical(lowerLegVector, true)
