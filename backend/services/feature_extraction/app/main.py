@@ -82,9 +82,9 @@ def calculate_absolute_angle_with_vertical(vector: np.ndarray, forward_positive:
             return None
         
         # atan2を使用してより正確な角度計算
-        # 鉛直軸（下向き）からの角度を計算
-        # atan2(x, y) は y軸（下向き）からの角度を計算
-        angle_rad = np.arctan2(vector[0], vector[1])
+        # 鉛直軸（上向き）からの角度を計算
+        # atan2(x, -y) は y軸負方向（上向き）からの角度を計算
+        angle_rad = np.arctan2(vector[0], -vector[1])
         
         # 度数法に変換
         angle_deg = np.degrees(angle_rad)
@@ -498,7 +498,7 @@ def detect_running_cycles(pose_data: List[PoseFrame]) -> int:
     
     Args:
         pose_data: 骨格推定データ
-    
+        
     Returns:
         検出されたランニングサイクル数
     """

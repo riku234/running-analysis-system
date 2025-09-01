@@ -164,9 +164,9 @@ const calculateAbsoluteAngleWithVertical = (vector: [number, number], forwardPos
     if (length === 0) return null
 
     // atan2を使用してより正確な角度計算
-    // 鉛直軸（下向き）からの角度を計算
-    // atan2(x, y) は y軸（下向き）からの角度を計算
-    const angleRad = Math.atan2(vector[0], vector[1])
+    // 鉛直軸（上向き）からの角度を計算
+    // atan2(x, -y) は y軸負方向（上向き）からの角度を計算
+    const angleRad = Math.atan2(vector[0], -vector[1])
     
     // 度数法に変換
     let angleDeg = (angleRad * 180) / Math.PI
