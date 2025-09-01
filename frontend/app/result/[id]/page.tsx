@@ -457,58 +457,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            {/* 絶対角度カード */}
-            <Card className="shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Activity className="h-5 w-5 mr-2" />
-                  絶対角度解析
-                </CardTitle>
-                <div className="text-sm text-muted-foreground mt-1">
-                  鉛直軸を基準とした角度測定
-                </div>
-              </CardHeader>
-              <CardContent>
-                {result.feature_analysis?.features && (
-                  <div className="space-y-4">
-                    {/* 新仕様対応予定のメッセージ */}
-                    <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="text-lg font-bold text-blue-700">
-                        絶対角度解析システム
-                      </div>
-                      <div className="text-sm text-blue-600 mt-2">
-                        新仕様への更新中：鉛直軸を基準とした体幹・大腿・下腿の絶対角度を計算します
-                      </div>
-                      <div className="text-xs text-blue-500 mt-2">
-                        体幹角度（正: 前傾/負: 後傾）<br/>
-                        大腿・下腿角度（正: 後方/負: 前方）
-                      </div>
-                    </div>
-                    
-                    {/* 体幹角度（既存データ利用） */}
-                    {result.feature_analysis.features.trunk_angle && (
-                      <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
-                        <div className="text-lg font-bold text-green-700">
-                          体幹角度: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}°
-                        </div>
-                        <div className="text-xs text-green-600 mt-1">
-                          範囲 {result.feature_analysis.features.trunk_angle.min.toFixed(1)}°-{result.feature_analysis.features.trunk_angle.max.toFixed(1)}°
-                        </div>
-                        <div className="text-xs text-green-500 mt-1">
-                          ※ 新仕様での絶対角度に更新予定
-                        </div>
-                      </div>
-                    )}
-                </div>
-                )} 
-                {!result.feature_analysis && (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <BarChart3 className="h-8 w-8 mx-auto mb-2" />
-                    <p className="text-sm">計算中...</p>
-              </div>
-                )}
-              </CardContent>
-            </Card>
+
 
             {/* ランニングメトリクスカード */}
             <Card className="shadow-lg">
