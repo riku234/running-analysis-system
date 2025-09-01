@@ -147,11 +147,11 @@ def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[
         if hip.visibility < 0.5 or knee.visibility < 0.5:
             return None
         
-        # 大腿ベクトル（股関節→膝）- 下向きベクトルにするため
-        thigh_vector = np.array([knee.x - hip.x, knee.y - hip.y])
+        # 大腿ベクトル（膝→股関節）
+        thigh_vector = np.array([hip.x - knee.x, hip.y - knee.y])
         
-        # 絶対角度を計算（後方を正とする）
-        return calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=True)
+        # 絶対角度を計算（ベクトル逆転により符号調整）
+        return calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=False)
         
     except Exception:
         return None
@@ -167,11 +167,11 @@ def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Opt
         if knee.visibility < 0.5 or ankle.visibility < 0.5:
             return None
         
-        # 下腿ベクトル（膝→足首）- 下向きベクトルにするため
-        lower_leg_vector = np.array([ankle.x - knee.x, ankle.y - knee.y])
+        # 下腿ベクトル（足首→膝）
+        lower_leg_vector = np.array([knee.x - ankle.x, knee.y - ankle.y])
         
-        # 絶対角度を計算（後方を正とする）
-        return calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=True)
+        # 絶対角度を計算（ベクトル逆転により符号調整）
+        return calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=False)
         
     except Exception:
         return None
