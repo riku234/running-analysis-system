@@ -499,9 +499,66 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
             </h3>
             
             <div className="space-y-4">
+              {/* 角度表示 */}
+              <div className="bg-blue-50 rounded-lg p-3 text-center">
+                <h4 className="font-bold text-blue-800 mb-2">リアルタイム角度</h4>
+                
+                {/* 体幹角度 */}
+                <div className="bg-green-50 rounded-lg p-3 mb-2">
+                  <h5 className="font-medium text-green-800 mb-1">体幹角度</h5>
+                  <div className="text-lg font-bold text-green-600">
+                    {currentAbsoluteAngles.trunk_angle !== null ? 
+                      `${currentAbsoluteAngles.trunk_angle.toFixed(1)}°` : 
+                      '計算中...'}
+                  </div>
+                </div>
 
+                {/* 大腿角度 */}
+                <div className="bg-purple-50 rounded-lg p-3 mb-2">
+                  <h5 className="font-medium text-purple-800 mb-1">大腿角度</h5>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">左:</span>
+                      <div className="font-bold text-purple-600">
+                        {currentAbsoluteAngles.left_thigh_angle !== null ? 
+                          `${currentAbsoluteAngles.left_thigh_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">右:</span>
+                      <div className="font-bold text-purple-600">
+                        {currentAbsoluteAngles.right_thigh_angle !== null ? 
+                          `${currentAbsoluteAngles.right_thigh_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-
+                {/* 下腿角度 */}
+                <div className="bg-indigo-50 rounded-lg p-3">
+                  <h5 className="font-medium text-indigo-800 mb-1">下腿角度</h5>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">左:</span>
+                      <div className="font-bold text-indigo-600">
+                        {currentAbsoluteAngles.left_lower_leg_angle !== null ? 
+                          `${currentAbsoluteAngles.left_lower_leg_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">右:</span>
+                      <div className="font-bold text-indigo-600">
+                        {currentAbsoluteAngles.right_lower_leg_angle !== null ? 
+                          `${currentAbsoluteAngles.right_lower_leg_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {/* フレーム情報 */}
               <div className="bg-gray-50 rounded-lg p-3 mt-4">

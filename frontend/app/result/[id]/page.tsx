@@ -455,9 +455,53 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   </>
                 )}
               </CardContent>
+                        </Card>
+
+            {/* 関節角度カード */}
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Activity className="h-5 w-5 mr-2" />
+                  関節角度
+                </CardTitle>
+                <div className="text-sm text-muted-foreground mt-1">
+                  ランニング時の身体の角度
+                </div>
+              </CardHeader>
+              <CardContent>
+                {result.feature_analysis?.features && (
+                  <div className="space-y-4">
+                    {/* 体幹角度 */}
+                    {result.feature_analysis.features.trunk_angle && (
+                      <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+                        <div className="text-lg font-bold text-green-700">
+                          体幹角度: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}°
+                        </div>
+                        <div className="text-xs text-green-600 mt-1">
+                          平均: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}° | 
+                          範囲: {result.feature_analysis.features.trunk_angle.min.toFixed(1)}° - {result.feature_analysis.features.trunk_angle.max.toFixed(1)}°
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* データが不足している場合 */}
+                    {!result.feature_analysis.features.trunk_angle && (
+                      <div className="text-center py-6 text-muted-foreground">
+                        <Activity className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm">データ不足のため計算できませんでした</p>
+                        <p className="text-xs mt-1">より鮮明な動画での分析をお試しください</p>
+                      </div>
+                    )}
+                </div>
+                )}
+                {!result.feature_analysis && (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <BarChart3 className="h-8 w-8 mx-auto mb-2" />
+                    <p className="text-sm">計算中...</p>
+                  </div>
+                )}
+              </CardContent>
             </Card>
-
-
 
             {/* ランニングメトリクスカード */}
             <Card className="shadow-lg">
