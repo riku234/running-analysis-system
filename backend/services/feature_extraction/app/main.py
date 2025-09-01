@@ -722,6 +722,12 @@ async def extract_features(request: PoseAnalysisRequest):
             valid_values = [frame[angle_key] for frame in all_angles 
                            if frame[angle_key] is not None]
             angle_stats[angle_key] = calculate_angle_statistics(valid_values)
+            
+            # デバッグ出力: 体幹角度の統計情報
+            if angle_key == 'trunk_angle':
+                print(f"📊 体幹角度統計: {len(valid_values)}個の値から計算")
+                print(f"   平均: {angle_stats[angle_key]['avg']:.1f}°")
+                print(f"   範囲: {angle_stats[angle_key]['min']:.1f}° ～ {angle_stats[angle_key]['max']:.1f}°")
         
         # 新機能: ランニングサイクル分析（重心上下動とピッチ）
         print("🔄 ランニングサイクル分析を実行中...")
