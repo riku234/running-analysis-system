@@ -135,8 +135,15 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
         # 体幹ベクトル（肩中点→股関節中点）- 下向きベクトルで0度近辺の値にする
         trunk_vector = np.array([hip_center_x - shoulder_center_x, hip_center_y - shoulder_center_y])
         
+        # デバッグ出力を追加
+        print(f"🔍 体幹角度計算: 肩({shoulder_center_x:.3f}, {shoulder_center_y:.3f}) → 股関節({hip_center_x:.3f}, {hip_center_y:.3f})")
+        print(f"   体幹ベクトル: [{trunk_vector[0]:.3f}, {trunk_vector[1]:.3f}]")
+        
         # 絶対角度を計算（前傾を正とする）
-        return calculate_absolute_angle_with_vertical(trunk_vector, forward_positive=True)
+        angle = calculate_absolute_angle_with_vertical(trunk_vector, forward_positive=True)
+        print(f"   計算された体幹角度: {angle:.1f}°")
+        
+        return angle
         
     except Exception:
         return None
