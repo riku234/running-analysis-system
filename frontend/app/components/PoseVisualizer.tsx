@@ -147,10 +147,10 @@ const calculateTrunkAngle = (keypoints: KeyPoint[]): number | null => {
     const hipCenterX = (leftHip.x + rightHip.x) / 2
     const hipCenterY = (leftHip.y + rightHip.y) / 2
 
-    // 体幹ベクトル（肩から腰へ）- バックエンドと同じ方向に修正
-    const trunkVector: [number, number] = [hipCenterX - shoulderCenterX, hipCenterY - shoulderCenterY]
+    // 体幹ベクトル（腰から肩へ）- 上向きベクトルで0度近辺の値にする
+    const trunkVector: [number, number] = [shoulderCenterX - hipCenterX, shoulderCenterY - hipCenterY]
 
-    // 絶対角度計算関数を使用（バックエンドと同じロジック）
+    // 絶対角度計算関数を使用（上向き鉛直軸で計算）
     return calculateAbsoluteAngleWithVertical(trunkVector, true)
   } catch (error) {
     return null
@@ -200,10 +200,10 @@ const calculateAbsoluteTrunkAngle = (keypoints: KeyPoint[]): number | null => {
     const hipCenterX = (leftHip.x + rightHip.x) / 2
     const hipCenterY = (leftHip.y + rightHip.y) / 2
     
-    // 体幹ベクトル（肩中点→股関節中点）- バックエンドと同じ方向に修正
-    const trunkVector: [number, number] = [hipCenterX - shoulderCenterX, hipCenterY - shoulderCenterY]
+    // 体幹ベクトル（股関節中点→肩中点）- 上向きベクトルで0度近辺の値にする
+    const trunkVector: [number, number] = [shoulderCenterX - hipCenterX, shoulderCenterY - hipCenterY]
     
-    // 絶対角度を計算（前傾を正とする）
+    // 絶対角度を計算（上向き鉛直軸で計算）
     return calculateAbsoluteAngleWithVertical(trunkVector, true)
   } catch (error) {
     return null

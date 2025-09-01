@@ -120,8 +120,8 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
         hip_center_x = (left_hip.x + right_hip.x) / 2
         hip_center_y = (left_hip.y + right_hip.y) / 2
         
-        # 体幹ベクトル（肩中点→股関節中点）- 下向きベクトルで0度近辺の値にする
-        trunk_vector = np.array([hip_center_x - shoulder_center_x, hip_center_y - shoulder_center_y])
+        # 体幹ベクトル（股関節中点→肩中点）- 上向きベクトルで0度近辺の値にする
+        trunk_vector = np.array([shoulder_center_x - hip_center_x, shoulder_center_y - hip_center_y])
         
         # デバッグ出力を追加
         print(f"🔍 体幹角度計算: 肩({shoulder_center_x:.3f}, {shoulder_center_y:.3f}) → 股関節({hip_center_x:.3f}, {hip_center_y:.3f})")
