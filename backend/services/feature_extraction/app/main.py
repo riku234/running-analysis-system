@@ -151,19 +151,19 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
 def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[float]:
     """
     大腿角度を計算する
-    定義: 大腿ベクトル（股関節→膝）と鉛直軸がなす角度
-    正: 膝が股関節より後方、負: 膝が股関節より前方
+    定義: 大腿ベクトル（膝→股関節）と鉛直軸がなす角度
+    正: 膝が股関節より後方（離地時）、負: 膝が股関節より前方（接地時）
     """
     try:
         # キーポイントの有効性を確認
         if hip.visibility < 0.5 or knee.visibility < 0.5:
             return None
         
-        # 大腿ベクトル（股関節→膝）
-        thigh_vector = np.array([knee.x - hip.x, knee.y - hip.y])
+        # 大腿ベクトル（膝→股関節）
+        thigh_vector = np.array([hip.x - knee.x, hip.y - knee.y])
         
         # 絶対角度を計算（後方を正とする）
-        return calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=False)
+        return calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=True)
         
     except Exception:
         return None
@@ -171,19 +171,19 @@ def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[
 def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Optional[float]:
     """
     下腿角度を計算する
-    定義: 下腿ベクトル（膝→足首）と鉛直軸がなす角度
-    正: 足首が膝より後方、負: 足首が膝より前方
+    定義: 下腿ベクトル（足首→膝）と鉛直軸がなす角度
+    正: 足首が膝より後方（離地時）、負: 足首が膝より前方（接地時）
     """
     try:
         # キーポイントの有効性を確認
         if knee.visibility < 0.5 or ankle.visibility < 0.5:
             return None
         
-        # 下腿ベクトル（膝→足首）
-        lower_leg_vector = np.array([ankle.x - knee.x, ankle.y - knee.y])
+        # 下腿ベクトル（足首→膝）
+        lower_leg_vector = np.array([knee.x - ankle.x, knee.y - ankle.y])
         
         # 絶対角度を計算（後方を正とする）
-        return calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=False)
+        return calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=True)
         
     except Exception:
         return None
