@@ -100,9 +100,10 @@ def calculate_absolute_angle_with_vertical(vector: np.ndarray, forward_positive:
 
 def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
     """
-    体幹角度を計算する
-    定義: 体幹ベクトル（肩中点→股関節中点）と鉛直軸がなす角度
-    正: 前傾、負: 後傾
+    体幹角度を計算する（正しい符号規則）
+    定義: 腰から肩への直線ベクトルと鉛直軸がなす角度
+    ・前傾で正値
+    ・後傾で負値
     """
     try:
         left_shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
@@ -120,16 +121,17 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
         hip_center_x = (left_hip.x + right_hip.x) / 2
         hip_center_y = (left_hip.y + right_hip.y) / 2
         
-        # 体幹ベクトル（股関節中点→肩中点）- 上向きベクトルで0度近辺の値にする
+        # 体幹ベクトル（股関節中点→肩中点）- 腰から肩への直線ベクトル
         trunk_vector = np.array([shoulder_center_x - hip_center_x, shoulder_center_y - hip_center_y])
         
         # デバッグ出力を追加
-        print(f"🔍 体幹角度計算: 肩({shoulder_center_x:.3f}, {shoulder_center_y:.3f}) → 股関節({hip_center_x:.3f}, {hip_center_y:.3f})")
+        print(f"🔍 体幹角度計算: 股関節({hip_center_x:.3f}, {hip_center_y:.3f}) → 肩({shoulder_center_x:.3f}, {shoulder_center_y:.3f})")
         print(f"   体幹ベクトル: [{trunk_vector[0]:.3f}, {trunk_vector[1]:.3f}]")
         
-        # 絶対角度を計算（前傾を正とする）
+        # 正しい符号規則: 前傾で正値、後傾で負値
+        # forward_positive=True で前方（右）への傾きを正値にする
         angle = calculate_absolute_angle_with_vertical(trunk_vector, forward_positive=True)
-        print(f"   計算された体幹角度: {angle:.1f}°")
+        print(f"   計算された体幹角度: {angle:.1f}° (前傾で正値、後傾で負値)")
         
         return angle
         
@@ -138,9 +140,10 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
 
 def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[float]:
     """
-    大腿角度を計算する
+    大腿角度を計算する（進行方向：左→右固定）
     定義: 大腿ベクトル（膝→股関節）と鉛直軸がなす角度
-    正: 膝が股関節より後方（離地時）、負: 膝が股関節より前方（接地時）
+    ・正値：膝関節点が後方に位置（※参考　離地時）
+    ・負値：膝関節点が前方に位置（※参考　接地時）
     """
     try:
         # キーポイントの有効性を確認
@@ -150,17 +153,25 @@ def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[
         # 大腿ベクトル（膝→股関節）
         thigh_vector = np.array([hip.x - knee.x, hip.y - knee.y])
         
-        # 絶対角度を計算（ベクトル逆転により符号調整）
-        return calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=False)
+        print(f"   🦵 {side}大腿ベクトル: [{thigh_vector[0]:.3f}, {thigh_vector[1]:.3f}] (膝→股関節)")
+        
+        # 絶対角度を計算（フロントエンドリアルタイム表示と一致）
+        raw_angle = calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=False)
+        angle = -raw_angle  # フロントエンドと同じ符号反転
+        
+        print(f"   🦵 {side}大腿角度: {angle:.1f}° (膝が後方で正値)")
+        
+        return angle
         
     except Exception:
         return None
 
 def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Optional[float]:
     """
-    下腿角度を計算する
+    下腿角度を計算する（進行方向：左→右固定）
     定義: 下腿ベクトル（足首→膝）と鉛直軸がなす角度
-    正: 足首が膝より後方（離地時）、負: 足首が膝より前方（接地時）
+    ・正値：足関節点が後方に位置（※参考　離地時）
+    ・負値：足関節点が前方に位置（※参考　接地時）
     """
     try:
         # キーポイントの有効性を確認
@@ -170,8 +181,15 @@ def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Opt
         # 下腿ベクトル（足首→膝）
         lower_leg_vector = np.array([knee.x - ankle.x, knee.y - ankle.y])
         
-        # 絶対角度を計算（ベクトル逆転により符号調整）
-        return calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=False)
+        print(f"   🦵 {side}下腿ベクトル: [{lower_leg_vector[0]:.3f}, {lower_leg_vector[1]:.3f}] (足首→膝)")
+        
+        # 絶対角度を計算（フロントエンドリアルタイム表示と一致）
+        raw_angle = calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=False)
+        angle = -raw_angle  # フロントエンドと同じ符号反転
+        
+        print(f"   🦵 {side}下腿角度: {angle:.1f}° (足首が後方で正値)")
+        
+        return angle
         
     except Exception:
         return None
@@ -680,6 +698,13 @@ async def extract_features(request: PoseAnalysisRequest):
     try:
         print("🔄 特徴量抽出サービス開始")
         print(f"📊 処理フレーム数: {len(request.pose_data)}")
+        
+        # 進行方向を左→右に固定
+        print("🔒 進行方向を左→右に固定設定")
+        print("📐 角度符号規則:")
+        print("   ・体幹角度: 左傾き=後傾で正値、右傾き=前傾で正値")
+        print("   ・大腿角度: 膝が後方で正値、前方で負値")
+        print("   ・下腿角度: 足首が後方で正値、前方で負値")
         
         # 各フレームから角度を抽出
         all_angles = []

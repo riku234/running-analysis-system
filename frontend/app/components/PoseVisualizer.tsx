@@ -220,8 +220,9 @@ const calculateAbsoluteThighAngle = (hip: KeyPoint, knee: KeyPoint): number | nu
     // 大腿ベクトル（膝→股関節）
     const thighVector: [number, number] = [hip.x - knee.x, hip.y - knee.y]
     
-    // 絶対角度を計算（ベクトル逆転により符号調整）
-    return calculateAbsoluteAngleWithVertical(thighVector, false)
+    // 絶対角度を計算（ユーザー報告に基づき符号反転が必要）
+    const rawAngle = calculateAbsoluteAngleWithVertical(thighVector, false)
+    return rawAngle !== null ? -rawAngle : null
   } catch (error) {
     return null
   }
@@ -237,8 +238,9 @@ const calculateAbsoluteLowerLegAngle = (knee: KeyPoint, ankle: KeyPoint): number
     // 下腿ベクトル（足首→膝）
     const lowerLegVector: [number, number] = [knee.x - ankle.x, knee.y - ankle.y]
     
-    // 絶対角度を計算（ベクトル逆転により符号調整）
-    return calculateAbsoluteAngleWithVertical(lowerLegVector, false)
+    // 絶対角度を計算（ユーザー報告に基づき符号反転が必要）
+    const rawAngle = calculateAbsoluteAngleWithVertical(lowerLegVector, false)
+    return rawAngle !== null ? -rawAngle : null
   } catch (error) {
     return null
   }

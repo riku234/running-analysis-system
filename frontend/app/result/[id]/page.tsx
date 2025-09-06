@@ -63,6 +63,15 @@ interface AnalysisResult {
     status: string
     message: string
     features: {
+      // 新しい絶対角度データ（feature_extractionサービスから）
+      angle_statistics?: {
+        trunk_angle?: { avg: number; min: number; max: number }
+        left_thigh_angle?: { avg: number; min: number; max: number }
+        right_thigh_angle?: { avg: number; min: number; max: number }
+        left_lower_leg_angle?: { avg: number; min: number; max: number }
+        right_lower_leg_angle?: { avg: number; min: number; max: number }
+      }
+      // 従来の関節角度データ（analysisサービスから）
       trunk_angle?: { avg: number; min: number; max: number }
       left_hip_angle?: { avg: number; min: number; max: number }
       right_hip_angle?: { avg: number; min: number; max: number }
@@ -469,27 +478,127 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 </div>
               </CardHeader>
               <CardContent>
-                {result.feature_analysis?.features && (
+                {/* 新しい絶対角度データを優先して表示 */}
+                {result.feature_analysis?.features?.angle_statistics && (
                   <div className="space-y-4">
                     {/* 体幹角度 */}
-                    {result.feature_analysis.features.trunk_angle && (
+                    {result.feature_analysis.features.angle_statistics.trunk_angle && (
                       <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
                         <div className="text-lg font-bold text-green-700">
-                          体幹角度: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}°
+                          体幹角度
                         </div>
-                        <div className="text-xs text-green-600 mt-1">
-                          平均: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}° | 
-                          範囲: {result.feature_analysis.features.trunk_angle.min.toFixed(1)}° - {result.feature_analysis.features.trunk_angle.max.toFixed(1)}°
+                        <div className="text-sm font-semibold text-green-600 mt-1">
+                          平均: {result.feature_analysis.features.angle_statistics.trunk_angle.avg.toFixed(1)}° | 
+                          最小: {result.feature_analysis.features.angle_statistics.trunk_angle.min.toFixed(1)}° | 
+                          最大: {result.feature_analysis.features.angle_statistics.trunk_angle.max.toFixed(1)}°
+                        </div>
+                        <div className="text-xs text-green-500 mt-2">
+                          腰から肩への直線ベクトルと鉛直軸の角度（前傾で正値、後傾で負値）
                         </div>
                       </div>
                     )}
-                    
-                    {/* データが不足している場合 */}
-                    {!result.feature_analysis.features.trunk_angle && (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Activity className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm">データ不足のため計算できませんでした</p>
-                        <p className="text-xs mt-1">より鮮明な動画での分析をお試しください</p>
+
+                    {/* 大腿角度 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* 左大腿角度 */}
+                      {result.feature_analysis.features.angle_statistics.left_thigh_angle && (
+                        <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+                          <div className="text-lg font-bold text-purple-700">
+                            左大腿角度
+                          </div>
+                          <div className="text-sm font-semibold text-purple-600 mt-1">
+                            平均: {result.feature_analysis.features.angle_statistics.left_thigh_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-purple-600">
+                            最小: {result.feature_analysis.features.angle_statistics.left_thigh_angle.min.toFixed(1)}° | 
+                            最大: {result.feature_analysis.features.angle_statistics.left_thigh_angle.max.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-purple-500 mt-2">
+                            膝関節点から股関節点に向かうベクトルと鉛直軸の角度（膝が後方で正値）
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 右大腿角度 */}
+                      {result.feature_analysis.features.angle_statistics.right_thigh_angle && (
+                        <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+                          <div className="text-lg font-bold text-purple-700">
+                            右大腿角度
+                          </div>
+                          <div className="text-sm font-semibold text-purple-600 mt-1">
+                            平均: {result.feature_analysis.features.angle_statistics.right_thigh_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-purple-600">
+                            最小: {result.feature_analysis.features.angle_statistics.right_thigh_angle.min.toFixed(1)}° | 
+                            最大: {result.feature_analysis.features.angle_statistics.right_thigh_angle.max.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-purple-500 mt-2">
+                            膝関節点から股関節点に向かうベクトルと鉛直軸の角度（膝が後方で正値）
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 下腿角度 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* 左下腿角度 */}
+                      {result.feature_analysis.features.angle_statistics.left_lower_leg_angle && (
+                        <div className="text-center p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                          <div className="text-lg font-bold text-indigo-700">
+                            左下腿角度
+                          </div>
+                          <div className="text-sm font-semibold text-indigo-600 mt-1">
+                            平均: {result.feature_analysis.features.angle_statistics.left_lower_leg_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-indigo-600">
+                            最小: {result.feature_analysis.features.angle_statistics.left_lower_leg_angle.min.toFixed(1)}° | 
+                            最大: {result.feature_analysis.features.angle_statistics.left_lower_leg_angle.max.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-indigo-500 mt-2">
+                            足関節点から膝関節点に向かうベクトルと鉛直軸の角度（足が後方で正値）
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 右下腿角度 */}
+                      {result.feature_analysis.features.angle_statistics.right_lower_leg_angle && (
+                        <div className="text-center p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                          <div className="text-lg font-bold text-indigo-700">
+                            右下腿角度
+                          </div>
+                          <div className="text-sm font-semibold text-indigo-600 mt-1">
+                            平均: {result.feature_analysis.features.angle_statistics.right_lower_leg_angle.avg.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-indigo-600">
+                            最小: {result.feature_analysis.features.angle_statistics.right_lower_leg_angle.min.toFixed(1)}° | 
+                            最大: {result.feature_analysis.features.angle_statistics.right_lower_leg_angle.max.toFixed(1)}°
+                          </div>
+                          <div className="text-xs text-indigo-500 mt-2">
+                            足関節点から膝関節点に向かうベクトルと鉛直軸の角度（足が後方で正値）
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 従来の関節角度データにフォールバック（新データがない場合） */}
+                {!result.feature_analysis?.features?.angle_statistics && result.feature_analysis?.features && (
+                  <div className="space-y-4">
+                    {/* 従来の体幹角度表示（データ不足メッセージを削除） */}
+                    {result.feature_analysis.features.trunk_angle && (
+                      <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+                        <div className="text-lg font-bold text-green-700">
+                          体幹角度
+                        </div>
+                        <div className="text-sm font-semibold text-green-600 mt-1">
+                          平均: {result.feature_analysis.features.trunk_angle.avg.toFixed(1)}° | 
+                          最小: {result.feature_analysis.features.trunk_angle.min.toFixed(1)}° | 
+                          最大: {result.feature_analysis.features.trunk_angle.max.toFixed(1)}°
+                        </div>
+                        <div className="text-xs text-green-500 mt-2">
+                          腰から肩への直線ベクトルと鉛直軸の角度（前傾で正値、後傾で負値）
+                        </div>
                       </div>
                     )}
                 </div>
