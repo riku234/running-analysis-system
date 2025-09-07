@@ -9,7 +9,7 @@ set -e
 echo "🚀 AWS EC2での迅速なサービス起動を開始..."
 
 # 設定
-EC2_IP="3.25.216.89"
+EC2_IP="54.206.3.155"
 KEY_FILE="/Users/onoriku/Downloads/Runners Insight Key.pem"
 
 echo "📡 EC2への接続確認..."
