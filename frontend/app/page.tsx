@@ -215,6 +215,7 @@ export default function HomePage() {
         setUploadInfo(result.upload_info)
       }
 
+
       // 軽量なデータのみをlocalStorageに保存（詳細ログ除外）
       const lightWeightResult = {
         status: result.status,
@@ -228,8 +229,15 @@ export default function HomePage() {
           // pose_dataは除外（Zustandに保存済み）
         },
         feature_analysis: {
-          // 統計値のみ保存、詳細ログは除外
+          status: result.feature_analysis?.status,
+          message: result.feature_analysis?.message,
+          // 新しいangle_statisticsと従来データの両方を保存
           features: result.feature_analysis?.features ? {
+            // 新仕様の絶対角度データ
+            angle_statistics: result.feature_analysis.features.angle_statistics,
+            // 新仕様のランニングメトリクス
+            running_metrics: result.feature_analysis.features.running_metrics,
+            // 従来データ（後方互換性のため）
             trunk_angle: result.feature_analysis.features.trunk_angle,
             left_thigh_angle: result.feature_analysis.features.left_thigh_angle,
             right_thigh_angle: result.feature_analysis.features.right_thigh_angle,

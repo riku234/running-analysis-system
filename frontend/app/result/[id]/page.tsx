@@ -81,6 +81,11 @@ interface AnalysisResult {
       right_ankle_angle?: { avg: number; min: number; max: number }
       left_elbow_angle?: { avg: number; min: number; max: number }
       right_elbow_angle?: { avg: number; min: number; max: number }
+      // ランニングメトリクス
+      running_metrics?: {
+        vertical_oscillation?: number
+        pitch?: number
+      }
       // 後方互換性のため旧フィールドも保持
       knee_angle?: number
       cadence?: number
@@ -170,6 +175,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         
         // localStorageから軽量な結果データを取得
         const savedResult = localStorage.getItem(`light_analysis_result_${params.id}`)
+        console.log("🔍 localStorage確認:", {
+          key: `light_analysis_result_${params.id}`,
+          exists: !!savedResult,
+          dataLength: savedResult?.length || 0
+        })
+        
         if (savedResult) {
           const lightResult = JSON.parse(savedResult)
           
@@ -183,34 +194,16 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             }
           }
           
-          // ★★★ データの内容をデバッグ ★★★
-          console.log("📊 localStorage軽量データ:", lightResult)
-          console.log("📊 Zustandのpose_data長さ:", poseData?.length || 0)
-          console.log("📊 完成したcompleteResult:", completeResult)
-          console.log("📊 pose_analysis.pose_data長さ:", completeResult.pose_analysis.pose_data?.length || 0)
-          
-          // ★★★ アドバイスデータのデバッグ ★★★
-          console.log("============================================================")
-          console.log("💡 [FRONTEND] アドバイスデータの確認:")
-          console.log("   - advice_analysis存在:", !!completeResult.advice_analysis)
-          console.log("   - advice_results存在:", !!completeResult.advice_results)
-          if (completeResult.advice_analysis) {
-            console.log("   - advice_analysis内容:", completeResult.advice_analysis)
-            console.log("   - advice_listの長さ:", completeResult.advice_analysis.advice_list?.length || 0)
-          }
-          if (completeResult.advice_results) {
-            console.log("   - advice_results内容:", completeResult.advice_results)
-            console.log("   - advice_results.advice_listの長さ:", completeResult.advice_results.advice_list?.length || 0)
-          }
-          console.log("============================================================")
           
           setResult(completeResult)
           setLoading(false)
           return
         }
         
-        // localStorageにデータがない場合はダミーデータで動作確認
-    setTimeout(() => {
+        // localStorageにデータがない場合はダミーデータを表示
+
+        // ダミーデータで動作確認（実データの構造を模擬）
+        setTimeout(() => {
       setResult({
             status: "success",
             message: "動画アップロード、骨格解析、特徴量計算が完了しました",
@@ -244,8 +237,17 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             },
             feature_analysis: {
               status: "success",
-              message: "300フレームから特徴量を抽出しました",
+              message: "絶対角度・重心上下動・ピッチの特徴量抽出が完了しました（ダミーデータ表示中）",
               features: {
+                // 新しい絶対角度データ（正しい符号規則）
+                angle_statistics: {
+                  trunk_angle: { avg: 5.2, min: -8.1, max: 18.3 },     // 前傾で正値、後傾で負値
+                  left_thigh_angle: { avg: -12.4, min: -35.7, max: 15.2 },   // 膝が後方で正値、前方で負値
+                  right_thigh_angle: { avg: -11.8, min: -34.1, max: 16.7 },  // 膝が後方で正値、前方で負値
+                  left_lower_leg_angle: { avg: -8.7, min: -25.3, max: 12.1 }, // 足首が後方で正値、前方で負値
+                  right_lower_leg_angle: { avg: -9.2, min: -24.8, max: 13.4 } // 足首が後方で正値、前方で負値
+                },
+                // 従来の関節角度データ（analysisサービスから）
                 trunk_angle: { avg: 15.2, min: 12.1, max: 18.5 },
                 left_hip_angle: { avg: 140.8, min: 110.3, max: 165.2 },
                 right_hip_angle: { avg: 142.1, min: 112.5, max: 168.0 },
@@ -255,10 +257,15 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 right_ankle_angle: { avg: 86.1, min: 72.3, max: 98.2 },
                 left_elbow_angle: { avg: 95.7, min: 75.4, max: 115.8 },
                 right_elbow_angle: { avg: 94.8, min: 74.9, max: 114.5 },
-                // 後方互換性のため - デバッグ情報は非表示
-                // cadence: 182.0,
-                // stride_length: 1.35,
-                // contact_time: 245.5
+                // ランニングメトリクス
+                running_metrics: {
+                  vertical_oscillation: 0.067, // 6.7%
+                  pitch: 182 // 182 SPM
+                },
+                // 従来のメトリクス
+                cadence: 182.0,
+                stride_length: 1.35,
+                contact_time: 245.5
               },
               analysis_details: {
                 total_frames_analyzed: 0,
@@ -359,10 +366,10 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* 2カラムレイアウト */}
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* 左カラム：動画プレイヤー（2/3幅） */}
-          <div className="lg:col-span-2">
+        {/* 2カラムレイアウト - 動画と解析結果を横並び */}
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* 左カラム：動画プレイヤー（1/2幅） */}
+          <div>
             <Card className="shadow-xl">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -427,7 +434,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             </Card>
           </div>
 
-          {/* 右カラム：解析結果（1/3幅） */}
+          {/* 右カラム：解析結果（1/2幅） */}
           <div className="space-y-6">
             <Card className="shadow-lg">
               <CardHeader>
@@ -478,6 +485,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 </div>
               </CardHeader>
               <CardContent>
+
                 {/* 新しい絶対角度データを優先して表示 */}
                 {result.feature_analysis?.features?.angle_statistics && (
                   <div className="space-y-4">
@@ -585,7 +593,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 {/* 従来の関節角度データにフォールバック（新データがない場合） */}
                 {!result.feature_analysis?.features?.angle_statistics && result.feature_analysis?.features && (
                   <div className="space-y-4">
-                    {/* 従来の体幹角度表示（データ不足メッセージを削除） */}
+                    {/* 従来の体幹角度表示 */}
                     {result.feature_analysis.features.trunk_angle && (
                       <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
                         <div className="text-lg font-bold text-green-700">
@@ -601,9 +609,104 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         </div>
                       </div>
                     )}
+
+                    {/* 従来の関節角度データ表示 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* 股関節角度 */}
+                      {(result.feature_analysis.features.left_hip_angle || result.feature_analysis.features.right_hip_angle) && (
+                        <>
+                          {result.feature_analysis.features.left_hip_angle && (
+                            <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                              <div className="text-lg font-bold text-blue-700">左股関節角度</div>
+                              <div className="text-sm font-semibold text-blue-600 mt-1">
+                                平均: {result.feature_analysis.features.left_hip_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-blue-600">
+                                最小: {result.feature_analysis.features.left_hip_angle.min.toFixed(1)}° | 
+                                最大: {result.feature_analysis.features.left_hip_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                          {result.feature_analysis.features.right_hip_angle && (
+                            <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                              <div className="text-lg font-bold text-blue-700">右股関節角度</div>
+                              <div className="text-sm font-semibold text-blue-600 mt-1">
+                                平均: {result.feature_analysis.features.right_hip_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-blue-600">
+                                最小: {result.feature_analysis.features.right_hip_angle.min.toFixed(1)}° | 
+                                最大: {result.feature_analysis.features.right_hip_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* 膝関節角度 */}
+                      {(result.feature_analysis.features.left_knee_angle || result.feature_analysis.features.right_knee_angle) && (
+                        <>
+                          {result.feature_analysis.features.left_knee_angle && (
+                            <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+                              <div className="text-lg font-bold text-purple-700">左膝関節角度</div>
+                              <div className="text-sm font-semibold text-purple-600 mt-1">
+                                平均: {result.feature_analysis.features.left_knee_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-purple-600">
+                                最小: {result.feature_analysis.features.left_knee_angle.min.toFixed(1)}° | 
+                                最大: {result.feature_analysis.features.left_knee_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                          {result.feature_analysis.features.right_knee_angle && (
+                            <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+                              <div className="text-lg font-bold text-purple-700">右膝関節角度</div>
+                              <div className="text-sm font-semibold text-purple-600 mt-1">
+                                平均: {result.feature_analysis.features.right_knee_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-purple-600">
+                                最小: {result.feature_analysis.features.right_knee_angle.min.toFixed(1)}° | 
+                                最大: {result.feature_analysis.features.right_knee_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* 足関節角度 */}
+                      {(result.feature_analysis.features.left_ankle_angle || result.feature_analysis.features.right_ankle_angle) && (
+                        <>
+                          {result.feature_analysis.features.left_ankle_angle && (
+                            <div className="text-center p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                              <div className="text-lg font-bold text-indigo-700">左足関節角度</div>
+                              <div className="text-sm font-semibold text-indigo-600 mt-1">
+                                平均: {result.feature_analysis.features.left_ankle_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-indigo-600">
+                                最小: {result.feature_analysis.features.left_ankle_angle.min.toFixed(1)}° | 
+                                最大: {result.feature_analysis.features.left_ankle_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                          {result.feature_analysis.features.right_ankle_angle && (
+                            <div className="text-center p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                              <div className="text-lg font-bold text-indigo-700">右足関節角度</div>
+                              <div className="text-sm font-semibold text-indigo-600 mt-1">
+                                平均: {result.feature_analysis.features.right_ankle_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-indigo-600">
+                                最小: {result.feature_analysis.features.right_ankle_angle.min.toFixed(1)}° | 
+                                最大: {result.feature_analysis.features.right_ankle_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                 </div>
                 )}
-                {!result.feature_analysis && (
+
+                {/* データが存在しない場合の表示（新しいデザインに合わせて改善） */}
+                {!result.feature_analysis?.features?.angle_statistics && !result.feature_analysis?.features && (
                   <div className="text-center py-6 text-muted-foreground">
                     <BarChart3 className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">計算中...</p>
@@ -655,10 +758,63 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         </div>
                       </div>
                     )}
+
+                    {/* 従来のメトリクス表示（新しいrunning_metricsがない場合） */}
+                    {!(result.feature_analysis.features as any)?.running_metrics && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* ケイデンス */}
+                        {result.feature_analysis.features.cadence && (
+                          <div className="text-center p-4 bg-cyan-50 rounded-lg border border-cyan-200">
+                            <div className="text-lg font-bold text-cyan-700">
+                              ケイデンス: {result.feature_analysis.features.cadence.toFixed(0)} SPM
+                            </div>
+                            <div className="text-xs text-cyan-600 mt-1">
+                              1分間あたりの歩数
+                            </div>
+                            <div className="text-xs text-cyan-500 mt-1">
+                              理想値: 180 SPM前後
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* ストライド長 */}
+                        {result.feature_analysis.features.stride_length && (
+                          <div className="text-center p-4 bg-teal-50 rounded-lg border border-teal-200">
+                            <div className="text-lg font-bold text-teal-700">
+                              ストライド長: {result.feature_analysis.features.stride_length.toFixed(2)}m
+                            </div>
+                            <div className="text-xs text-teal-600 mt-1">
+                              1歩あたりの距離
+                            </div>
+                            <div className="text-xs text-teal-500 mt-1">
+                              身長の約0.8倍が理想
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* 接地時間 */}
+                        {result.feature_analysis.features.contact_time && (
+                          <div className="text-center p-4 bg-amber-50 rounded-lg border border-amber-200">
+                            <div className="text-lg font-bold text-amber-700">
+                              接地時間: {result.feature_analysis.features.contact_time.toFixed(0)}ms
+                            </div>
+                            <div className="text-xs text-amber-600 mt-1">
+                              足が地面に接している時間
+                            </div>
+                            <div className="text-xs text-amber-500 mt-1">
+                              短いほど効率的（200-250ms程度）
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     
-                    {/* データが不足している場合 */}
-                    {(!(result.feature_analysis.features as any)?.running_metrics?.vertical_oscillation && 
-                      !(result.feature_analysis.features as any)?.running_metrics?.pitch) && (
+                    {/* データが不足している場合（すべてのメトリクスがない場合のみ） */}
+                    {!(result.feature_analysis.features as any)?.running_metrics?.vertical_oscillation && 
+                     !(result.feature_analysis.features as any)?.running_metrics?.pitch &&
+                     !result.feature_analysis.features.cadence &&
+                     !result.feature_analysis.features.stride_length &&
+                     !result.feature_analysis.features.contact_time && (
                       <div className="text-center py-6 text-muted-foreground">
                         <Activity className="h-8 w-8 mx-auto mb-2" />
                         <p className="text-sm">データ不足のため計算できませんでした</p>
