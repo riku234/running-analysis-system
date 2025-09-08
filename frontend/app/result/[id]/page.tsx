@@ -17,6 +17,39 @@ import { Button } from '@/components/ui/button'
 import PoseVisualizer from '@/app/components/PoseVisualizer'
 import { useResultStore } from '@/lib/store'
 
+interface ComparisonResult {
+  status: string
+  message?: string
+  comparison_data?: {
+    status: string
+    comparison_results: {
+      [indicator: string]: {
+        user_data: any
+        standard_data: any
+        differences: {
+          [stat: string]: {
+            user_value: number
+            standard_value: number
+            difference: number
+            percentage_diff: number
+            statistical_judgment: string
+            needs_improvement: boolean
+          }
+        }
+      }
+    }
+    summary: {
+      total_indicators: number
+      indicators_compared: string[]
+    }
+  }
+  analysis_summary?: {
+    total_indicators: number
+    issues_detected: number
+    indicators_compared: string[]
+  }
+}
+
 interface AnalysisResult {
   status: string
   message: string
@@ -154,9 +187,49 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   const [loading, setLoading] = useState(true)
   const [debugInfo, setDebugInfo] = useState<any>(null)
   const [zustandSaveLog, setZustandSaveLog] = useState<string>("")
+  const [comparisonData, setComparisonData] = useState<ComparisonResult | null>(null)
+  const [comparisonLoading, setComparisonLoading] = useState(false)
   
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
+
+  // ユーザー統計値と標準モデルの比較を実行
+  const fetchComparison = async (userStats: any) => {
+    if (!userStats || comparisonLoading) return
+
+    setComparisonLoading(true)
+    try {
+      console.log('🔍 比較データ取得開始:', userStats)
+      
+      const response = await fetch('/api/feature_extraction/compare_with_standard', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userStats),
+      })
+
+      if (!response.ok) {
+        throw new Error(`比較API呼び出しエラー: ${response.status}`)
+      }
+
+      const comparisonResult = await response.json()
+      console.log('📊 比較結果取得完了:', comparisonResult)
+      
+      // レスポンスデータの構造を検証
+      if (comparisonResult && typeof comparisonResult === 'object') {
+        setComparisonData(comparisonResult)
+      } else {
+        console.error('❌ 無効な比較データ構造:', comparisonResult)
+        setComparisonData({ status: 'error', message: '比較データの構造が無効です' })
+      }
+    } catch (error) {
+      console.error('❌ 比較データ取得エラー:', error)
+      setComparisonData({ status: 'error', message: `比較データ取得に失敗しました: ${error}` })
+    } finally {
+      setComparisonLoading(false)
+    }
+  }
 
   useEffect(() => {
     const fetchResult = async () => {
@@ -197,6 +270,25 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           
           setResult(completeResult)
           setLoading(false)
+          
+          // angle_statisticsが存在する場合、比較を実行
+          if (completeResult.feature_analysis?.features?.angle_statistics) {
+            console.log('📊 angle_statistics発見、比較処理開始...')
+            
+            // avgをmeanに変換
+            const convertedStats: any = {}
+            Object.entries(completeResult.feature_analysis.features.angle_statistics).forEach(([key, value]: [string, any]) => {
+              convertedStats[key] = {
+                mean: value.avg,
+                avg: value.avg,
+                min: value.min,
+                max: value.max
+              }
+            })
+            
+            fetchComparison(convertedStats)
+          }
+          
           return
         }
         
@@ -288,10 +380,21 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 total_issues: 1,
                 overall_assessment: "1つの改善点が見つかりました"
               }
+            }
+        })
+        setLoading(false)
+        
+        // ダミーデータの場合も比較を実行
+        const dummyStats = {
+          trunk_angle: { mean: 5.2, avg: 5.2, min: -8.1, max: 18.3 },
+          left_thigh_angle: { mean: -12.4, avg: -12.4, min: -35.7, max: 15.2 },
+          right_thigh_angle: { mean: -11.8, avg: -11.8, min: -34.1, max: 16.7 },
+          left_lower_leg_angle: { mean: -8.7, avg: -8.7, min: -25.3, max: 12.1 },
+          right_lower_leg_angle: { mean: -9.2, avg: -9.2, min: -24.8, max: 13.4 }
         }
-      })
-      setLoading(false)
-    }, 1500)
+        console.log('📊 ダミーデータで比較処理開始...')
+        fetchComparison(dummyStats)
+      }, 1500)
       } catch (error) {
         console.error('結果取得エラー:', error)
         setLoading(false)
@@ -827,6 +930,151 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   <div className="text-center py-6 text-muted-foreground">
                     <Activity className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">計算中...</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 標準モデル比較カード */}
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <BarChart3 className="h-5 w-5 mr-2" />
+                  フォーム比較分析
+                </CardTitle>
+                <CardDescription>
+                  あなたのランニングフォームと標準モデルとの詳細比較
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {comparisonLoading ? (
+                  <div className="text-center py-6">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-primary" />
+                    <p className="text-sm text-muted-foreground">標準モデルと比較中...</p>
+                  </div>
+                ) : comparisonData?.status === 'success' && comparisonData?.comparison_data?.comparison_results ? (
+                  <div className="space-y-6">
+                    {/* 比較サマリー */}
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
+                      <div className="grid grid-cols-3 gap-4 text-center">
+                        <div>
+                          <div className="text-2xl font-bold text-blue-700">
+                            {comparisonData.comparison_data?.summary?.total_indicators || 0}
+                          </div>
+                          <div className="text-sm text-blue-600">比較項目数</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-bold text-red-600">
+                            {(() => {
+                              // 改善推奨項目数を計算
+                              const results = comparisonData.comparison_data?.comparison_results || {}
+                              let issuesDetected = 0
+                              Object.values(results).forEach((indicator: any) => {
+                                Object.values(indicator?.differences || {}).forEach((diff: any) => {
+                                  if (diff?.needs_improvement) issuesDetected++
+                                })
+                              })
+                              return issuesDetected
+                            })()}
+                          </div>
+                          <div className="text-sm text-red-500">改善推奨項目</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-bold text-green-600">
+                            {(() => {
+                              // 正常範囲項目数を計算
+                              const results = comparisonData.comparison_data?.comparison_results || {}
+                              let totalItems = 0
+                              let issuesDetected = 0
+                              Object.values(results).forEach((indicator: any) => {
+                                Object.values(indicator?.differences || {}).forEach((diff: any) => {
+                                  totalItems++
+                                  if (diff?.needs_improvement) issuesDetected++
+                                })
+                              })
+                              return totalItems - issuesDetected
+                            })()}
+                          </div>
+                          <div className="text-sm text-green-500">正常範囲項目</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 詳細比較データ */}
+                    <div className="space-y-4">
+                      {Object.entries(comparisonData.comparison_data?.comparison_results || {}).map(([indicator, data]) => (
+                        <div key={indicator} className="border rounded-lg p-4 bg-white">
+                          <h3 className="text-lg font-semibold mb-3 text-gray-800">
+                            📊 {indicator}
+                          </h3>
+                          <div className="grid gap-3">
+                            {Object.entries(data?.differences || {}).map(([statKey, diff]) => {
+                              const judgmentColor = diff?.statistical_judgment === '課題あり' ? 'text-red-600' : 'text-green-600'
+                              const judgmentIcon = diff?.statistical_judgment === '課題あり' ? '🔴' : '🟢'
+                              const diffValue = (diff?.difference || 0) >= 0 ? `+${(diff?.difference || 0).toFixed(1)}` : (diff?.difference || 0).toFixed(1)
+                              
+                              return (
+                                <div 
+                                  key={statKey} 
+                                  className={`p-3 rounded-lg border-l-4 ${
+                                    diff?.statistical_judgment === '課題あり' 
+                                      ? 'bg-red-50 border-red-400' 
+                                      : 'bg-green-50 border-green-400'
+                                  }`}
+                                >
+                                  <div className="flex justify-between items-center">
+                                    <div>
+                                      <div className="font-medium text-gray-700">
+                                        {statKey === 'mean' && '平均値'}
+                                        {statKey === 'max' && '最大値'}
+                                        {statKey === 'min' && '最小値'}
+                                      </div>
+                                      <div className="text-sm text-gray-600">
+                                        あなた: <span className="font-semibold">{(diff?.user_value || 0).toFixed(1)}°</span> | 
+                                        標準: <span className="font-semibold">{(diff?.standard_value || 0).toFixed(1)}°</span> | 
+                                        差分: <span className={`font-semibold ${(diff?.difference || 0) >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>
+                                          {diffValue}°
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className={`text-center ${judgmentColor}`}>
+                                      <div className="text-2xl">{judgmentIcon}</div>
+                                      <div className="text-xs font-medium">
+                                        [{diff?.statistical_judgment || '判定不可'}]
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* 判定基準の説明 */}
+                    <div className="bg-gray-50 p-4 rounded-lg border">
+                      <h4 className="font-semibold text-gray-800 mb-2">📖 判定基準について</h4>
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <p><span className="font-medium">🔴 課題あり:</span> 統計的に有意な差が検出 → フォーム改善を推奨</p>
+                        <p><span className="font-medium">🟢 OK:</span> 正常範囲内 → 現在のフォームを維持</p>
+                        <p className="text-xs mt-2 text-gray-500">
+                          ※ 変動係数(CV)と重み付け変動度を用いた科学的分析により判定
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : comparisonData?.status === 'error' ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
+                    <p className="text-sm">比較データの取得に失敗しました</p>
+                    <p className="text-xs mt-1">しばらく待ってから再度お試しください</p>
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <BarChart3 className="h-8 w-8 mx-auto mb-2" />
+                    <p className="text-sm">比較データを準備中...</p>
+                    <p className="text-xs mt-1">角度データが利用可能になると自動で比較を開始します</p>
                   </div>
                 )}
               </CardContent>

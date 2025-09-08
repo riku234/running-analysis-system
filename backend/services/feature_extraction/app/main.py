@@ -1515,8 +1515,8 @@ def compare_with_standard_model(user_stats: Dict[str, Dict[str, float]]) -> Dict
             }
             
             # 各統計値の差分を計算
-            stat_keys = ['mean', 'max', 'min', 'std']
-            standard_keys = ['mean', 'max', 'min', 'std_dev']
+            stat_keys = ['mean', 'max', 'min']
+            standard_keys = ['mean', 'max', 'min']
             
             for i, stat_key in enumerate(stat_keys):
                 user_value = user_data.get(stat_key)
