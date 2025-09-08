@@ -5,6 +5,55 @@ import uvicorn
 from typing import List, Dict, Any, Optional
 import math
 import numpy as np
+import os
+import sys
+
+# 標準動作モデルデータを直接定義
+def get_standard_model_data():
+    """標準動作モデルの統計データを返す関数"""
+    return {
+        "体幹角度": {
+            "mean": 3.5,
+            "std_dev": 2.8,
+            "max": 45.0,
+            "min": -25.0,
+            "description": "体幹の前後傾斜角度（前傾で正値）"
+        },
+        "右大腿角度": {
+            "mean": 8.2,
+            "std_dev": 6.5,
+            "max": 45.3,
+            "min": -15.8,
+            "description": "右大腿の鉛直軸からの角度（膝が後方で正値）"
+        },
+        "左大腿角度": {
+            "mean": 7.8,
+            "std_dev": 6.2,
+            "max": 44.1,
+            "min": -16.2,
+            "description": "左大腿の鉛直軸からの角度（膝が後方で正値）"
+        },
+        "右下腿角度": {
+            "mean": -3.2,
+            "std_dev": 8.1,
+            "max": 25.5,
+            "min": -28.3,
+            "description": "右下腿の鉛直軸からの角度（足首が後方で正値）"
+        },
+        "左下腿角度": {
+            "mean": -2.9,
+            "std_dev": 8.3,
+            "max": 26.1,
+            "min": -29.1,
+            "description": "左下腿の鉛直軸からの角度（足首が後方で正値）"
+        },
+        # フレーム別データのサンプル（代表的なフレーム）
+        "Frame_0": {"mean": 3.969911, "std_dev": 3.558016, "平均値": -14.5973, "標準偏差": 12.61641, "最大値": 3.302240, "最小値": 24.2674},
+        "Frame_25": {"mean": 6.342406, "std_dev": 2.368135, "平均値": 1.83133, "標準偏差": 12.13514, "最大値": 37.63283, "最小値": 15.91777},
+        "Frame_50": {"mean": 3.65441, "std_dev": 3.355749, "平均値": 2.607396, "標準偏差": 10.60853, "最大値": 61.84115, "最小値": 23.73552},
+        "Frame_75": {"mean": 5.624295, "std_dev": 2.760298, "平均値": -31.0944, "標準偏差": 15.12048, "最大値": 47.34249, "最小値": 14.59232},
+        "Frame_100": {"mean": 2.848037, "std_dev": 3.452682, "平均値": -13.7398, "標準偏差": 13.38847, "最大値": 3.499593, "最小値": 23.88576}
+    }
 
 app = FastAPI(
     title="Feature Extraction Service",
@@ -850,6 +899,27 @@ async def analyze_comprehensive_running_stats(request: PoseAnalysisRequest):
     except Exception as e:
         print(f"❌ 統括解析エラー: {str(e)}")
         raise HTTPException(status_code=500, detail=f"統括解析に失敗しました: {str(e)}")
+
+@app.get("/standard_model")
+async def get_standard_model():
+    """
+    標準動作モデルデータを取得するエンドポイント
+    """
+    try:
+        standard_data = get_standard_model_data()
+        return {
+            "status": "success",
+            "message": "標準動作モデルデータを取得しました",
+            "standard_model": standard_data,
+            "data_info": {
+                "total_frames": len([k for k in standard_data.keys() if k.startswith('Frame_')]),
+                "main_indicators": ["体幹角度", "右大腿角度", "左大腿角度", "右下腿角度", "左下腿角度"],
+                "description": "添付画像の表から抽出した標準動作モデルの統計値"
+            }
+        }
+    except Exception as e:
+        print(f"❌ 標準モデル取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"標準モデルデータの取得に失敗しました: {str(e)}")
 
 # =============================================================================
 # 統括的なランニング解析関数
