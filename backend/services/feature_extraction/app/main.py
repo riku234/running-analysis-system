@@ -806,5 +806,303 @@ async def health_check():
         ]
     }
 
+@app.post("/analyze_comprehensive")
+async def analyze_comprehensive_running_stats(request: PoseAnalysisRequest):
+    """
+    統括的なランニング解析エンドポイント
+    代表的な1サイクルの各指標の統計値を返す
+    """
+    try:
+        print("🏃 統括解析リクエスト受信")
+        
+        # キーポイントデータを抽出
+        all_keypoints = []
+        for frame in request.pose_data:
+            if frame.landmarks_detected and len(frame.keypoints) >= 33:
+                all_keypoints.append(frame.keypoints)
+        
+        if len(all_keypoints) < 20:
+            raise HTTPException(status_code=400, detail="解析に必要な最小フレーム数（20フレーム）に達していません")
+        
+        # 動画FPSを取得
+        video_fps = request.video_info.get("fps", 30.0)
+        
+        # 統括解析を実行
+        stats_results = analyze_user_run_and_get_stats(all_keypoints, video_fps)
+        
+        if stats_results is None:
+            raise HTTPException(status_code=422, detail="サイクル検出に失敗しました。より長い動画での解析をお試しください")
+        
+        return {
+            "status": "success",
+            "message": "統括的ランニング解析が完了しました",
+            "analysis_results": stats_results,
+            "analysis_details": {
+                "total_frames": len(request.pose_data),
+                "valid_frames": len(all_keypoints),
+                "video_fps": video_fps,
+                "analysis_type": "single_cycle_representative"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 統括解析エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"統括解析に失敗しました: {str(e)}")
+
+# =============================================================================
+# 統括的なランニング解析関数
+# =============================================================================
+
+def find_foot_strikes(time_series_keypoints: List[List[KeyPoint]], foot_type: str = 'right') -> List[int]:
+    """
+    足の接地フレームを検出する
+    
+    Args:
+        time_series_keypoints: 時系列キーポイントデータ
+        foot_type: 'right' または 'left'
+    
+    Returns:
+        接地フレーム番号のリスト
+    """
+    try:
+        print(f"🦶 {foot_type}足の接地検出を開始...")
+        
+        if len(time_series_keypoints) < 10:
+            print("❌ フレーム数が不足しています")
+            return []
+        
+        # 足首とつま先のキーポイントインデックス
+        if foot_type == 'right':
+            ankle_idx = LANDMARK_INDICES['right_ankle']
+            toe_idx = LANDMARK_INDICES['right_foot_index']
+        else:
+            ankle_idx = LANDMARK_INDICES['left_ankle']
+            toe_idx = LANDMARK_INDICES['left_foot_index']
+        
+        # 足首のY座標（高さ）を時系列で抽出
+        ankle_heights = []
+        for frame_keypoints in time_series_keypoints:
+            if len(frame_keypoints) > ankle_idx and frame_keypoints[ankle_idx].visibility > 0.5:
+                ankle_heights.append(frame_keypoints[ankle_idx].y)
+            else:
+                ankle_heights.append(None)
+        
+        # 有効なデータのみでフィルタリング
+        valid_heights = [(i, h) for i, h in enumerate(ankle_heights) if h is not None]
+        if len(valid_heights) < 10:
+            print("❌ 有効な足首データが不足しています")
+            return []
+        
+        # 移動平均でスムージング（ノイズ除去）
+        window_size = min(5, len(valid_heights) // 3)
+        smoothed_heights = []
+        for i in range(len(valid_heights)):
+            start_idx = max(0, i - window_size // 2)
+            end_idx = min(len(valid_heights), i + window_size // 2 + 1)
+            avg_height = np.mean([valid_heights[j][1] for j in range(start_idx, end_idx)])
+            smoothed_heights.append((valid_heights[i][0], avg_height))
+        
+        # 極小値（接地候補）を検出
+        foot_strikes = []
+        for i in range(1, len(smoothed_heights) - 1):
+            prev_frame, prev_height = smoothed_heights[i-1]
+            curr_frame, curr_height = smoothed_heights[i]
+            next_frame, next_height = smoothed_heights[i+1]
+            
+            # 極小値の条件：前後よりも低い
+            if curr_height < prev_height and curr_height < next_height:
+                foot_strikes.append(curr_frame)
+        
+        # 接地間隔の正規化（近すぎる接地を除去）
+        if len(foot_strikes) > 1:
+            filtered_strikes = [foot_strikes[0]]
+            min_interval = max(10, len(time_series_keypoints) // 20)  # 最小間隔
+            
+            for strike in foot_strikes[1:]:
+                if strike - filtered_strikes[-1] >= min_interval:
+                    filtered_strikes.append(strike)
+            
+            foot_strikes = filtered_strikes
+        
+        print(f"🦶 {foot_type}足接地検出結果: {len(foot_strikes)}回 {foot_strikes}")
+        return foot_strikes
+        
+    except Exception as e:
+        print(f"❌ 足接地検出エラー ({foot_type}): {str(e)}")
+        return []
+
+def analyze_angles_for_single_cycle(cycle_keypoints: List[List[KeyPoint]]) -> Dict[str, Dict[str, float]]:
+    """
+    単一サイクルの各指標の統計値を計算する
+    
+    Args:
+        cycle_keypoints: 1サイクル分のキーポイントデータ
+    
+    Returns:
+        各指標の統計値辞書
+    """
+    try:
+        print(f"📊 1サイクル解析開始 - フレーム数: {len(cycle_keypoints)}")
+        
+        # 各フレームの角度を計算
+        cycle_angles = {
+            'trunk_angle': [],
+            'left_thigh_angle': [],
+            'right_thigh_angle': [],
+            'left_lower_leg_angle': [],
+            'right_lower_leg_angle': []
+        }
+        
+        for frame_keypoints in cycle_keypoints:
+            if len(frame_keypoints) >= 33:
+                # 体幹角度
+                trunk_angle = calculate_trunk_angle(frame_keypoints)
+                if trunk_angle is not None:
+                    cycle_angles['trunk_angle'].append(trunk_angle)
+                
+                # 大腿角度
+                left_thigh = calculate_thigh_angle(
+                    frame_keypoints[LANDMARK_INDICES['left_hip']],
+                    frame_keypoints[LANDMARK_INDICES['left_knee']],
+                    'left'
+                )
+                if left_thigh is not None:
+                    cycle_angles['left_thigh_angle'].append(left_thigh)
+                
+                right_thigh = calculate_thigh_angle(
+                    frame_keypoints[LANDMARK_INDICES['right_hip']],
+                    frame_keypoints[LANDMARK_INDICES['right_knee']],
+                    'right'
+                )
+                if right_thigh is not None:
+                    cycle_angles['right_thigh_angle'].append(right_thigh)
+                
+                # 下腿角度
+                left_lower_leg = calculate_lower_leg_angle(
+                    frame_keypoints[LANDMARK_INDICES['left_knee']],
+                    frame_keypoints[LANDMARK_INDICES['left_ankle']],
+                    'left'
+                )
+                if left_lower_leg is not None:
+                    cycle_angles['left_lower_leg_angle'].append(left_lower_leg)
+                
+                right_lower_leg = calculate_lower_leg_angle(
+                    frame_keypoints[LANDMARK_INDICES['right_knee']],
+                    frame_keypoints[LANDMARK_INDICES['right_ankle']],
+                    'right'
+                )
+                if right_lower_leg is not None:
+                    cycle_angles['right_lower_leg_angle'].append(right_lower_leg)
+        
+        # 統計値を計算
+        stats_results = {}
+        for angle_type, values in cycle_angles.items():
+            if values:
+                stats_results[angle_type] = {
+                    'mean': float(np.mean(values)),
+                    'min': float(np.min(values)),
+                    'max': float(np.max(values)),
+                    'std': float(np.std(values)),
+                    'count': len(values)
+                }
+                print(f"📐 {angle_type}: 平均={stats_results[angle_type]['mean']:.1f}°, "
+                      f"範囲=[{stats_results[angle_type]['min']:.1f}, {stats_results[angle_type]['max']:.1f}]°")
+            else:
+                stats_results[angle_type] = {
+                    'mean': None, 'min': None, 'max': None, 'std': None, 'count': 0
+                }
+        
+        return stats_results
+        
+    except Exception as e:
+        print(f"❌ サイクル解析エラー: {str(e)}")
+        return {}
+
+def analyze_user_run_and_get_stats(all_keypoints: List[List[KeyPoint]], video_fps: float) -> Optional[Dict[str, Dict[str, float]]]:
+    """
+    ランニングのキーポイントデータ全体を入力として受け取り、
+    代表的な1サイクルの各指標の統計値（最小値・最大値・平均値）を返す統括的な解析関数
+    
+    Args:
+        all_keypoints: 動画全体のキーポイントデータ
+        video_fps: 動画のフレームレート
+    
+    Returns:
+        解析結果の統計値が入った辞書、またはNone
+        例: {
+            'trunk_angle': {'mean': 12.1, 'max': 15.0, 'min': 8.5, 'std': 2.1, 'count': 30},
+            'right_thigh_angle': {...},
+            ...
+        }
+    """
+    try:
+        print("🏃 統括的ランニング解析を開始...")
+        print(f"📊 総フレーム数: {len(all_keypoints)}")
+        print(f"🎬 動画FPS: {video_fps}")
+        
+        # ステップ1: フットストライク検出
+        print("\n🦶 フットストライク検出...")
+        right_foot_strikes = find_foot_strikes(all_keypoints, 'right')
+        left_foot_strikes = find_foot_strikes(all_keypoints, 'left')
+        
+        # より多く検出された方を使用
+        if len(right_foot_strikes) >= len(left_foot_strikes):
+            primary_foot_strikes = right_foot_strikes
+            foot_type = 'right'
+        else:
+            primary_foot_strikes = left_foot_strikes
+            foot_type = 'left'
+        
+        print(f"🦶 使用する足: {foot_type}足 ({len(primary_foot_strikes)}回の接地)")
+        
+        # サイクルが検出できない場合
+        if len(primary_foot_strikes) < 2:
+            print("❌ 足接地が2回未満のため、サイクルを検出できません")
+            return None
+        
+        # ステップ2: 代表的なサイクルを選択
+        print("\n🔄 代表サイクル選択...")
+        
+        if len(primary_foot_strikes) >= 3:
+            # 2回目から3回目の接地まで（より安定した中間部分）
+            cycle_start = primary_foot_strikes[1]
+            cycle_end = primary_foot_strikes[2]
+            cycle_description = "2回目〜3回目の接地"
+        else:
+            # 1回目から2回目の接地まで（1サイクルのみ）
+            cycle_start = primary_foot_strikes[0]
+            cycle_end = primary_foot_strikes[1]
+            cycle_description = "1回目〜2回目の接地"
+        
+        print(f"📍 選択サイクル: {cycle_description}")
+        print(f"📍 フレーム範囲: {cycle_start} 〜 {cycle_end} ({cycle_end - cycle_start}フレーム)")
+        print(f"⏱️ 時間: {cycle_start/video_fps:.2f}s 〜 {cycle_end/video_fps:.2f}s")
+        
+        # ステップ3: サイクルデータを抽出
+        cycle_keypoints = all_keypoints[cycle_start:cycle_end + 1]
+        
+        # ステップ4: 選択したサイクルの統計値を計算
+        print(f"\n📊 サイクル解析実行...")
+        stats_results = analyze_angles_for_single_cycle(cycle_keypoints)
+        
+        if not stats_results:
+            print("❌ サイクル解析に失敗しました")
+            return None
+        
+        # 結果のサマリー出力
+        print(f"\n✅ 統括解析完了!")
+        print(f"📈 解析結果サマリー:")
+        for angle_type, stats in stats_results.items():
+            if stats['count'] > 0:
+                print(f"   {angle_type}: 平均={stats['mean']:.1f}° (範囲: {stats['min']:.1f}°〜{stats['max']:.1f}°)")
+        
+        return stats_results
+        
+    except Exception as e:
+        print(f"❌ 統括解析エラー: {str(e)}")
+        return None
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8003) 
