@@ -1101,6 +1101,33 @@ async def test_comparison_endpoint():
         print(f"❌ テスト実行エラー: {str(e)}")
         raise HTTPException(status_code=500, detail=f"テスト実行に失敗しました: {str(e)}")
 
+@app.get("/test_statistical_judgment")
+async def test_statistical_judgment_endpoint():
+    """
+    統計的判定機能のテスト用エンドポイント
+    """
+    try:
+        print("🧪 統計的判定機能テストエンドポイント実行...")
+        
+        # テスト実行
+        test_statistical_judgment()
+        
+        return {
+            "status": "success",
+            "message": "統計的判定機能のテストが完了しました",
+            "test_note": "詳細なテスト結果はサーバーコンソールをご確認ください",
+            "judgment_criteria": {
+                "offset_value": 1.5,
+                "formula": "重み付け変動度 = |標準平均 - ユーザー値| / 標準偏差 / CV",
+                "threshold": "閾値 = Offset値 / CV",
+                "decision": "重み付け変動度 > 閾値 → 課題あり"
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ 統計判定テストエラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"統計判定テストに失敗しました: {str(e)}")
+
 # =============================================================================
 # 統括的なランニング解析関数
 # =============================================================================
@@ -1420,15 +1447,29 @@ def display_comparison_results(user_stats: Dict[str, Dict[str, float]], standard
                     diff = user_value - standard_value
                     diff_str = f"{diff:+.1f}°" if diff >= 0 else f"{diff:.1f}°"
                     
-                    print(f"{stat_name:>6}: あなた:{user_value:6.1f}° | 標準:{standard_value:6.1f}° | 差分: {diff_str}")
+                    # 統計的判定を実行（標準偏差が必要）
+                    standard_std_dev = standard_data.get('std_dev', 0)
+                    if standard_std_dev > 0:
+                        judgment = judge_deviation_significance(user_value, standard_value, standard_std_dev)
+                        judgment_color = "🔴" if judgment == "課題あり" else "🟢"
+                        judgment_display = f"{judgment_color}[{judgment}]"
+                    else:
+                        judgment_display = "⚪[判定不可]"
+                    
+                    print(f"{stat_name:>6}: あなた:{user_value:6.1f}° | 標準:{standard_value:6.1f}° | 差分: {diff_str} | {judgment_display}")
                 else:
-                    print(f"{stat_name:>6}: あなた:{user_value:6.1f}° | 標準: (データなし) | 差分: -")
+                    print(f"{stat_name:>6}: あなた:{user_value:6.1f}° | 標準: (データなし) | 差分: - | ⚪[判定不可]")
     
     print("\n" + "="*60)
     print("📊 比較結果の見方:")
     print("  • 正の差分(+): あなたの値が標準より大きい")  
     print("  • 負の差分(-): あなたの値が標準より小さい")
-    print("  • 大きな差分は改善ポイントの可能性があります")
+    print("  • 🔴[課題あり]: 統計的に有意な差 → 改善推奨")
+    print("  • 🟢[OK]: 正常範囲内 → 問題なし")
+    print("  • ⚪[判定不可]: データ不足で判定できません")
+    print("\n💡 判定基準:")
+    print("  変動係数(CV)と重み付け変動度を用いた統計的分析")
+    print("  Offset値1.5を基準とした閾値判定")
     print("="*60)
 
 def compare_with_standard_model(user_stats: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
@@ -1483,11 +1524,21 @@ def compare_with_standard_model(user_stats: Dict[str, Dict[str, float]]) -> Dict
                 
                 if user_value is not None and standard_value is not None:
                     diff = user_value - standard_value
+                    
+                    # 統計的判定を実行
+                    standard_std_dev = standard_data.get('std_dev', 0)
+                    if standard_std_dev > 0:
+                        judgment = judge_deviation_significance(user_value, standard_value, standard_std_dev)
+                    else:
+                        judgment = "判定不可"
+                    
                     indicator_comparison['differences'][stat_key] = {
                         'user_value': user_value,
                         'standard_value': standard_value,
                         'difference': diff,
-                        'percentage_diff': (diff / standard_value) * 100 if standard_value != 0 else None
+                        'percentage_diff': (diff / standard_value) * 100 if standard_value != 0 else None,
+                        'statistical_judgment': judgment,
+                        'needs_improvement': judgment == "課題あり"
                     }
             
             comparison_results[standard_indicator] = indicator_comparison
@@ -1504,6 +1555,44 @@ def compare_with_standard_model(user_stats: Dict[str, Dict[str, float]]) -> Dict
     except Exception as e:
         print(f"❌ 比較処理エラー: {str(e)}")
         return {'status': 'error', 'message': str(e)}
+
+def judge_deviation_significance(user_value: float, model_mean: float, model_std_dev: float) -> str:
+    """
+    ユーザーの計測値が標準モデルと比較して統計的に有意な差があるかを判定する
+    
+    Args:
+        user_value: ユーザーの計測値
+        model_mean: 標準モデルの平均値
+        model_std_dev: 標準モデルの標準偏差
+    
+    Returns:
+        判定結果（"課題あり" または "OK"）
+    """
+    try:
+        # ゼロ除算を避ける
+        if model_mean == 0 or model_std_dev == 0:
+            return "判定不可"
+        
+        # 変動係数 (CV) を計算
+        cv = abs(model_std_dev / model_mean)
+        
+        # Offset値を1.5と設定し、閾値を計算
+        offset = 1.5
+        threshold = offset / cv if cv != 0 else float('inf')
+        
+        # 重み付け変動度を計算
+        raw_deviation = abs(model_mean - user_value) / model_std_dev
+        weighted_deviation = raw_deviation / cv if cv != 0 else 0
+        
+        # 判定
+        if weighted_deviation > threshold:
+            return "課題あり"
+        else:
+            return "OK"
+            
+    except Exception as e:
+        print(f"⚠️ 統計判定エラー: {str(e)}")
+        return "判定エラー"
 
 def create_sample_user_stats() -> Dict[str, Dict[str, float]]:
     """
@@ -1563,6 +1652,41 @@ def test_comparison_display():
     display_comparison_results(sample_user_stats, standard_model)
     
     print("\n✅ 比較機能テスト完了！")
+
+def test_statistical_judgment():
+    """
+    統計的判定機能の単体テスト
+    """
+    print("\n🧪 統計的判定機能テスト開始...")
+    
+    test_cases = [
+        {"user": 12.1, "mean": 4.3, "std": 1.2, "expected": "課題あり", "case": "大きな差分"},
+        {"user": 4.5, "mean": 4.3, "std": 1.2, "expected": "OK", "case": "小さな差分"},
+        {"user": 2.0, "mean": 4.3, "std": 1.2, "expected": "課題あり", "case": "負の大きな差分"},
+        {"user": 10.5, "mean": -13.2, "std": 10.8, "expected": "課題あり", "case": "負の標準値との比較"},
+        {"user": 0, "mean": 0, "std": 1.0, "expected": "判定不可", "case": "ゼロ平均値"}
+    ]
+    
+    print("テストケース実行:")
+    for i, case in enumerate(test_cases, 1):
+        result = judge_deviation_significance(case["user"], case["mean"], case["std"])
+        status = "✅ PASS" if result == case["expected"] else f"❌ FAIL (期待: {case['expected']}, 実際: {result})"
+        
+        # 計算過程も表示
+        if case["mean"] != 0 and case["std"] != 0:
+            cv = abs(case["std"] / case["mean"])
+            threshold = 1.5 / cv if cv != 0 else float('inf')
+            raw_deviation = abs(case["mean"] - case["user"]) / case["std"]
+            weighted_deviation = raw_deviation / cv if cv != 0 else 0
+            
+            print(f"  {i}. {case['case']}: {status}")
+            print(f"      ユーザー値: {case['user']}, 標準平均: {case['mean']}, 標準偏差: {case['std']}")
+            print(f"      CV: {cv:.3f}, 閾値: {threshold:.3f}, 重み付け変動度: {weighted_deviation:.3f}")
+        else:
+            print(f"  {i}. {case['case']}: {status}")
+            print(f"      ユーザー値: {case['user']}, 標準平均: {case['mean']}, 標準偏差: {case['std']}")
+    
+    print("\n✅ 統計的判定機能テスト完了！")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8003) 
