@@ -62,12 +62,21 @@ const LANDMARK_INDICES = {
 }
 
 // 関節角度の状態管理
+// 拡張された絶対角度の型定義（仕様3対応）
 interface AbsoluteAngles {
+  // 既存角度
   trunk_angle: number | null
   left_thigh_angle: number | null
   right_thigh_angle: number | null
   left_lower_leg_angle: number | null
   right_lower_leg_angle: number | null
+  // 新規追加角度
+  left_upper_arm_angle: number | null
+  right_upper_arm_angle: number | null
+  left_forearm_angle: number | null
+  right_forearm_angle: number | null
+  left_foot_angle: number | null
+  right_foot_angle: number | null
 }
 
 // MediaPipeの骨格接続定義（33個のランドマーク用）
@@ -182,6 +191,32 @@ const calculateAbsoluteAngleWithVertical = (vector: [number, number], forwardPos
   }
 }
 
+// ベクトルと水平軸のなす角度を計算（足部角度用）
+const calculateAbsoluteAngleWithHorizontal = (vector: [number, number]): number | null => {
+  try {
+    const length = Math.sqrt(vector[0] * vector[0] + vector[1] * vector[1])
+    if (length === 0) return null
+
+    // atan2を使用して水平軸からの角度を計算
+    // x軸正方向（右向き）からの角度を計算
+    const angleRad = Math.atan2(vector[1], vector[0])
+    
+    // 度数法に変換
+    let angleDeg = (angleRad * 180) / Math.PI
+    
+    // -90～+90の範囲に正規化
+    if (angleDeg > 90) {
+      angleDeg = 180 - angleDeg
+    } else if (angleDeg < -90) {
+      angleDeg = -180 - angleDeg
+    }
+    
+    return angleDeg
+  } catch (error) {
+    return null
+  }
+}
+
 // 新仕様：体幹絶対角度計算
 const calculateAbsoluteTrunkAngle = (keypoints: KeyPoint[]): number | null => {
   try {
@@ -203,14 +238,14 @@ const calculateAbsoluteTrunkAngle = (keypoints: KeyPoint[]): number | null => {
     // 体幹ベクトル（股関節中点→肩中点）- 上向きベクトルで0度近辺の値にする
     const trunkVector: [number, number] = [shoulderCenterX - hipCenterX, shoulderCenterY - hipCenterY]
     
-    // 絶対角度を計算（上向き鉛直軸で計算）
-    return calculateAbsoluteAngleWithVertical(trunkVector, true)
+    // 修正済み符号規則: 前傾=負値、後傾=正値
+    return calculateAbsoluteAngleWithVertical(trunkVector, false)
   } catch (error) {
     return null
   }
 }
 
-// 新仕様：大腿絶対角度計算
+// 修正済み：大腿絶対角度計算
 const calculateAbsoluteThighAngle = (hip: KeyPoint, knee: KeyPoint): number | null => {
   try {
     if (hip.visibility < 0.5 || knee.visibility < 0.5) {
@@ -220,15 +255,14 @@ const calculateAbsoluteThighAngle = (hip: KeyPoint, knee: KeyPoint): number | nu
     // 大腿ベクトル（膝→股関節）
     const thighVector: [number, number] = [hip.x - knee.x, hip.y - knee.y]
     
-    // 絶対角度を計算（ユーザー報告に基づき符号反転が必要）
-    const rawAngle = calculateAbsoluteAngleWithVertical(thighVector, false)
-    return rawAngle !== null ? -rawAngle : null
+    // 修正済み符号規則: 膝が後方で正値、前方で負値
+    return calculateAbsoluteAngleWithVertical(thighVector, true)
   } catch (error) {
     return null
   }
 }
 
-// 新仕様：下腿絶対角度計算
+// 修正済み：下腿絶対角度計算
 const calculateAbsoluteLowerLegAngle = (knee: KeyPoint, ankle: KeyPoint): number | null => {
   try {
     if (knee.visibility < 0.5 || ankle.visibility < 0.5) {
@@ -238,22 +272,120 @@ const calculateAbsoluteLowerLegAngle = (knee: KeyPoint, ankle: KeyPoint): number
     // 下腿ベクトル（足首→膝）
     const lowerLegVector: [number, number] = [knee.x - ankle.x, knee.y - ankle.y]
     
-    // 絶対角度を計算（ユーザー報告に基づき符号反転が必要）
-    const rawAngle = calculateAbsoluteAngleWithVertical(lowerLegVector, false)
-    return rawAngle !== null ? -rawAngle : null
+    // 修正済み符号規則: 足首が後方で正値、前方で負値
+    return calculateAbsoluteAngleWithVertical(lowerLegVector, true)
   } catch (error) {
     return null
   }
 }
 
-// 1フレームから新仕様の絶対角度を抽出
+// 修正済み：上腕絶対角度計算（肘基準鉛直軸）
+const calculateAbsoluteUpperArmAngle = (shoulder: KeyPoint, elbow: KeyPoint): number | null => {
+  try {
+    if (shoulder.visibility < 0.5 || elbow.visibility < 0.5) {
+      return null
+    }
+    
+    // 上腕ベクトル（肘→肩）- 肘を基準とした方向
+    const upperArmVector: [number, number] = [shoulder.x - elbow.x, shoulder.y - elbow.y]
+    
+    // 肘を通る鉛直軸との角度: 軸の右側で負値、左側で正値
+    return calculateAbsoluteAngleWithVertical(upperArmVector, false)
+  } catch (error) {
+    return null
+  }
+}
+
+const calculateAngleBetweenVectors = (vector1: [number, number], vector2: [number, number]): number | null => {
+  try {
+    // ベクトルの長さを計算
+    const length1 = Math.sqrt(vector1[0] * vector1[0] + vector1[1] * vector1[1])
+    const length2 = Math.sqrt(vector2[0] * vector2[0] + vector2[1] * vector2[1])
+    
+    if (length1 === 0 || length2 === 0) return null
+    
+    // 正規化
+    const unitVector1: [number, number] = [vector1[0] / length1, vector1[1] / length1]
+    const unitVector2: [number, number] = [vector2[0] / length2, vector2[1] / length2]
+    
+    // 内積を計算
+    const dotProduct = unitVector1[0] * unitVector2[0] + unitVector1[1] * unitVector2[1]
+    
+    // 数値誤差を防ぐためにclipする
+    const clippedDotProduct = Math.max(-1, Math.min(1, dotProduct))
+    
+    // 角度を計算
+    const angleRad = Math.acos(clippedDotProduct)
+    const angleDeg = (angleRad * 180) / Math.PI
+    
+    return angleDeg
+  } catch (error) {
+    return null
+  }
+}
+
+// 修正済み：前腕絶対角度計算（画像定義準拠・直接角度版・符号調整）
+const calculateAbsoluteForearmAngle = (elbow: KeyPoint, wrist: KeyPoint, side: 'left' | 'right'): number | null => {
+  try {
+    if (elbow.visibility < 0.5 || wrist.visibility < 0.5) {
+      return null
+    }
+    
+    // 前腕ベクトル（肘→手首）- 前腕の自然な方向
+    const forearmVector: [number, number] = [wrist.x - elbow.x, wrist.y - elbow.y]
+    
+    // 鉛直軸（下向き）との角度を直接計算
+    const verticalDownVector: [number, number] = [0, 1]  // 鉛直下向き
+    
+    // 2つのベクトル間の角度を計算
+    const rawAngle = calculateAngleBetweenVectors(forearmVector, verticalDownVector)
+    
+    if (rawAngle === null) return null
+    
+    // 左右の符号調整（大腿・下腿角度と同じパターンに合わせる）
+    if (side === 'left') {
+      return rawAngle   // 左側は正の値
+    } else {
+      return -rawAngle  // 右側は負の値
+    }
+  } catch (error) {
+    return null
+  }
+}
+
+// 新規追加：足部絶対角度計算
+const calculateAbsoluteFootAngle = (ankle: KeyPoint, toe: KeyPoint): number | null => {
+  try {
+    if (ankle.visibility < 0.5 || toe.visibility < 0.5) {
+      return null
+    }
+    
+    // 足部ベクトル（足首→つま先）
+    const footVector: [number, number] = [toe.x - ankle.x, toe.y - ankle.y]
+    
+    // 水平軸との角度計算: 上=正値、下=負値
+    return calculateAbsoluteAngleWithHorizontal(footVector)
+  } catch (error) {
+    return null
+  }
+}
+
+// 1フレームから拡張された絶対角度を抽出（仕様3対応）
 const extractAbsoluteAnglesFromFrame = (keypoints: KeyPoint[]): AbsoluteAngles => {
   const angles: AbsoluteAngles = {
+    // 既存角度
     trunk_angle: null,
     left_thigh_angle: null,
     right_thigh_angle: null,
     left_lower_leg_angle: null,
-    right_lower_leg_angle: null
+    right_lower_leg_angle: null,
+    // 新規追加角度
+    left_upper_arm_angle: null,
+    right_upper_arm_angle: null,
+    left_forearm_angle: null,
+    right_forearm_angle: null,
+    left_foot_angle: null,
+    right_foot_angle: null
   }
 
   try {
@@ -276,8 +408,31 @@ const extractAbsoluteAnglesFromFrame = (keypoints: KeyPoint[]): AbsoluteAngles =
     const rightAnkle = keypoints[LANDMARK_INDICES.right_ankle]
     angles.right_lower_leg_angle = calculateAbsoluteLowerLegAngle(rightKnee, rightAnkle)
 
+    // ④ 上腕角度（左右）- 新規追加
+    const leftShoulder = keypoints[LANDMARK_INDICES.left_shoulder]
+    const leftElbow = keypoints[LANDMARK_INDICES.left_elbow]
+    angles.left_upper_arm_angle = calculateAbsoluteUpperArmAngle(leftShoulder, leftElbow)
+
+    const rightShoulder = keypoints[LANDMARK_INDICES.right_shoulder]
+    const rightElbow = keypoints[LANDMARK_INDICES.right_elbow]
+    angles.right_upper_arm_angle = calculateAbsoluteUpperArmAngle(rightShoulder, rightElbow)
+
+    // ⑤ 前腕角度（左右）- 新規追加（符号調整対応）
+    const leftWrist = keypoints[LANDMARK_INDICES.left_wrist]
+    angles.left_forearm_angle = calculateAbsoluteForearmAngle(leftElbow, leftWrist, 'left')
+
+    const rightWrist = keypoints[LANDMARK_INDICES.right_wrist]
+    angles.right_forearm_angle = calculateAbsoluteForearmAngle(rightElbow, rightWrist, 'right')
+
+    // ⑥ 足部角度（左右）- 新規追加
+    const leftToe = keypoints[LANDMARK_INDICES.left_foot_index]
+    angles.left_foot_angle = calculateAbsoluteFootAngle(leftAnkle, leftToe)
+
+    const rightToe = keypoints[LANDMARK_INDICES.right_foot_index]
+    angles.right_foot_angle = calculateAbsoluteFootAngle(rightAnkle, rightToe)
+
   } catch (error) {
-    console.warn('絶対角度の計算でエラーが発生しました:', error)
+    console.warn('拡張絶対角度の計算でエラーが発生しました:', error)
   }
 
   return angles
@@ -288,11 +443,19 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [currentFrame, setCurrentFrame] = useState(0)
   const [currentAbsoluteAngles, setCurrentAbsoluteAngles] = useState<AbsoluteAngles>({
+    // 既存角度
     trunk_angle: null,
     left_thigh_angle: null,
     right_thigh_angle: null,
     left_lower_leg_angle: null,
-    right_lower_leg_angle: null
+    right_lower_leg_angle: null,
+    // 新規追加角度
+    left_upper_arm_angle: null,
+    right_upper_arm_angle: null,
+    left_forearm_angle: null,
+    right_forearm_angle: null,
+    left_foot_angle: null,
+    right_foot_angle: null
   })
   
   // 動画の現在時刻から対応するフレームを取得
@@ -394,11 +557,19 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
     } else {
       // 骨格が検出されていない場合は角度をリセット
       setCurrentAbsoluteAngles({
+        // 既存角度
         trunk_angle: null,
         left_thigh_angle: null,
         right_thigh_angle: null,
         left_lower_leg_angle: null,
-        right_lower_leg_angle: null
+        right_lower_leg_angle: null,
+        // 新規追加角度
+        left_upper_arm_angle: null,
+        right_upper_arm_angle: null,
+        left_forearm_angle: null,
+        right_forearm_angle: null,
+        left_foot_angle: null,
+        right_foot_angle: null
       })
     }
   }
@@ -511,7 +682,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
                 </div>
 
                 {/* 下腿角度 */}
-                <div className="bg-indigo-50 rounded-lg p-3">
+                <div className="bg-indigo-50 rounded-lg p-3 mb-2">
                   <h5 className="font-medium text-indigo-800 mb-1">下腿角度</h5>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
@@ -527,6 +698,75 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
                       <div className="font-bold text-indigo-600">
                         {currentAbsoluteAngles.right_lower_leg_angle !== null ? 
                           `${currentAbsoluteAngles.right_lower_leg_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 上腕角度 - 新規追加 */}
+                <div className="bg-orange-50 rounded-lg p-3 mb-2">
+                  <h5 className="font-medium text-orange-800 mb-1">上腕角度</h5>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">左:</span>
+                      <div className="font-bold text-orange-600">
+                        {currentAbsoluteAngles.left_upper_arm_angle !== null ? 
+                          `${currentAbsoluteAngles.left_upper_arm_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">右:</span>
+                      <div className="font-bold text-orange-600">
+                        {currentAbsoluteAngles.right_upper_arm_angle !== null ? 
+                          `${currentAbsoluteAngles.right_upper_arm_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 前腕角度 - 新規追加 */}
+                <div className="bg-yellow-50 rounded-lg p-3 mb-2">
+                  <h5 className="font-medium text-yellow-800 mb-1">前腕角度</h5>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">左:</span>
+                      <div className="font-bold text-yellow-600">
+                        {currentAbsoluteAngles.left_forearm_angle !== null ? 
+                          `${currentAbsoluteAngles.left_forearm_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">右:</span>
+                      <div className="font-bold text-yellow-600">
+                        {currentAbsoluteAngles.right_forearm_angle !== null ? 
+                          `${currentAbsoluteAngles.right_forearm_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 足部角度 - 新規追加 */}
+                <div className="bg-pink-50 rounded-lg p-3">
+                  <h5 className="font-medium text-pink-800 mb-1">足部角度</h5>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">左:</span>
+                      <div className="font-bold text-pink-600">
+                        {currentAbsoluteAngles.left_foot_angle !== null ? 
+                          `${currentAbsoluteAngles.left_foot_angle.toFixed(1)}°` : 
+                          '--'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">右:</span>
+                      <div className="font-bold text-pink-600">
+                        {currentAbsoluteAngles.right_foot_angle !== null ? 
+                          `${currentAbsoluteAngles.right_foot_angle.toFixed(1)}°` : 
                           '--'}
                       </div>
                     </div>

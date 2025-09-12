@@ -7,6 +7,7 @@ import math
 import numpy as np
 import os
 import sys
+from scipy import signal
 
 # 標準動作モデルデータを直接定義（添付画像の表から正確に抽出）
 def get_standard_model_data():
@@ -273,12 +274,529 @@ def calculate_absolute_angle_with_vertical(vector: np.ndarray, forward_positive:
     except Exception:
         return None
 
+def calculate_absolute_angle_with_horizontal(vector: np.ndarray) -> Optional[float]:
+    """
+    ベクトルと水平軸がなす角度を計算する（足部角度用）
+    
+    Args:
+        vector: 対象ベクトル [x, y]
+        
+    Returns:
+        角度（度数法、-90～+90程度）または None
+        水平軸より上ならプラス、下ならマイナス
+    """
+    try:
+        # ベクトルの長さをチェック
+        length = np.linalg.norm(vector)
+        if length == 0:
+            return None
+        
+        # atan2を使用して水平軸からの角度を計算
+        # atan2(y, x) は x軸正方向（右向き）からの角度を計算
+        angle_rad = np.arctan2(vector[1], vector[0])
+        
+        # 度数法に変換
+        angle_deg = np.degrees(angle_rad)
+        
+        # -90～+90の範囲に正規化
+        if angle_deg > 90:
+            angle_deg = 180 - angle_deg
+        elif angle_deg < -90:
+            angle_deg = -180 - angle_deg
+        
+        return angle_deg
+        
+    except Exception:
+        return None
+
+# =============================================================================
+# 相対関節角度計算（仕様2：はさみ角）
+# =============================================================================
+
+def calculate_joint_angle_from_three_points(point1: KeyPoint, point2: KeyPoint, point3: KeyPoint) -> Optional[float]:
+    """
+    3点から関節角度（はさみ角）を計算
+    
+    Args:
+        point1: 第1点（例：肩）
+        point2: 第2点（関節点、例：肘）
+        point3: 第3点（例：手首）
+    
+    Returns:
+        角度（度）0〜180の範囲、またはNone（計算不可の場合）
+    
+    Note:
+        point2を頂点とする角度を計算
+        ベクトル (point2→point1) と (point2→point3) のなす角
+    """
+    try:
+        # キーポイントの有効性を確認
+        if (point1.visibility < 0.5 or 
+            point2.visibility < 0.5 or 
+            point3.visibility < 0.5):
+            return None
+        
+        # ベクトルを計算
+        vector1 = np.array([point1.x - point2.x, point1.y - point2.y])
+        vector2 = np.array([point3.x - point2.x, point3.y - point2.y])
+        
+        # ベクトルの長さを計算
+        length1 = np.linalg.norm(vector1)
+        length2 = np.linalg.norm(vector2)
+        
+        # ゼロベクトルチェック
+        if length1 < 1e-10 or length2 < 1e-10:
+            return None
+        
+        # 正規化されたベクトル
+        unit_vector1 = vector1 / length1
+        unit_vector2 = vector2 / length2
+        
+        # 内積を計算してcosを求める
+        cos_angle = np.clip(np.dot(unit_vector1, unit_vector2), -1.0, 1.0)
+        
+        # 角度を計算（ラジアン→度）
+        angle_rad = np.arccos(cos_angle)
+        angle_deg = np.degrees(angle_rad)
+        
+        return angle_deg
+        
+    except Exception as e:
+        print(f"❌ 関節角度計算エラー: {e}")
+        return None
+
+def get_shoulder_center(left_shoulder: KeyPoint, right_shoulder: KeyPoint) -> Optional[tuple]:
+    """肩の中点を計算"""
+    if left_shoulder.visibility < 0.5 or right_shoulder.visibility < 0.5:
+        return None
+    return ((left_shoulder.x + right_shoulder.x) / 2, 
+            (left_shoulder.y + right_shoulder.y) / 2)
+
+def get_hip_center(left_hip: KeyPoint, right_hip: KeyPoint) -> Optional[tuple]:
+    """股関節の中点を計算"""
+    if left_hip.visibility < 0.5 or right_hip.visibility < 0.5:
+        return None
+    return ((left_hip.x + right_hip.x) / 2, 
+            (left_hip.y + right_hip.y) / 2)
+
+def create_keypoint_from_coordinates(x: float, y: float) -> KeyPoint:
+    """座標から仮想的なKeypointを作成"""
+    return KeyPoint(x=x, y=y, z=0.0, visibility=1.0)
+
+# =============================================================================
+# 相対関節角度計算関数群（仕様2）
+# =============================================================================
+
+def calculate_hip_joint_angle_relative(keypoints: List[KeyPoint], side: str) -> Optional[float]:
+    """
+    股関節角度を計算（相対角度・はさみ角）
+    定義: 大腿と体幹のなす角
+    実装: 「肩の中点」「股関節」「膝」の3点がなす角度
+    
+    Args:
+        keypoints: 全キーポイント
+        side: 'left' または 'right'
+    
+    Returns:
+        股関節角度（度、0〜180）
+    """
+    try:
+        # 必要なキーポイントを取得
+        left_shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
+        right_shoulder = keypoints[LANDMARK_INDICES['right_shoulder']]
+        
+        if side == 'left':
+            hip = keypoints[LANDMARK_INDICES['left_hip']]
+            knee = keypoints[LANDMARK_INDICES['left_knee']]
+        else:
+            hip = keypoints[LANDMARK_INDICES['right_hip']]
+            knee = keypoints[LANDMARK_INDICES['right_knee']]
+        
+        # 肩の中点を計算
+        shoulder_center = get_shoulder_center(left_shoulder, right_shoulder)
+        if shoulder_center is None:
+            return None
+        
+        # 肩中点のKeypointを作成
+        shoulder_center_kp = create_keypoint_from_coordinates(shoulder_center[0], shoulder_center[1])
+        
+        # 3点から角度を計算：肩中点-股関節-膝
+        angle = calculate_joint_angle_from_three_points(shoulder_center_kp, hip, knee)
+        
+        if angle is not None:
+            print(f"   🔗 {side}股関節角度（はさみ角）: {angle:.1f}° (大腿と体幹)")
+        
+        return angle
+            
+    except Exception as e:
+        print(f"❌ {side}股関節角度計算エラー: {e}")
+        return None
+
+def calculate_knee_joint_angle_relative(keypoints: List[KeyPoint], side: str) -> Optional[float]:
+    """
+    膝関節角度を計算（相対角度・はさみ角）
+    定義: 大腿と下腿のなす角
+    実装: 「股関節」「膝」「足首」の3点がなす角度
+    
+    Args:
+        keypoints: 全キーポイント
+        side: 'left' または 'right'
+    
+    Returns:
+        膝関節角度（度、0〜180）
+    """
+    try:
+        if side == 'left':
+            hip = keypoints[LANDMARK_INDICES['left_hip']]
+            knee = keypoints[LANDMARK_INDICES['left_knee']]
+            ankle = keypoints[LANDMARK_INDICES['left_ankle']]
+        else:
+            hip = keypoints[LANDMARK_INDICES['right_hip']]
+            knee = keypoints[LANDMARK_INDICES['right_knee']]
+            ankle = keypoints[LANDMARK_INDICES['right_ankle']]
+        
+        # 3点から角度を計算：股関節-膝-足首
+        angle = calculate_joint_angle_from_three_points(hip, knee, ankle)
+        
+        if angle is not None:
+            print(f"   🔗 {side}膝関節角度（はさみ角）: {angle:.1f}° (大腿と下腿)")
+        
+        return angle
+        
+    except Exception as e:
+        print(f"❌ {side}膝関節角度計算エラー: {e}")
+        return None
+
+def calculate_ankle_joint_angle_relative(keypoints: List[KeyPoint], side: str) -> Optional[float]:
+    """
+    足関節角度を計算（相対角度・はさみ角）
+    定義: 足部と下腿のなす角
+    実装: 「膝」「足首」「つま先」の3点がなす角度
+    
+    Args:
+        keypoints: 全キーポイント
+        side: 'left' または 'right'
+    
+    Returns:
+        足関節角度（度、0〜180）
+    """
+    try:
+        if side == 'left':
+            knee = keypoints[LANDMARK_INDICES['left_knee']]
+            ankle = keypoints[LANDMARK_INDICES['left_ankle']]
+            toe = keypoints[LANDMARK_INDICES['left_foot_index']]
+        else:
+            knee = keypoints[LANDMARK_INDICES['right_knee']]
+            ankle = keypoints[LANDMARK_INDICES['right_ankle']]
+            toe = keypoints[LANDMARK_INDICES['right_foot_index']]
+        
+        # 3点から角度を計算：膝-足首-つま先
+        angle = calculate_joint_angle_from_three_points(knee, ankle, toe)
+        
+        if angle is not None:
+            print(f"   🔗 {side}足関節角度（はさみ角）: {angle:.1f}° (下腿と足部)")
+        
+        return angle
+        
+    except Exception as e:
+        print(f"❌ {side}足関節角度計算エラー: {e}")
+        return None
+
+def calculate_elbow_joint_angle_relative(keypoints: List[KeyPoint], side: str) -> Optional[float]:
+    """
+    肘関節角度を計算（相対角度・はさみ角）
+    定義: 前腕と上腕のなす角
+    実装: 「肩」「肘」「手首」の3点がなす角度
+    
+    Args:
+        keypoints: 全キーポイント
+        side: 'left' または 'right'
+    
+    Returns:
+        肘関節角度（度、0〜180）
+    """
+    try:
+        if side == 'left':
+            shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
+            elbow = keypoints[LANDMARK_INDICES['left_elbow']]
+            wrist = keypoints[LANDMARK_INDICES['left_wrist']]
+        else:
+            shoulder = keypoints[LANDMARK_INDICES['right_shoulder']]
+            elbow = keypoints[LANDMARK_INDICES['right_elbow']]
+            wrist = keypoints[LANDMARK_INDICES['right_wrist']]
+        
+        # 3点から角度を計算：肩-肘-手首
+        angle = calculate_joint_angle_from_three_points(shoulder, elbow, wrist)
+        
+        if angle is not None:
+            print(f"   🔗 {side}肘関節角度（はさみ角）: {angle:.1f}° (上腕と前腕)")
+        
+        return angle
+        
+    except Exception as e:
+        print(f"❌ {side}肘関節角度計算エラー: {e}")
+        return None
+
+def calculate_trunk_angle_relative(keypoints: List[KeyPoint]) -> Optional[float]:
+    """
+    体幹角度を計算（相対角度・絶対角度と同じ）
+    定義: 体幹ベクトルと静止座標系の鉛直軸とのなす角
+    注意: これは既存の絶対角度計算と同じロジックを使用
+    
+    Args:
+        keypoints: 全キーポイント
+    
+    Returns:
+        体幹角度（度、-180〜180）
+    """
+    # 既存の絶対角度計算を流用
+    return calculate_trunk_angle(keypoints)
+
+# =============================================================================
+# 角度計算方式統合クラス
+# =============================================================================
+
+class AngleCalculationMode:
+    """角度計算方式の定義"""
+    ABSOLUTE = "absolute"  # 絶対角度（既存仕様）
+    RELATIVE = "relative"  # 相対関節角度（新仕様）
+
+class AngleCalculator:
+    """
+    角度計算を統合するクラス
+    仕様1（絶対角度）と仕様2（相対関節角度）を切り替え可能
+    """
+    
+    def __init__(self, mode: str = AngleCalculationMode.ABSOLUTE):
+        """
+        Args:
+            mode: 計算モード（'absolute' または 'relative'）
+        """
+        self.mode = mode
+        print(f"🔧 角度計算モード: {mode}")
+    
+    def calculate_all_angles(self, keypoints: List[KeyPoint]) -> Dict[str, Any]:
+        """
+        指定されたモードで全角度を計算
+        
+        Args:
+            keypoints: 全キーポイント
+        
+        Returns:
+            計算結果の辞書
+        """
+        if self.mode == AngleCalculationMode.ABSOLUTE:
+            return self._calculate_absolute_angles(keypoints)
+        elif self.mode == AngleCalculationMode.RELATIVE:
+            return self._calculate_relative_angles(keypoints)
+        else:
+            raise ValueError(f"不明な計算モード: {self.mode}")
+    
+    def _calculate_absolute_angles(self, keypoints: List[KeyPoint]) -> Dict[str, Any]:
+        """絶対角度計算（既存仕様 + 新規追加）"""
+        return {
+            'trunk_angle': calculate_trunk_angle(keypoints),
+            'left_thigh_angle': calculate_thigh_angle(
+                keypoints[LANDMARK_INDICES['left_hip']], 
+                keypoints[LANDMARK_INDICES['left_knee']], 
+                'left'
+            ),
+            'right_thigh_angle': calculate_thigh_angle(
+                keypoints[LANDMARK_INDICES['right_hip']], 
+                keypoints[LANDMARK_INDICES['right_knee']], 
+                'right'
+            ),
+            'left_shank_angle': calculate_lower_leg_angle(
+                keypoints[LANDMARK_INDICES['left_knee']], 
+                keypoints[LANDMARK_INDICES['left_ankle']], 
+                'left'
+            ),
+            'right_shank_angle': calculate_lower_leg_angle(
+                keypoints[LANDMARK_INDICES['right_knee']], 
+                keypoints[LANDMARK_INDICES['right_ankle']], 
+                'right'
+            ),
+            # 新規追加角度
+            'left_upper_arm_angle': calculate_upper_arm_angle(
+                keypoints[LANDMARK_INDICES['left_shoulder']], 
+                keypoints[LANDMARK_INDICES['left_elbow']], 
+                'left'
+            ),
+            'right_upper_arm_angle': calculate_upper_arm_angle(
+                keypoints[LANDMARK_INDICES['right_shoulder']], 
+                keypoints[LANDMARK_INDICES['right_elbow']], 
+                'right'
+            ),
+            'left_forearm_angle': calculate_forearm_angle(
+                keypoints[LANDMARK_INDICES['left_elbow']], 
+                keypoints[LANDMARK_INDICES['left_wrist']], 
+                'left'
+            ),
+            'right_forearm_angle': calculate_forearm_angle(
+                keypoints[LANDMARK_INDICES['right_elbow']], 
+                keypoints[LANDMARK_INDICES['right_wrist']], 
+                'right'
+            ),
+            'left_foot_angle': calculate_foot_angle(
+                keypoints[LANDMARK_INDICES['left_ankle']], 
+                keypoints[LANDMARK_INDICES['left_foot_index']], 
+                'left'
+            ),
+            'right_foot_angle': calculate_foot_angle(
+                keypoints[LANDMARK_INDICES['right_ankle']], 
+                keypoints[LANDMARK_INDICES['right_foot_index']], 
+                'right'
+            ),
+            'calculation_mode': 'absolute'
+        }
+    
+    def _calculate_relative_angles(self, keypoints: List[KeyPoint]) -> Dict[str, Any]:
+        """相対関節角度計算（新仕様）"""
+        return {
+            'trunk_angle': calculate_trunk_angle_relative(keypoints),
+            'left_hip_joint_angle': calculate_hip_joint_angle_relative(keypoints, 'left'),
+            'right_hip_joint_angle': calculate_hip_joint_angle_relative(keypoints, 'right'),
+            'left_knee_joint_angle': calculate_knee_joint_angle_relative(keypoints, 'left'),
+            'right_knee_joint_angle': calculate_knee_joint_angle_relative(keypoints, 'right'),
+            'left_ankle_joint_angle': calculate_ankle_joint_angle_relative(keypoints, 'left'),
+            'right_ankle_joint_angle': calculate_ankle_joint_angle_relative(keypoints, 'right'),
+            'left_elbow_joint_angle': calculate_elbow_joint_angle_relative(keypoints, 'left'),
+            'right_elbow_joint_angle': calculate_elbow_joint_angle_relative(keypoints, 'right'),
+            'calculation_mode': 'relative'
+        }
+
+# =============================================================================
+# 絶対角度計算（既存仕様 + 新規追加）
+# =============================================================================
+
+def calculate_upper_arm_angle(shoulder: KeyPoint, elbow: KeyPoint, side: str) -> Optional[float]:
+    """
+    上腕角度を計算する（肘基準鉛直軸）
+    定義: 上腕ベクトル（肩→肘）と肘を通る鉛直軸がなす角度
+    ・軸の右側（正のx方向）で負値
+    ・軸の左側（負のx方向）で正値
+    """
+    try:
+        # 上腕ベクトル（肩→肘）- 肘を基準とした方向
+        upper_arm_vector = np.array([shoulder.x - elbow.x, shoulder.y - elbow.y])
+        
+        print(f"   💪 {side}上腕ベクトル: [{upper_arm_vector[0]:.3f}, {upper_arm_vector[1]:.3f}] (肘→肩)")
+        
+        # 肘を通る鉛直軸との角度を計算: 軸の右側で負値、左側で正値
+        angle = calculate_absolute_angle_with_vertical(upper_arm_vector, forward_positive=False)
+        
+        print(f"   💪 {side}上腕角度: {angle:.1f}° (肘基準鉛直軸、右側負値・左側正値)")
+        
+        return angle
+        
+    except Exception:
+        return None
+
+def calculate_forearm_angle(elbow: KeyPoint, wrist: KeyPoint, side: str) -> Optional[float]:
+    """
+    前腕角度を計算する（画像定義準拠・直接角度版）
+    定義: 鉛直軸と前腕ベクトル（肘→手首）がなす角度を直接計算
+    ・画像の角度定義に合わせて調整
+    """
+    try:
+        # 前腕ベクトル（肘→手首）- 前腕の自然な方向
+        forearm_vector = np.array([wrist.x - elbow.x, wrist.y - elbow.y])
+        
+        print(f"   🤚 {side}前腕ベクトル: [{forearm_vector[0]:.3f}, {forearm_vector[1]:.3f}] (肘→手首)")
+        
+        # 鉛直軸（下向き）との角度を直接計算
+        vertical_down_vector = np.array([0.0, 1.0])  # 鉛直下向き
+        
+        # 2つのベクトル間の角度を計算
+        raw_angle = calculate_angle_between_vectors(forearm_vector, vertical_down_vector)
+        
+        if raw_angle is None:
+            return None
+        
+        # 左右の符号調整（大腿・下腿角度と同じパターンに合わせる）
+        if side == 'left':
+            angle = raw_angle   # 左側は正の値
+        else:
+            angle = -raw_angle  # 右側は負の値
+        
+        print(f"   🤚 {side}前腕角度: {angle:.1f}° (鉛直軸との角度、左右符号調整)")
+        
+        return angle
+        
+    except Exception:
+        return None
+
+def calculate_foot_angle(ankle: KeyPoint, toe: KeyPoint, side: str) -> Optional[float]:
+    """
+    足部角度を計算する（新規追加）
+    定義: 足部ベクトル（足首→つま先）と水平軸がなす角度
+    ・水平軸より上で正値
+    ・水平軸より下で負値
+    注意: MediaPipeにはヒールがないため足首を起点とする
+    """
+    try:
+        # キーポイントの有効性を確認
+        if ankle.visibility < 0.5 or toe.visibility < 0.5:
+            return None
+        
+        # 足部ベクトル（足首→つま先）
+        foot_vector = np.array([toe.x - ankle.x, toe.y - ankle.y])
+        
+        print(f"   🦶 {side}足部ベクトル: [{foot_vector[0]:.3f}, {foot_vector[1]:.3f}] (足首→つま先)")
+        
+        # 水平軸との角度計算
+        angle = calculate_absolute_angle_with_horizontal(foot_vector)
+        
+        print(f"   🦶 {side}足部角度: {angle:.1f}° (上で正値、下で負値)")
+        
+        return angle
+        
+    except Exception:
+        return None
+
+def calculate_angle_between_vectors(vector1: np.ndarray, vector2: np.ndarray) -> Optional[float]:
+    """
+    2つのベクトル間の角度を計算する
+    
+    Args:
+        vector1: 第1ベクトル [x, y]
+        vector2: 第2ベクトル [x, y]
+    
+    Returns:
+        角度（度数法、0～180度）または None
+    """
+    try:
+        # ベクトルの長さをチェック
+        length1 = np.linalg.norm(vector1)
+        length2 = np.linalg.norm(vector2)
+        if length1 == 0 or length2 == 0:
+            return None
+        
+        # 正規化
+        unit_vector1 = vector1 / length1
+        unit_vector2 = vector2 / length2
+        
+        # 内積を計算
+        dot_product = np.dot(unit_vector1, unit_vector2)
+        
+        # 数値誤差を防ぐためにclipする
+        dot_product = np.clip(dot_product, -1.0, 1.0)
+        
+        # 角度を計算
+        angle_rad = np.arccos(dot_product)
+        angle_deg = np.degrees(angle_rad)
+        
+        return angle_deg
+        
+    except Exception:
+        return None
+
 def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
     """
-    体幹角度を計算する（正しい符号規則）
+    体幹角度を計算する（修正済み符号規則）
     定義: 腰から肩への直線ベクトルと鉛直軸がなす角度
-    ・前傾で正値
-    ・後傾で負値
+    ・前傾で負値（軸の右側）
+    ・後傾で正値（軸の左側）
     """
     try:
         left_shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
@@ -303,10 +821,10 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
         print(f"🔍 体幹角度計算: 股関節({hip_center_x:.3f}, {hip_center_y:.3f}) → 肩({shoulder_center_x:.3f}, {shoulder_center_y:.3f})")
         print(f"   体幹ベクトル: [{trunk_vector[0]:.3f}, {trunk_vector[1]:.3f}]")
         
-        # 正しい符号規則: 前傾で正値、後傾で負値
-        # forward_positive=True で前方（右）への傾きを正値にする
-        angle = calculate_absolute_angle_with_vertical(trunk_vector, forward_positive=True)
-        print(f"   計算された体幹角度: {angle:.1f}° (前傾で正値、後傾で負値)")
+        # 修正済み符号規則: 前傾で負値、後傾で正値
+        # forward_positive=False で前方（右）への傾きを負値にする
+        angle = calculate_absolute_angle_with_vertical(trunk_vector, forward_positive=False)
+        print(f"   計算された体幹角度: {angle:.1f}° (前傾で負値、後傾で正値)")
         
         return angle
         
@@ -315,10 +833,10 @@ def calculate_trunk_angle(keypoints: List[KeyPoint]) -> Optional[float]:
 
 def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[float]:
     """
-    大腿角度を計算する（進行方向：左→右固定）
+    大腿角度を計算する（修正済み符号規則）
     定義: 大腿ベクトル（膝→股関節）と鉛直軸がなす角度
-    ・正値：膝関節点が後方に位置（※参考　離地時）
-    ・負値：膝関節点が前方に位置（※参考　接地時）
+    ・膝が股関節より後方（離地時）で正値
+    ・膝が股関節より前方（接地時）で負値
     """
     try:
         # キーポイントの有効性を確認
@@ -330,11 +848,10 @@ def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[
         
         print(f"   🦵 {side}大腿ベクトル: [{thigh_vector[0]:.3f}, {thigh_vector[1]:.3f}] (膝→股関節)")
         
-        # 絶対角度を計算（フロントエンドリアルタイム表示と一致）
-        raw_angle = calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=False)
-        angle = -raw_angle  # フロントエンドと同じ符号反転
+        # 修正済み符号規則: 膝が後方で正値（forward_positive=True）
+        angle = calculate_absolute_angle_with_vertical(thigh_vector, forward_positive=True)
         
-        print(f"   🦵 {side}大腿角度: {angle:.1f}° (膝が後方で正値)")
+        print(f"   🦵 {side}大腿角度: {angle:.1f}° (膝が後方で正値、前方で負値)")
         
         return angle
         
@@ -343,10 +860,10 @@ def calculate_thigh_angle(hip: KeyPoint, knee: KeyPoint, side: str) -> Optional[
 
 def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Optional[float]:
     """
-    下腿角度を計算する（進行方向：左→右固定）
+    下腿角度を計算する（修正済み符号規則）
     定義: 下腿ベクトル（足首→膝）と鉛直軸がなす角度
-    ・正値：足関節点が後方に位置（※参考　離地時）
-    ・負値：足関節点が前方に位置（※参考　接地時）
+    ・足首が膝より後方（離地時）で正値
+    ・足首が膝より前方（接地時）で負値
     """
     try:
         # キーポイントの有効性を確認
@@ -358,11 +875,10 @@ def calculate_lower_leg_angle(knee: KeyPoint, ankle: KeyPoint, side: str) -> Opt
         
         print(f"   🦵 {side}下腿ベクトル: [{lower_leg_vector[0]:.3f}, {lower_leg_vector[1]:.3f}] (足首→膝)")
         
-        # 絶対角度を計算（フロントエンドリアルタイム表示と一致）
-        raw_angle = calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=False)
-        angle = -raw_angle  # フロントエンドと同じ符号反転
+        # 修正済み符号規則: 足首が後方で正値（forward_positive=True）
+        angle = calculate_absolute_angle_with_vertical(lower_leg_vector, forward_positive=True)
         
-        print(f"   🦵 {side}下腿角度: {angle:.1f}° (足首が後方で正値)")
+        print(f"   🦵 {side}下腿角度: {angle:.1f}° (足首が後方で正値、前方で負値)")
         
         return angle
         
@@ -824,31 +1340,121 @@ def extract_absolute_angles_from_frame(keypoints: List[KeyPoint]) -> Dict[str, O
     """
     angles = {}
     
+    # 各角度を個別に計算（エラーがあっても他に影響しない）
     try:
-        # ① 体幹角度
         angles['trunk_angle'] = calculate_trunk_angle(keypoints)
+    except (IndexError, KeyError):
+        angles['trunk_angle'] = None
         
-        # ② 大腿角度（左右）
+    try:
         left_hip = keypoints[LANDMARK_INDICES['left_hip']]
         left_knee = keypoints[LANDMARK_INDICES['left_knee']]
         angles['left_thigh_angle'] = calculate_thigh_angle(left_hip, left_knee, 'left')
+    except (IndexError, KeyError):
+        angles['left_thigh_angle'] = None
         
+    try:
         right_hip = keypoints[LANDMARK_INDICES['right_hip']]
         right_knee = keypoints[LANDMARK_INDICES['right_knee']]
         angles['right_thigh_angle'] = calculate_thigh_angle(right_hip, right_knee, 'right')
+    except (IndexError, KeyError):
+        angles['right_thigh_angle'] = None
         
-        # ③ 下腿角度（左右）
+    try:
+        left_knee = keypoints[LANDMARK_INDICES['left_knee']]
         left_ankle = keypoints[LANDMARK_INDICES['left_ankle']]
         angles['left_lower_leg_angle'] = calculate_lower_leg_angle(left_knee, left_ankle, 'left')
+    except (IndexError, KeyError):
+        angles['left_lower_leg_angle'] = None
         
+    try:
+        right_knee = keypoints[LANDMARK_INDICES['right_knee']]
         right_ankle = keypoints[LANDMARK_INDICES['right_ankle']]
         angles['right_lower_leg_angle'] = calculate_lower_leg_angle(right_knee, right_ankle, 'right')
-        
     except (IndexError, KeyError):
-        # キーポイントが不足している場合はすべてNoneを返す
-        for key in ['trunk_angle', 'left_thigh_angle', 'right_thigh_angle', 
-                   'left_lower_leg_angle', 'right_lower_leg_angle']:
-            angles[key] = None
+        angles['right_lower_leg_angle'] = None
+    
+    try:
+        left_shoulder = keypoints[LANDMARK_INDICES['left_shoulder']]
+        left_elbow = keypoints[LANDMARK_INDICES['left_elbow']]
+        
+        # 可視性チェック（左肘の閾値を下げる）
+        if left_shoulder.visibility < 0.3 or left_elbow.visibility < 0.1:
+            print(f"   ❌ left上腕計算失敗: 肩可視性={left_shoulder.visibility:.2f}, 肘可視性={left_elbow.visibility:.2f}")
+            angles['left_upper_arm_angle'] = None
+        else:
+            angles['left_upper_arm_angle'] = calculate_upper_arm_angle(left_shoulder, left_elbow, 'left')
+            if angles['left_upper_arm_angle'] is not None:
+                print(f"   💪 left上腕角度: {angles['left_upper_arm_angle']:.1f}° (計算成功)")
+            else:
+                print(f"   ❌ left上腕角度: 計算関数がNoneを返却")
+    except (IndexError, KeyError) as e:
+        angles['left_upper_arm_angle'] = None
+        print(f"   ❌ left上腕角度キーポイントエラー: {e}")
+    
+    try:
+        right_shoulder = keypoints[LANDMARK_INDICES['right_shoulder']]
+        right_elbow = keypoints[LANDMARK_INDICES['right_elbow']]
+        angles['right_upper_arm_angle'] = calculate_upper_arm_angle(right_shoulder, right_elbow, 'right')
+    except (IndexError, KeyError):
+        angles['right_upper_arm_angle'] = None
+    
+    try:
+        left_elbow = keypoints[LANDMARK_INDICES['left_elbow']]
+        left_wrist = keypoints[LANDMARK_INDICES['left_wrist']]
+        
+        # 可視性チェック（左肘・手首の閾値を下げる）
+        if left_elbow.visibility < 0.1 or left_wrist.visibility < 0.3:
+            print(f"   ❌ left前腕計算失敗: 肘可視性={left_elbow.visibility:.2f}, 手首可視性={left_wrist.visibility:.2f}")
+            angles['left_forearm_angle'] = None
+        else:
+            angles['left_forearm_angle'] = calculate_forearm_angle(left_elbow, left_wrist, 'left')
+            if angles['left_forearm_angle'] is not None:
+                print(f"   🤚 left前腕角度: {angles['left_forearm_angle']:.1f}° (計算成功)")
+            else:
+                print(f"   ❌ left前腕角度: 計算関数がNoneを返却")
+    except (IndexError, KeyError) as e:
+        angles['left_forearm_angle'] = None
+        print(f"   ❌ left前腕角度キーポイントエラー: {e}")
+    
+    try:
+        right_elbow = keypoints[LANDMARK_INDICES['right_elbow']]
+        right_wrist = keypoints[LANDMARK_INDICES['right_wrist']]
+        angles['right_forearm_angle'] = calculate_forearm_angle(right_elbow, right_wrist, 'right')
+    except (IndexError, KeyError):
+        angles['right_forearm_angle'] = None
+    
+    try:
+        left_ankle = keypoints[LANDMARK_INDICES['left_ankle']]
+        left_toe = keypoints[LANDMARK_INDICES['left_foot_index']]
+        angles['left_foot_angle'] = calculate_foot_angle(left_ankle, left_toe, 'left')
+    except (IndexError, KeyError):
+        angles['left_foot_angle'] = None
+    
+    try:
+        right_ankle = keypoints[LANDMARK_INDICES['right_ankle']]
+        right_toe = keypoints[LANDMARK_INDICES['right_foot_index']]
+        angles['right_foot_angle'] = calculate_foot_angle(right_ankle, right_toe, 'right')
+    except (IndexError, KeyError):
+        angles['right_foot_angle'] = None
+    
+    # デバッグ：計算された角度を確認
+    calculated_angles = [k for k, v in angles.items() if v is not None and 'angle' in k]
+    print(f"🔍 計算成功角度: {len(calculated_angles)}/11個 - {calculated_angles}")
+    
+    # 新しい角度の個別デバッグ
+    new_angles = {
+        'left_upper_arm_angle': angles.get('left_upper_arm_angle'),
+        'right_upper_arm_angle': angles.get('right_upper_arm_angle'),
+        'left_forearm_angle': angles.get('left_forearm_angle'),
+        'right_forearm_angle': angles.get('right_forearm_angle'),
+        'left_foot_angle': angles.get('left_foot_angle'),
+        'right_foot_angle': angles.get('right_foot_angle')
+    }
+    calculated_new = {k: v for k, v in new_angles.items() if v is not None}
+    print(f"🔍 新しい角度詳細: {calculated_new}")
+    
+    # 全体のエラーハンドリング（削除）- 個別エラーハンドリングに変更済み
     
     return angles
 
@@ -904,7 +1510,10 @@ async def extract_features(request: PoseAnalysisRequest):
         # 統計情報を計算
         angle_stats = {}
         angle_keys = ['trunk_angle', 'left_thigh_angle', 'right_thigh_angle', 
-                     'left_lower_leg_angle', 'right_lower_leg_angle']
+                     'left_lower_leg_angle', 'right_lower_leg_angle',
+                     'left_upper_arm_angle', 'right_upper_arm_angle',
+                     'left_forearm_angle', 'right_forearm_angle',
+                     'left_foot_angle', 'right_foot_angle']
         
         for angle_key in angle_keys:
             valid_values = [frame[angle_key] for frame in all_angles 
@@ -916,6 +1525,10 @@ async def extract_features(request: PoseAnalysisRequest):
                 print(f"📊 体幹角度統計: {len(valid_values)}個の値から計算")
                 print(f"   平均: {angle_stats[angle_key]['avg']:.1f}°")
                 print(f"   範囲: {angle_stats[angle_key]['min']:.1f}° ～ {angle_stats[angle_key]['max']:.1f}°")
+            
+            # デバッグ出力: 全ての新しい角度の統計情報
+            if angle_key in ['left_upper_arm_angle', 'right_upper_arm_angle', 'left_forearm_angle', 'right_forearm_angle', 'left_foot_angle', 'right_foot_angle']:
+                print(f"🔍 {angle_key}統計: {len(valid_values)}個の値から計算, 平均={angle_stats[angle_key]['avg']:.1f}°" if valid_values else f"⚠️ {angle_key}: 有効値なし")
         
         # 新機能: ランニングサイクル分析（重心上下動とピッチ）
         print("🔄 ランニングサイクル分析を実行中...")
@@ -938,6 +1551,14 @@ async def extract_features(request: PoseAnalysisRequest):
                 "cadence_spm": running_cycle_analysis.get('pitch')
             }
         }
+        
+        # デバッグ: レスポンス構造を確認
+        print(f"🔍 APIレスポンス構造デバッグ:")
+        print(f"   features.angle_statistics keys: {list(angle_stats.keys())}")
+        for key, value in angle_stats.items():
+            if 'upper_arm' in key or 'forearm' in key or 'foot' in key:
+                print(f"   {key}: {value}")
+        print(f"   features keys: {list(features.keys())}")
         
         analysis_details = {
             "total_frames_analyzed": len(request.pose_data),
@@ -1210,6 +1831,181 @@ def find_foot_strikes(time_series_keypoints: List[List[KeyPoint]], foot_type: st
         print(f"❌ 足接地検出エラー ({foot_type}): {str(e)}")
         return []
 
+def detect_foot_strikes_advanced(all_keypoints: List[List[KeyPoint]], video_fps: float) -> List[tuple]:
+    """
+    高精度な歩数カウント（フットストライク検出）関数
+    スムージングと人間工学的制約を用いたフィルタリングを実装
+    
+    Args:
+        all_keypoints: 動画全体のキーポイントデータ
+        video_fps: 動画のフレームレート
+    
+    Returns:
+        検出された全ての接地イベントのリスト [(フレーム番号, 'left'/'right'), ...]
+        フレーム番号順にソートされている
+    """
+    try:
+        print(f"🚀 高精度フットストライク検出を開始...")
+        print(f"📊 入力データ: {len(all_keypoints)}フレーム, FPS: {video_fps}")
+        
+        if len(all_keypoints) < 20:
+            print("❌ フレーム数が不足しています（最低20フレーム必要）")
+            return []
+        
+        # ステップ1: データ準備とスムージング
+        print("📈 ステップ1: データ準備とスムージング")
+        
+        # 左右足首のY座標を抽出
+        left_ankle_y = []
+        right_ankle_y = []
+        
+        left_ankle_idx = LANDMARK_INDICES['left_ankle']
+        right_ankle_idx = LANDMARK_INDICES['right_ankle']
+        
+        for frame_keypoints in all_keypoints:
+            # 左足首
+            if len(frame_keypoints) > left_ankle_idx and frame_keypoints[left_ankle_idx].visibility > 0.5:
+                left_ankle_y.append(frame_keypoints[left_ankle_idx].y)
+            else:
+                left_ankle_y.append(np.nan)
+            
+            # 右足首
+            if len(frame_keypoints) > right_ankle_idx and frame_keypoints[right_ankle_idx].visibility > 0.5:
+                right_ankle_y.append(frame_keypoints[right_ankle_idx].y)
+            else:
+                right_ankle_y.append(np.nan)
+        
+        # NaNを線形補間で埋める
+        left_ankle_y = np.array(left_ankle_y)
+        right_ankle_y = np.array(right_ankle_y)
+        
+        def interpolate_nans(arr):
+            """NaN値を線形補間で埋める"""
+            mask = ~np.isnan(arr)
+            if np.sum(mask) < 2:
+                return arr
+            indices = np.arange(len(arr))
+            arr[~mask] = np.interp(indices[~mask], indices[mask], arr[mask])
+            return arr
+        
+        left_ankle_y = interpolate_nans(left_ankle_y)
+        right_ankle_y = interpolate_nans(right_ankle_y)
+        
+        # Savitzky-Golay フィルタでスムージング
+        window_length = min(7, len(all_keypoints) // 3)
+        if window_length % 2 == 0:
+            window_length -= 1  # 奇数にする
+        window_length = max(3, window_length)  # 最小値は3
+        
+        try:
+            left_smoothed = signal.savgol_filter(left_ankle_y, window_length, 3)
+            right_smoothed = signal.savgol_filter(right_ankle_y, window_length, 3)
+            print(f"✅ スムージング完了 (window_length: {window_length})")
+        except Exception as e:
+            print(f"⚠️ スムージングエラー、移動平均にフォールバック: {e}")
+            # フォールバック: 単純移動平均
+            def moving_average(arr, window):
+                return np.convolve(arr, np.ones(window)/window, mode='same')
+            left_smoothed = moving_average(left_ankle_y, 5)
+            right_smoothed = moving_average(right_ankle_y, 5)
+        
+        # ステップ2: 全ての接地候補を検出
+        print("🔍 ステップ2: 接地候補検出")
+        
+        # 極小値（谷）を検出するため信号を反転
+        left_inverted = -left_smoothed
+        right_inverted = -right_smoothed
+        
+        # find_peaksで極小値（谷）を検出
+        min_prominence = np.std(left_smoothed) * 0.3  # プロミネンス閾値
+        left_candidates, _ = signal.find_peaks(left_inverted, prominence=min_prominence)
+        right_candidates, _ = signal.find_peaks(right_inverted, prominence=min_prominence)
+        
+        print(f"📍 左足候補: {len(left_candidates)}個 {list(left_candidates)}")
+        print(f"📍 右足候補: {len(right_candidates)}個 {list(right_candidates)}")
+        
+        # ステップ3: 候補のフィルタリングと最終リストの構築
+        print("🔧 ステップ3: フィルタリングと最終構築")
+        
+        # 時間制約フィルタ
+        def apply_time_constraints(candidates, foot_name):
+            """物理的制約に基づいて候補をフィルタリング"""
+            if len(candidates) < 2:
+                return candidates
+            
+            # SPM制約: 120-220 SPM (0.27-0.5秒/歩)
+            min_interval_frames = int(video_fps * 60 / 220)  # 220 SPM
+            max_interval_frames = int(video_fps * 60 / 120)  # 120 SPM
+            
+            filtered = [candidates[0]]
+            for candidate in candidates[1:]:
+                interval = candidate - filtered[-1]
+                if min_interval_frames <= interval <= max_interval_frames:
+                    filtered.append(candidate)
+                else:
+                    print(f"⚠️ {foot_name}足候補除外: フレーム{candidate} (間隔: {interval})")
+            
+            print(f"✅ {foot_name}足フィルタ後: {len(filtered)}個 {list(filtered)}")
+            return np.array(filtered)
+        
+        left_filtered = apply_time_constraints(left_candidates, "左")
+        right_filtered = apply_time_constraints(right_candidates, "右")
+        
+        # 左右交互フィルタ
+        print("🔄 左右交互フィルタ適用中...")
+        
+        # 全候補を統合してソート
+        all_candidates = []
+        for frame in left_filtered:
+            all_candidates.append((frame, 'left'))
+        for frame in right_filtered:
+            all_candidates.append((frame, 'right'))
+        
+        # フレーム番号でソート
+        all_candidates.sort(key=lambda x: x[0])
+        print(f"📊 統合候補: {len(all_candidates)}個 {all_candidates}")
+        
+        # 左右交互制約を適用
+        final_strikes = []
+        if all_candidates:
+            final_strikes.append(all_candidates[0])
+            
+            for candidate in all_candidates[1:]:
+                current_frame, current_foot = candidate
+                last_frame, last_foot = final_strikes[-1]
+                
+                # 異なる足の場合のみ追加
+                if current_foot != last_foot:
+                    final_strikes.append(candidate)
+                else:
+                    print(f"⚠️ 同一足連続をスキップ: {current_foot}足フレーム{current_frame}")
+        
+        print(f"✅ 最終フットストライク検出結果: {len(final_strikes)}個")
+        for frame, foot in final_strikes:
+            print(f"  🦶 フレーム{frame}: {foot}足")
+        
+        # 検出統計
+        left_count = sum(1 for _, foot in final_strikes if foot == 'left')
+        right_count = sum(1 for _, foot in final_strikes if foot == 'right')
+        total_steps = len(final_strikes)
+        
+        if len(final_strikes) > 1:
+            duration_seconds = len(all_keypoints) / video_fps
+            spm = (total_steps * 60) / duration_seconds
+            print(f"📊 検出統計:")
+            print(f"  👣 総歩数: {total_steps}歩")
+            print(f"  🦶 左足: {left_count}歩, 右足: {right_count}歩")
+            print(f"  ⏱️ 動画時間: {duration_seconds:.2f}秒")
+            print(f"  🏃 推定SPM: {spm:.1f}")
+        
+        return final_strikes
+        
+    except Exception as e:
+        print(f"❌ 高精度フットストライク検出エラー: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return []
+
 def analyze_angles_for_single_cycle(cycle_keypoints: List[List[KeyPoint]]) -> Dict[str, Dict[str, float]]:
     """
     単一サイクルの各指標の統計値を計算する
@@ -1229,7 +2025,14 @@ def analyze_angles_for_single_cycle(cycle_keypoints: List[List[KeyPoint]]) -> Di
             'left_thigh_angle': [],
             'right_thigh_angle': [],
             'left_lower_leg_angle': [],
-            'right_lower_leg_angle': []
+            'right_lower_leg_angle': [],
+            # 新規追加角度
+            'left_upper_arm_angle': [],
+            'right_upper_arm_angle': [],
+            'left_forearm_angle': [],
+            'right_forearm_angle': [],
+            'left_foot_angle': [],
+            'right_foot_angle': []
         }
         
         for frame_keypoints in cycle_keypoints:
@@ -1272,6 +2075,57 @@ def analyze_angles_for_single_cycle(cycle_keypoints: List[List[KeyPoint]]) -> Di
                 )
                 if right_lower_leg is not None:
                     cycle_angles['right_lower_leg_angle'].append(right_lower_leg)
+                
+                # 上腕角度
+                left_upper_arm = calculate_upper_arm_angle(
+                    frame_keypoints[LANDMARK_INDICES['left_shoulder']],
+                    frame_keypoints[LANDMARK_INDICES['left_elbow']],
+                    'left'
+                )
+                if left_upper_arm is not None:
+                    cycle_angles['left_upper_arm_angle'].append(left_upper_arm)
+                
+                right_upper_arm = calculate_upper_arm_angle(
+                    frame_keypoints[LANDMARK_INDICES['right_shoulder']],
+                    frame_keypoints[LANDMARK_INDICES['right_elbow']],
+                    'right'
+                )
+                if right_upper_arm is not None:
+                    cycle_angles['right_upper_arm_angle'].append(right_upper_arm)
+                
+                # 前腕角度
+                left_forearm = calculate_forearm_angle(
+                    frame_keypoints[LANDMARK_INDICES['left_elbow']],
+                    frame_keypoints[LANDMARK_INDICES['left_wrist']],
+                    'left'
+                )
+                if left_forearm is not None:
+                    cycle_angles['left_forearm_angle'].append(left_forearm)
+                
+                right_forearm = calculate_forearm_angle(
+                    frame_keypoints[LANDMARK_INDICES['right_elbow']],
+                    frame_keypoints[LANDMARK_INDICES['right_wrist']],
+                    'right'
+                )
+                if right_forearm is not None:
+                    cycle_angles['right_forearm_angle'].append(right_forearm)
+                
+                # 足部角度
+                left_foot = calculate_foot_angle(
+                    frame_keypoints[LANDMARK_INDICES['left_ankle']],
+                    frame_keypoints[LANDMARK_INDICES['left_foot_index']],
+                    'left'
+                )
+                if left_foot is not None:
+                    cycle_angles['left_foot_angle'].append(left_foot)
+                
+                right_foot = calculate_foot_angle(
+                    frame_keypoints[LANDMARK_INDICES['right_ankle']],
+                    frame_keypoints[LANDMARK_INDICES['right_foot_index']],
+                    'right'
+                )
+                if right_foot is not None:
+                    cycle_angles['right_foot_angle'].append(right_foot)
         
         # 統計値を計算
         stats_results = {}
@@ -1395,6 +2249,7 @@ def display_comparison_results(user_stats: Dict[str, Dict[str, float]], standard
     print("="*60)
     
     # 指標名のマッピング（ユーザー統計値 → 標準モデル）
+    # 新しい角度は比較対象外のため除外
     indicator_mapping = {
         'trunk_angle': '体幹角度',
         'left_thigh_angle': '左大腿角度', 
@@ -1489,7 +2344,7 @@ def compare_with_standard_model(user_stats: Dict[str, Dict[str, float]]) -> Dict
         # コンソールに比較結果を表示
         display_comparison_results(user_stats, standard_model)
         
-        # 指標名のマッピング
+        # 指標名のマッピング（新しい角度は比較対象外）
         indicator_mapping = {
             'trunk_angle': '体幹角度',
             'left_thigh_angle': '左大腿角度', 
@@ -1687,6 +2542,548 @@ def test_statistical_judgment():
             print(f"      ユーザー値: {case['user']}, 標準平均: {case['mean']}, 標準偏差: {case['std']}")
     
     print("\n✅ 統計的判定機能テスト完了！")
+
+@app.post("/test_advanced_foot_strikes")
+async def test_advanced_foot_strikes(request: dict):
+    """
+    高精度フットストライク検出機能をテストする
+    """
+    try:
+        print("🧪 高精度フットストライク検出テストを開始...")
+        
+        # リクエストから必要データを取得
+        video_id = request.get('video_id')
+        test_fps = request.get('fps', 20.0)
+        
+        if not video_id:
+            return {
+                "status": "error",
+                "message": "video_idが必要です"
+            }
+        
+        print(f"📝 テスト対象動画ID: {video_id}")
+        
+        # ダミーテストデータを生成（実際の実装では既存のキーポイントデータを使用）
+        # ここでは高精度検出機能の動作確認のためのテストデータを作成
+        
+        # 50フレームの疑似キーポイントデータ（3秒動画想定）
+        test_keypoints = []
+        for frame_idx in range(50):
+            frame_keypoints = []
+            
+            # 33個のキーポイントを生成
+            for kp_idx in range(33):
+                if kp_idx == LANDMARK_INDICES['left_ankle']:
+                    # 左足首: 周期的な上下動（接地時に低い値）
+                    y_val = 0.8 + 0.1 * math.sin(frame_idx * 0.4) + 0.05 * math.sin(frame_idx * 0.8)
+                elif kp_idx == LANDMARK_INDICES['right_ankle']:
+                    # 右足首: 左足と位相差のある周期的上下動
+                    y_val = 0.8 + 0.1 * math.sin(frame_idx * 0.4 + math.pi * 0.6) + 0.05 * math.sin(frame_idx * 0.8)
+                else:
+                    # その他のキーポイント
+                    y_val = 0.5
+                
+                keypoint = KeyPoint(
+                    x=0.5,  # 固定
+                    y=y_val,
+                    z=0.0,  # 固定
+                    visibility=0.9  # 高い可視性
+                )
+                frame_keypoints.append(keypoint)
+            
+            test_keypoints.append(frame_keypoints)
+        
+        print(f"✅ テストデータ生成完了: {len(test_keypoints)}フレーム")
+        
+        # 高精度フットストライク検出を実行
+        detected_strikes = detect_foot_strikes_advanced(test_keypoints, test_fps)
+        
+        # 従来の検出方法との比較
+        left_strikes_old = find_foot_strikes(test_keypoints, 'left')
+        right_strikes_old = find_foot_strikes(test_keypoints, 'right')
+        
+        # 結果を整理
+        result = {
+            "status": "success",
+            "message": "高精度フットストライク検出テスト完了",
+            "test_data": {
+                "video_id": video_id,
+                "total_frames": len(test_keypoints),
+                "fps": test_fps,
+                "duration_seconds": len(test_keypoints) / test_fps
+            },
+            "advanced_detection": {
+                "total_strikes": len(detected_strikes),
+                "strikes_detail": [{"frame": int(frame), "foot": foot} for frame, foot in detected_strikes],
+                "left_count": sum(1 for _, foot in detected_strikes if foot == 'left'),
+                "right_count": sum(1 for _, foot in detected_strikes if foot == 'right')
+            },
+            "traditional_detection": {
+                "left_strikes": [int(x) for x in left_strikes_old],
+                "right_strikes": [int(x) for x in right_strikes_old],
+                "total_strikes": len(left_strikes_old) + len(right_strikes_old)
+            },
+            "comparison": {
+                "advanced_total": len(detected_strikes),
+                "traditional_total": len(left_strikes_old) + len(right_strikes_old),
+                "improvement": "高精度版では左右交互制約と時間制約を適用"
+            }
+        }
+        
+        if detected_strikes:
+            duration = len(test_keypoints) / test_fps
+            spm_estimated = (len(detected_strikes) * 60) / duration
+            result["advanced_detection"]["estimated_spm"] = round(spm_estimated, 1)
+        
+        print(f"🎯 高精度検出結果: {len(detected_strikes)}歩")
+        print(f"🔄 従来検出結果: {len(left_strikes_old) + len(right_strikes_old)}歩")
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ 高精度フットストライクテストエラー: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": f"テスト実行エラー: {str(e)}"
+        }
+
+@app.post("/test_relative_angles")
+async def test_relative_angles(request: dict):
+    """
+    新しい相対関節角度計算機能をテストする
+    """
+    try:
+        print("🧪 相対関節角度計算テストを開始...")
+        
+        # リクエストから必要データを取得
+        calculation_mode = request.get('mode', 'relative')
+        test_frame_count = request.get('frame_count', 10)
+        
+        print(f"📝 テスト設定: モード={calculation_mode}, フレーム数={test_frame_count}")
+        
+        # ダミーテストデータを生成
+        test_keypoints = []
+        for frame_idx in range(test_frame_count):
+            frame_keypoints = []
+            
+            # 33個のキーポイントを生成（基本的な人体ポーズ）
+            for kp_idx in range(33):
+                if kp_idx == LANDMARK_INDICES['left_shoulder']:
+                    # 左肩
+                    keypoint = KeyPoint(x=0.4, y=0.3, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['right_shoulder']:
+                    # 右肩
+                    keypoint = KeyPoint(x=0.6, y=0.3, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['left_hip']:
+                    # 左股関節
+                    keypoint = KeyPoint(x=0.45, y=0.6, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['right_hip']:
+                    # 右股関節
+                    keypoint = KeyPoint(x=0.55, y=0.6, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['left_knee']:
+                    # 左膝（動的変化）
+                    y_offset = 0.1 * math.sin(frame_idx * 0.3)
+                    keypoint = KeyPoint(x=0.4, y=0.8 + y_offset, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['right_knee']:
+                    # 右膝（動的変化）
+                    y_offset = 0.1 * math.sin(frame_idx * 0.3 + math.pi)
+                    keypoint = KeyPoint(x=0.6, y=0.8 + y_offset, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['left_ankle']:
+                    # 左足首
+                    keypoint = KeyPoint(x=0.4, y=0.95, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['right_ankle']:
+                    # 右足首
+                    keypoint = KeyPoint(x=0.6, y=0.95, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['left_foot_index']:
+                    # 左つま先
+                    keypoint = KeyPoint(x=0.39, y=0.98, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['right_foot_index']:
+                    # 右つま先
+                    keypoint = KeyPoint(x=0.61, y=0.98, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['left_elbow']:
+                    # 左肘
+                    keypoint = KeyPoint(x=0.35, y=0.45, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['right_elbow']:
+                    # 右肘
+                    keypoint = KeyPoint(x=0.65, y=0.45, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['left_wrist']:
+                    # 左手首
+                    keypoint = KeyPoint(x=0.32, y=0.6, z=0.0, visibility=0.9)
+                elif kp_idx == LANDMARK_INDICES['right_wrist']:
+                    # 右手首
+                    keypoint = KeyPoint(x=0.68, y=0.6, z=0.0, visibility=0.9)
+                else:
+                    # その他のキーポイント
+                    keypoint = KeyPoint(x=0.5, y=0.5, z=0.0, visibility=0.5)
+                
+                frame_keypoints.append(keypoint)
+            
+            test_keypoints.append(frame_keypoints)
+        
+        print(f"✅ テストデータ生成完了: {len(test_keypoints)}フレーム")
+        
+        # 角度計算器を作成
+        calculator = AngleCalculator(mode=calculation_mode)
+        
+        # 各フレームで角度を計算
+        results = []
+        for frame_idx, frame_keypoints in enumerate(test_keypoints):
+            frame_angles = calculator.calculate_all_angles(frame_keypoints)
+            frame_angles['frame_index'] = frame_idx
+            results.append(frame_angles)
+        
+        # 結果を整理
+        summary = {
+            "calculation_mode": calculation_mode,
+            "total_frames": len(results),
+            "sample_angles": {}
+        }
+        
+        if results:
+            first_frame = results[0]
+            for key, value in first_frame.items():
+                if key != 'frame_index' and key != 'calculation_mode' and value is not None and isinstance(value, (int, float)):
+                    summary["sample_angles"][key] = round(value, 1)
+        
+        result = {
+            "status": "success",
+            "message": f"相対関節角度計算テスト完了 (モード: {calculation_mode})",
+            "summary": summary,
+            "detailed_results": results[:3] if len(results) >= 3 else results,  # 最初の3フレームのみ
+            "angle_definitions": {
+                "absolute_mode": {
+                    "trunk_angle": "体幹ベクトルと鉛直軸の角度",
+                    "thigh_angle": "大腿ベクトルと鉛直軸の角度",
+                    "shank_angle": "下腿ベクトルと鉛直軸の角度"
+                },
+                "relative_mode": {
+                    "trunk_angle": "体幹ベクトルと鉛直軸の角度（絶対角度と同じ）",
+                    "hip_joint_angle": "大腿と体幹のはさみ角（肩中点-股関節-膝）",
+                    "knee_joint_angle": "大腿と下腿のはさみ角（股関節-膝-足首）",
+                    "ankle_joint_angle": "下腿と足部のはさみ角（膝-足首-つま先）",
+                    "elbow_joint_angle": "上腕と前腕のはさみ角（肩-肘-手首）"
+                }
+            }
+        }
+        
+        print(f"🎯 テスト完了: {calculation_mode}モードで{len(results)}フレーム処理")
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ 相対角度計算テストエラー: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": f"テスト実行エラー: {str(e)}"
+        }
+
+@app.post("/compare_angle_modes")
+async def compare_angle_modes(request: dict):
+    """
+    絶対角度と相対関節角度の計算結果を比較する
+    """
+    try:
+        print("🔬 角度計算モード比較テストを開始...")
+        
+        # テストデータを生成（1フレーム）
+        test_keypoints = []
+        
+        # 標準的なランニングポーズを模擬
+        frame_keypoints = []
+        for kp_idx in range(33):
+            if kp_idx == LANDMARK_INDICES['left_shoulder']:
+                keypoint = KeyPoint(x=0.42, y=0.25, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_shoulder']:
+                keypoint = KeyPoint(x=0.58, y=0.25, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_hip']:
+                keypoint = KeyPoint(x=0.44, y=0.55, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_hip']:
+                keypoint = KeyPoint(x=0.56, y=0.55, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_knee']:
+                keypoint = KeyPoint(x=0.40, y=0.75, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_knee']:
+                keypoint = KeyPoint(x=0.62, y=0.75, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_ankle']:
+                keypoint = KeyPoint(x=0.38, y=0.92, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_ankle']:
+                keypoint = KeyPoint(x=0.64, y=0.92, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_foot_index']:
+                keypoint = KeyPoint(x=0.36, y=0.95, z=0.0, visibility=0.90)
+            elif kp_idx == LANDMARK_INDICES['right_foot_index']:
+                keypoint = KeyPoint(x=0.66, y=0.95, z=0.0, visibility=0.90)
+            elif kp_idx == LANDMARK_INDICES['left_elbow']:
+                keypoint = KeyPoint(x=0.36, y=0.40, z=0.0, visibility=0.90)
+            elif kp_idx == LANDMARK_INDICES['right_elbow']:
+                keypoint = KeyPoint(x=0.64, y=0.40, z=0.0, visibility=0.90)
+            elif kp_idx == LANDMARK_INDICES['left_wrist']:
+                keypoint = KeyPoint(x=0.34, y=0.55, z=0.0, visibility=0.85)
+            elif kp_idx == LANDMARK_INDICES['right_wrist']:
+                keypoint = KeyPoint(x=0.66, y=0.55, z=0.0, visibility=0.85)
+            else:
+                keypoint = KeyPoint(x=0.5, y=0.5, z=0.0, visibility=0.5)
+            
+            frame_keypoints.append(keypoint)
+        
+        test_keypoints.append(frame_keypoints)
+        
+        # 両モードで角度を計算
+        absolute_calculator = AngleCalculator(mode="absolute")
+        relative_calculator = AngleCalculator(mode="relative")
+        
+        absolute_result = absolute_calculator.calculate_all_angles(frame_keypoints)
+        relative_result = relative_calculator.calculate_all_angles(frame_keypoints)
+        
+        # 結果を整理
+        comparison = {
+            "status": "success",
+            "message": "角度計算モード比較完了",
+            "absolute_angles": {k: round(v, 1) if v is not None and isinstance(v, (int, float)) else v 
+                             for k, v in absolute_result.items()},
+            "relative_angles": {k: round(v, 1) if v is not None and isinstance(v, (int, float)) else v 
+                              for k, v in relative_result.items()},
+            "mode_differences": {
+                "absolute_mode": "絶対角度 - 各部位ベクトルと鉛直軸の角度",
+                "relative_mode": "相対角度 - 隣接する身体部位間のはさみ角",
+                "trunk_angle": "両モードで同じ（体幹ベクトルと鉛直軸）",
+                "key_difference": "絶対角度は鉛直軸基準、相対角度は関節基準"
+            }
+        }
+        
+        print("🎯 モード比較完了")
+        print(f"  📊 絶対角度: {len([v for v in absolute_result.values() if v is not None])}個")
+        print(f"  📊 相対角度: {len([v for v in relative_result.values() if v is not None])}個")
+        
+        return comparison
+        
+    except Exception as e:
+        print(f"❌ モード比較テストエラー: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": f"比較テスト実行エラー: {str(e)}"
+        }
+
+@app.post("/test_enhanced_absolute_angles")
+async def test_enhanced_absolute_angles(request: dict):
+    """
+    拡張された絶対角度計算機能をテストする
+    新規追加された上腕、前腕、足部角度、および符号規則修正を検証
+    """
+    try:
+        print("🧪 拡張絶対角度計算テストを開始...")
+        
+        test_frame_count = request.get('frame_count', 5)
+        
+        print(f"📝 テスト設定: フレーム数={test_frame_count}")
+        
+        # ダミーテストデータを生成（さまざまなポーズ）
+        test_keypoints = []
+        for frame_idx in range(test_frame_count):
+            frame_keypoints = []
+            
+            # 動的なポーズ変化を模擬
+            pose_variation = frame_idx * 0.1
+            
+            # 33個のキーポイントを生成
+            for kp_idx in range(33):
+                if kp_idx == LANDMARK_INDICES['left_shoulder']:
+                    # 左肩（体幹の左上）
+                    keypoint = KeyPoint(x=0.40 + pose_variation * 0.05, y=0.25, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['right_shoulder']:
+                    # 右肩（体幹の右上）
+                    keypoint = KeyPoint(x=0.60 - pose_variation * 0.05, y=0.25, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['left_hip']:
+                    # 左股関節（体幹の左下）
+                    keypoint = KeyPoint(x=0.42 + pose_variation * 0.03, y=0.55, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['right_hip']:
+                    # 右股関節（体幹の右下）
+                    keypoint = KeyPoint(x=0.58 - pose_variation * 0.03, y=0.55, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['left_elbow']:
+                    # 左肘（動的変化）
+                    keypoint = KeyPoint(x=0.30 + pose_variation * 0.1, y=0.40 + pose_variation * 0.05, z=0.0, visibility=0.90)
+                elif kp_idx == LANDMARK_INDICES['right_elbow']:
+                    # 右肘（動的変化）
+                    keypoint = KeyPoint(x=0.70 - pose_variation * 0.1, y=0.40 + pose_variation * 0.05, z=0.0, visibility=0.90)
+                elif kp_idx == LANDMARK_INDICES['left_wrist']:
+                    # 左手首（動的変化）
+                    keypoint = KeyPoint(x=0.25 + pose_variation * 0.15, y=0.50 + pose_variation * 0.1, z=0.0, visibility=0.85)
+                elif kp_idx == LANDMARK_INDICES['right_wrist']:
+                    # 右手首（動的変化）
+                    keypoint = KeyPoint(x=0.75 - pose_variation * 0.15, y=0.50 + pose_variation * 0.1, z=0.0, visibility=0.85)
+                elif kp_idx == LANDMARK_INDICES['left_knee']:
+                    # 左膝（動的変化）
+                    keypoint = KeyPoint(x=0.40 + pose_variation * 0.08, y=0.75 + pose_variation * 0.03, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['right_knee']:
+                    # 右膝（動的変化）
+                    keypoint = KeyPoint(x=0.60 - pose_variation * 0.08, y=0.75 + pose_variation * 0.03, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['left_ankle']:
+                    # 左足首
+                    keypoint = KeyPoint(x=0.38 + pose_variation * 0.05, y=0.92, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['right_ankle']:
+                    # 右足首
+                    keypoint = KeyPoint(x=0.62 - pose_variation * 0.05, y=0.92, z=0.0, visibility=0.95)
+                elif kp_idx == LANDMARK_INDICES['left_foot_index']:
+                    # 左つま先（動的変化）
+                    keypoint = KeyPoint(x=0.35 + pose_variation * 0.08, y=0.95 + pose_variation * 0.02, z=0.0, visibility=0.90)
+                elif kp_idx == LANDMARK_INDICES['right_foot_index']:
+                    # 右つま先（動的変化）
+                    keypoint = KeyPoint(x=0.65 - pose_variation * 0.08, y=0.95 + pose_variation * 0.02, z=0.0, visibility=0.90)
+                else:
+                    # その他のキーポイント
+                    keypoint = KeyPoint(x=0.5, y=0.5, z=0.0, visibility=0.5)
+                
+                frame_keypoints.append(keypoint)
+            
+            test_keypoints.append(frame_keypoints)
+        
+        print(f"✅ テストデータ生成完了: {len(test_keypoints)}フレーム")
+        
+        # 拡張絶対角度計算器を作成
+        calculator = AngleCalculator(mode="absolute")
+        
+        # 各フレームで角度を計算
+        results = []
+        for frame_idx, frame_keypoints in enumerate(test_keypoints):
+            frame_angles = calculator.calculate_all_angles(frame_keypoints)
+            frame_angles['frame_index'] = frame_idx
+            results.append(frame_angles)
+        
+        # 結果を整理
+        if results:
+            first_frame = results[0]
+            sample_angles = {}
+            for key, value in first_frame.items():
+                if key not in ['frame_index', 'calculation_mode'] and value is not None and isinstance(value, (int, float)):
+                    sample_angles[key] = round(value, 1)
+        
+        # 新規追加角度の数をカウント
+        new_angles = [k for k in sample_angles.keys() if 'upper_arm' in k or 'forearm' in k or 'foot' in k]
+        
+        result = {
+            "status": "success",
+            "message": f"拡張絶対角度計算テスト完了",
+            "summary": {
+                "calculation_mode": "absolute",
+                "total_frames": len(results),
+                "total_angles": len(sample_angles),
+                "new_angles_count": len(new_angles),
+                "sample_angles": sample_angles
+            },
+            "detailed_results": results[:2] if len(results) >= 2 else results,  # 最初の2フレームのみ
+            "new_angle_definitions": {
+                "upper_arm_angle": "上腕ベクトル（肩→肘）と鉛直軸の角度",
+                "forearm_angle": "前腕ベクトル（肘→手首）と鉛直軸の角度", 
+                "foot_angle": "足部ベクトル（足首→つま先）と水平軸の角度"
+            },
+            "updated_sign_convention": {
+                "trunk_angle": "前傾=負値、後傾=正値",
+                "limb_angles": "右側=負値、左側=正値",
+                "foot_angle": "水平軸より上=正値、下=負値"
+            }
+        }
+        
+        print(f"🎯 テスト完了: {len(sample_angles)}個の角度を計算")
+        print(f"  📊 新規追加角度: {len(new_angles)}個")
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ 拡張絶対角度計算テストエラー: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": f"テスト実行エラー: {str(e)}"
+        }
+
+@app.post("/test_angle_consistency")
+async def test_angle_consistency():
+    """
+    フロントエンドとバックエンドの角度計算一致性をテストする
+    """
+    try:
+        print("🔍 角度一致性テストを開始...")
+        
+        # 固定のテストキーポイント（フロントエンドと比較しやすい値）
+        test_keypoints = []
+        
+        # 33個のキーポイントを生成（シンプルな直立ポーズ）
+        for kp_idx in range(33):
+            if kp_idx == LANDMARK_INDICES['left_shoulder']:
+                keypoint = KeyPoint(x=0.40, y=0.25, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_shoulder']:
+                keypoint = KeyPoint(x=0.60, y=0.25, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_hip']:
+                keypoint = KeyPoint(x=0.42, y=0.55, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_hip']:
+                keypoint = KeyPoint(x=0.58, y=0.55, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_elbow']:
+                keypoint = KeyPoint(x=0.30, y=0.40, z=0.0, visibility=0.90)
+            elif kp_idx == LANDMARK_INDICES['right_elbow']:
+                keypoint = KeyPoint(x=0.70, y=0.40, z=0.0, visibility=0.90)
+            elif kp_idx == LANDMARK_INDICES['left_wrist']:
+                keypoint = KeyPoint(x=0.25, y=0.50, z=0.0, visibility=0.85)
+            elif kp_idx == LANDMARK_INDICES['right_wrist']:
+                keypoint = KeyPoint(x=0.75, y=0.50, z=0.0, visibility=0.85)
+            elif kp_idx == LANDMARK_INDICES['left_knee']:
+                keypoint = KeyPoint(x=0.40, y=0.75, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_knee']:
+                keypoint = KeyPoint(x=0.60, y=0.75, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_ankle']:
+                keypoint = KeyPoint(x=0.38, y=0.92, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['right_ankle']:
+                keypoint = KeyPoint(x=0.62, y=0.92, z=0.0, visibility=0.95)
+            elif kp_idx == LANDMARK_INDICES['left_foot_index']:
+                keypoint = KeyPoint(x=0.35, y=0.95, z=0.0, visibility=0.90)
+            elif kp_idx == LANDMARK_INDICES['right_foot_index']:
+                keypoint = KeyPoint(x=0.65, y=0.95, z=0.0, visibility=0.90)
+            else:
+                keypoint = KeyPoint(x=0.5, y=0.5, z=0.0, visibility=0.5)
+            
+            test_keypoints.append(keypoint)
+        
+        # バックエンド計算
+        calculator = AngleCalculator(mode="absolute")
+        backend_result = calculator._calculate_absolute_angles(test_keypoints)
+        
+        # 詳細な計算過程をログ出力
+        print("📊 バックエンド角度計算詳細:")
+        for key, value in backend_result.items():
+            if value is not None and isinstance(value, (int, float)):
+                print(f"  {key}: {value:.2f}°")
+        
+        # キーポイント座標も返す（フロントエンドとの比較用）
+        keypoint_coordinates = {
+            'left_shoulder': {'x': test_keypoints[LANDMARK_INDICES['left_shoulder']].x, 'y': test_keypoints[LANDMARK_INDICES['left_shoulder']].y},
+            'right_shoulder': {'x': test_keypoints[LANDMARK_INDICES['right_shoulder']].x, 'y': test_keypoints[LANDMARK_INDICES['right_shoulder']].y},
+            'left_hip': {'x': test_keypoints[LANDMARK_INDICES['left_hip']].x, 'y': test_keypoints[LANDMARK_INDICES['left_hip']].y},
+            'right_hip': {'x': test_keypoints[LANDMARK_INDICES['right_hip']].x, 'y': test_keypoints[LANDMARK_INDICES['right_hip']].y},
+            'left_elbow': {'x': test_keypoints[LANDMARK_INDICES['left_elbow']].x, 'y': test_keypoints[LANDMARK_INDICES['left_elbow']].y},
+            'right_elbow': {'x': test_keypoints[LANDMARK_INDICES['right_elbow']].x, 'y': test_keypoints[LANDMARK_INDICES['right_elbow']].y},
+            'left_wrist': {'x': test_keypoints[LANDMARK_INDICES['left_wrist']].x, 'y': test_keypoints[LANDMARK_INDICES['left_wrist']].y},
+            'right_wrist': {'x': test_keypoints[LANDMARK_INDICES['right_wrist']].x, 'y': test_keypoints[LANDMARK_INDICES['right_wrist']].y},
+            'left_knee': {'x': test_keypoints[LANDMARK_INDICES['left_knee']].x, 'y': test_keypoints[LANDMARK_INDICES['left_knee']].y},
+            'right_knee': {'x': test_keypoints[LANDMARK_INDICES['right_knee']].x, 'y': test_keypoints[LANDMARK_INDICES['right_knee']].y},
+            'left_ankle': {'x': test_keypoints[LANDMARK_INDICES['left_ankle']].x, 'y': test_keypoints[LANDMARK_INDICES['left_ankle']].y},
+            'right_ankle': {'x': test_keypoints[LANDMARK_INDICES['right_ankle']].x, 'y': test_keypoints[LANDMARK_INDICES['right_ankle']].y},
+            'left_foot_index': {'x': test_keypoints[LANDMARK_INDICES['left_foot_index']].x, 'y': test_keypoints[LANDMARK_INDICES['left_foot_index']].y},
+            'right_foot_index': {'x': test_keypoints[LANDMARK_INDICES['right_foot_index']].x, 'y': test_keypoints[LANDMARK_INDICES['right_foot_index']].y}
+        }
+        
+        return {
+            "message": "Angle consistency test completed",
+            "backend_angles": backend_result,
+            "keypoint_coordinates": keypoint_coordinates
+        }
+        
+    except Exception as e:
+        print(f"❌ 角度一致性テストエラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Consistency test failed: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8003) 

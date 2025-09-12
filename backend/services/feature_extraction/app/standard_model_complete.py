@@ -185,6 +185,55 @@ def get_standard_model_data():
         "description": "左下腿の鉛直軸からの角度（足首が後方で正値）"
     }
     
+    # 新しい角度の標準値を追加
+    standard_model["左上腕角度"] = {
+        "mean": 15.0,
+        "std_dev": 8.0,
+        "max": 35.0,
+        "min": -5.0,
+        "description": "左上腕の鉛直軸からの角度（左側で正値）"
+    }
+    
+    standard_model["右上腕角度"] = {
+        "mean": -15.0,
+        "std_dev": 8.0,
+        "max": 5.0,
+        "min": -35.0,
+        "description": "右上腕の鉛直軸からの角度（右側で負値）"
+    }
+    
+    standard_model["左前腕角度"] = {
+        "mean": -85.0,
+        "std_dev": 15.0,
+        "max": -60.0,
+        "min": -110.0,
+        "description": "左前腕の鉛直軸からの角度（左側で正値）"
+    }
+    
+    standard_model["右前腕角度"] = {
+        "mean": 85.0,
+        "std_dev": 15.0,
+        "max": 110.0,
+        "min": 60.0,
+        "description": "右前腕の鉛直軸からの角度（右側で負値）"
+    }
+    
+    standard_model["左足部角度"] = {
+        "mean": 5.0,
+        "std_dev": 10.0,
+        "max": 25.0,
+        "min": -15.0,
+        "description": "左足部の水平軸からの角度（上向きで正値）"
+    }
+    
+    standard_model["右足部角度"] = {
+        "mean": -5.0,
+        "std_dev": 10.0,
+        "max": 15.0,
+        "min": -25.0,
+        "description": "右足部の水平軸からの角度（上向きで正値）"
+    }
+    
     return standard_model
 
 if __name__ == "__main__":

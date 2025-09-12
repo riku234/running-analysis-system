@@ -7,10 +7,10 @@ const nextConfig = {
   
   // API プロキシ設定（本番では同じサーバー内なので localhost を使用）
   async rewrites() {
-    // 本番環境（Docker Compose）では同じサーバー内なのでパススルー
-    // 開発環境ではAPI Gatewayを通す
+    // 本番環境（Docker Compose）では同じネットワーク内のサービス名を使用
+    // 開発環境ではlocalhostを使用
     const apiBaseUrl = process.env.NODE_ENV === 'production' 
-      ? 'http://api_gateway' 
+      ? 'http://api_gateway:80' 
       : 'http://127.0.0.1:80';
       
     return [

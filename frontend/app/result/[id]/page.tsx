@@ -295,7 +295,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         // localStorageにデータがない場合はダミーデータを表示
 
         // ダミーデータで動作確認（実データの構造を模擬）
-        setTimeout(() => {
+    setTimeout(() => {
       setResult({
             status: "success",
             message: "動画アップロード、骨格解析、特徴量計算が完了しました",
@@ -380,9 +380,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 total_issues: 1,
                 overall_assessment: "1つの改善点が見つかりました"
               }
-            }
-        })
-        setLoading(false)
+        }
+      })
+      setLoading(false)
         
         // ダミーデータの場合も比較を実行
         const dummyStats = {
@@ -394,7 +394,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         }
         console.log('📊 ダミーデータで比較処理開始...')
         fetchComparison(dummyStats)
-      }, 1500)
+    }, 1500)
       } catch (error) {
         console.error('結果取得エラー:', error)
         setLoading(false)
@@ -595,14 +595,14 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     {/* 体幹角度 */}
                     {result.feature_analysis.features.angle_statistics.trunk_angle && (
                       <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
-                        <div className="text-lg font-bold text-green-700">
+                            <div className="text-lg font-bold text-green-700">
                           体幹角度
-                        </div>
+                            </div>
                         <div className="text-sm font-semibold text-green-600 mt-1">
                           平均: {result.feature_analysis.features.angle_statistics.trunk_angle.avg.toFixed(1)}° | 
                           最小: {result.feature_analysis.features.angle_statistics.trunk_angle.min.toFixed(1)}° | 
                           最大: {result.feature_analysis.features.angle_statistics.trunk_angle.max.toFixed(1)}°
-                        </div>
+                            </div>
                         <div className="text-xs text-green-500 mt-2">
                           腰から肩への直線ベクトルと鉛直軸の角度（前傾で正値、後傾で負値）
                         </div>
@@ -616,10 +616,10 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
                           <div className="text-lg font-bold text-purple-700">
                             左大腿角度
-                          </div>
+                            </div>
                           <div className="text-sm font-semibold text-purple-600 mt-1">
                             平均: {result.feature_analysis.features.angle_statistics.left_thigh_angle.avg.toFixed(1)}°
-                          </div>
+                            </div>
                           <div className="text-xs text-purple-600">
                             最小: {result.feature_analysis.features.angle_statistics.left_thigh_angle.min.toFixed(1)}° | 
                             最大: {result.feature_analysis.features.angle_statistics.left_thigh_angle.max.toFixed(1)}°
@@ -627,8 +627,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                           <div className="text-xs text-purple-500 mt-2">
                             膝関節点から股関節点に向かうベクトルと鉛直軸の角度（膝が後方で正値）
                           </div>
-                        </div>
-                      )}
+                              </div>
+                            )}
 
                       {/* 右大腿角度 */}
                       {result.feature_analysis.features.angle_statistics.right_thigh_angle && (
@@ -645,9 +645,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                           </div>
                           <div className="text-xs text-purple-500 mt-2">
                             膝関節点から股関節点に向かうベクトルと鉛直軸の角度（膝が後方で正値）
-                          </div>
                         </div>
-                      )}
+                      </div>
+                    )}
                     </div>
 
                     {/* 下腿角度 */}
@@ -657,10 +657,10 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         <div className="text-center p-4 bg-indigo-50 rounded-lg border border-indigo-200">
                           <div className="text-lg font-bold text-indigo-700">
                             左下腿角度
-                          </div>
+                            </div>
                           <div className="text-sm font-semibold text-indigo-600 mt-1">
                             平均: {result.feature_analysis.features.angle_statistics.left_lower_leg_angle.avg.toFixed(1)}°
-                          </div>
+                            </div>
                           <div className="text-xs text-indigo-600">
                             最小: {result.feature_analysis.features.angle_statistics.left_lower_leg_angle.min.toFixed(1)}° | 
                             最大: {result.feature_analysis.features.angle_statistics.left_lower_leg_angle.max.toFixed(1)}°
@@ -668,8 +668,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                           <div className="text-xs text-indigo-500 mt-2">
                             足関節点から膝関節点に向かうベクトルと鉛直軸の角度（足が後方で正値）
                           </div>
-                        </div>
-                      )}
+                              </div>
+                            )}
 
                       {/* 右下腿角度 */}
                       {result.feature_analysis.features.angle_statistics.right_lower_leg_angle && (
@@ -686,10 +686,101 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                           </div>
                           <div className="text-xs text-indigo-500 mt-2">
                             足関節点から膝関節点に向かうベクトルと鉛直軸の角度（足が後方で正値）
-                          </div>
                         </div>
-                      )}
+                      </div>
+                    )}
                     </div>
+
+                    {/* 新しい角度（上腕、前腕、足部） */}
+                    {result.feature_analysis?.features?.angle_statistics && (
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-center mb-4">追加角度解析</h3>
+                        
+                        {/* 上腕角度 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(result.feature_analysis.features.angle_statistics as any).left_upper_arm_angle && (
+                            <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
+                              <div className="text-lg font-bold text-orange-700">左上腕角度</div>
+                              <div className="text-sm font-semibold text-orange-600 mt-1">
+                                平均: {(result.feature_analysis.features.angle_statistics as any).left_upper_arm_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-orange-600">
+                                最小: {(result.feature_analysis.features.angle_statistics as any).left_upper_arm_angle.min.toFixed(1)}° | 
+                                最大: {(result.feature_analysis.features.angle_statistics as any).left_upper_arm_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                          {(result.feature_analysis.features.angle_statistics as any).right_upper_arm_angle && (
+                            <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
+                              <div className="text-lg font-bold text-orange-700">右上腕角度</div>
+                              <div className="text-sm font-semibold text-orange-600 mt-1">
+                                平均: {(result.feature_analysis.features.angle_statistics as any).right_upper_arm_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-orange-600">
+                                最小: {(result.feature_analysis.features.angle_statistics as any).right_upper_arm_angle.min.toFixed(1)}° | 
+                                最大: {(result.feature_analysis.features.angle_statistics as any).right_upper_arm_angle.max.toFixed(1)}°
+                              </div>
+                      </div>
+                    )}
+                        </div>
+
+                        {/* 前腕角度 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(result.feature_analysis.features.angle_statistics as any).left_forearm_angle && (
+                            <div className="text-center p-4 bg-teal-50 rounded-lg border border-teal-200">
+                              <div className="text-lg font-bold text-teal-700">左前腕角度</div>
+                              <div className="text-sm font-semibold text-teal-600 mt-1">
+                                平均: {(result.feature_analysis.features.angle_statistics as any).left_forearm_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-teal-600">
+                                最小: {(result.feature_analysis.features.angle_statistics as any).left_forearm_angle.min.toFixed(1)}° | 
+                                最大: {(result.feature_analysis.features.angle_statistics as any).left_forearm_angle.max.toFixed(1)}°
+                              </div>
+                </div>
+                )}
+                          {(result.feature_analysis.features.angle_statistics as any).right_forearm_angle && (
+                            <div className="text-center p-4 bg-teal-50 rounded-lg border border-teal-200">
+                              <div className="text-lg font-bold text-teal-700">右前腕角度</div>
+                              <div className="text-sm font-semibold text-teal-600 mt-1">
+                                平均: {(result.feature_analysis.features.angle_statistics as any).right_forearm_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-teal-600">
+                                最小: {(result.feature_analysis.features.angle_statistics as any).right_forearm_angle.min.toFixed(1)}° | 
+                                最大: {(result.feature_analysis.features.angle_statistics as any).right_forearm_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 足部角度 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(result.feature_analysis.features.angle_statistics as any).left_foot_angle && (
+                            <div className="text-center p-4 bg-rose-50 rounded-lg border border-rose-200">
+                              <div className="text-lg font-bold text-rose-700">左足部角度</div>
+                              <div className="text-sm font-semibold text-rose-600 mt-1">
+                                平均: {(result.feature_analysis.features.angle_statistics as any).left_foot_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-rose-600">
+                                最小: {(result.feature_analysis.features.angle_statistics as any).left_foot_angle.min.toFixed(1)}° | 
+                                最大: {(result.feature_analysis.features.angle_statistics as any).left_foot_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                          {(result.feature_analysis.features.angle_statistics as any).right_foot_angle && (
+                            <div className="text-center p-4 bg-rose-50 rounded-lg border border-rose-200">
+                              <div className="text-lg font-bold text-rose-700">右足部角度</div>
+                              <div className="text-sm font-semibold text-rose-600 mt-1">
+                                平均: {(result.feature_analysis.features.angle_statistics as any).right_foot_angle.avg.toFixed(1)}°
+                              </div>
+                              <div className="text-xs text-rose-600">
+                                最小: {(result.feature_analysis.features.angle_statistics as any).right_foot_angle.min.toFixed(1)}° | 
+                                最大: {(result.feature_analysis.features.angle_statistics as any).right_foot_angle.max.toFixed(1)}°
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -859,9 +950,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         <div className="text-xs text-blue-500 mt-1">
                           理想値: 180 SPM前後
                         </div>
-                      </div>
+          </div>
                     )}
-
+                    
                     {/* 従来のメトリクス表示（新しいrunning_metricsがない場合） */}
                     {!(result.feature_analysis.features as any)?.running_metrics && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -930,7 +1021,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   <div className="text-center py-6 text-muted-foreground">
                     <Activity className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">計算中...</p>
-                  </div>
+              </div>
                 )}
               </CardContent>
             </Card>
