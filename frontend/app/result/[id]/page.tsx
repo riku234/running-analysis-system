@@ -533,6 +533,22 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     </p>
                   </div>
                 )}
+                
+                {/* 角度参照図 */}
+                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                  <h3 className="text-lg font-semibold mb-3 text-center">角度測定の基準</h3>
+                  <div className="flex justify-center">
+                    <img 
+                      src="/angle_reference_diagram.png" 
+                      alt="角度測定の基準図"
+                      className="max-w-full h-auto rounded-lg shadow-sm"
+                      style={{ maxHeight: '400px' }}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-600 mt-2 text-center">
+                    各角度の定義と符号規則を示した図
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </div>
