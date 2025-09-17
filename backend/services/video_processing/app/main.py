@@ -102,7 +102,7 @@ async def upload_video(file: UploadFile = File(...)):
         # 各サービスのURL定義
         POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
         FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
-        ANALYSIS_URL = "http://analysis:8004/analyze"
+        ANALYSIS_URL = "http://analysis:8004/analyze-z-score"
         ADVICE_GENERATION_URL = "http://advice_generation:8005/generate"
         
         # 全サービス連携処理（堅牢版）
@@ -140,25 +140,50 @@ async def upload_video(file: UploadFile = File(...)):
                 feature_data = feature_response.json()
                 logger.info("特徴量計算完了")
                 
-                # Step 3: 課題分析
-                logger.info("課題分析サービスを呼び出します")
+                # Step 3: Z値分析
+                logger.info("Z値分析サービスを呼び出します")
                 analysis_request = {
-                    "cadence": feature_data.get("features", {}).get("cadence", 180.0),
-                    "knee_angle": feature_data.get("features", {}).get("knee_angle", 165.0),
-                    "knee_angle_at_landing": feature_data.get("features", {}).get("knee_angle", 165.0),
-                    "stride_length": feature_data.get("features", {}).get("stride_length", 1.25),
-                    "contact_time": feature_data.get("features", {}).get("contact_time", 220.0),
-                    "ground_contact_time": feature_data.get("features", {}).get("contact_time", 220.0)
+                    "keypoints_data": pose_data.get("pose_data", []),
+                    "video_fps": pose_data.get("video_info", {}).get("fps", 30.0)
                 }
                 
                 analysis_response = await client.post(
                     ANALYSIS_URL,
                     json=analysis_request,
-                    timeout=60.0  # 1分のタイムアウト
+                    timeout=120.0  # 2分のタイムアウト（Z値分析は時間がかかる可能性）
                 )
                 analysis_response.raise_for_status()
-                issue_data = analysis_response.json()
-                logger.info("課題分析完了")
+                z_score_data = analysis_response.json()
+                logger.info("Z値分析完了")
+                
+                # Z値分析結果から課題を抽出
+                issue_data = {
+                    "status": "success",
+                    "issues": [],
+                    "analysis_details": {
+                        "total_issues": 0,
+                        "analysis_method": "z_score_analysis"
+                    }
+                }
+                
+                # 有意な偏差を課題として変換
+                if z_score_data.get("analysis_summary", {}).get("significant_deviations"):
+                    issues = []
+                    for deviation in z_score_data["analysis_summary"]["significant_deviations"]:
+                        event_names = {
+                            'right_strike': '右足接地',
+                            'right_off': '右足離地',
+                            'left_strike': '左足接地',
+                            'left_off': '左足離地'
+                        }
+                        event_name = event_names.get(deviation["event"], deviation["event"])
+                        severity = "高" if deviation["severity"] == "high" else "中"
+                        
+                        issue_text = f"{event_name}時の{deviation['angle']}が標準から大きく外れています（Z値: {deviation['z_score']:.2f}, 重要度: {severity}）"
+                        issues.append(issue_text)
+                    
+                    issue_data["issues"] = issues
+                    issue_data["analysis_details"]["total_issues"] = len(issues)
                 
                 # Step 4: アドバイス生成（必須）
                 try:

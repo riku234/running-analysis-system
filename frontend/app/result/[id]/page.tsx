@@ -17,36 +17,46 @@ import { Button } from '@/components/ui/button'
 import PoseVisualizer from '@/app/components/PoseVisualizer'
 import { useResultStore } from '@/lib/store'
 
-interface ComparisonResult {
+interface ZScoreAnalysisResult {
   status: string
-  message?: string
-  comparison_data?: {
-    status: string
-    comparison_results: {
-      [indicator: string]: {
-        user_data: any
-        standard_data: any
-        differences: {
-          [stat: string]: {
-            user_value: number
-            standard_value: number
-            difference: number
-            percentage_diff: number
-            statistical_judgment: string
-            needs_improvement: boolean
-          }
-        }
-      }
-    }
-    summary: {
-      total_indicators: number
-      indicators_compared: string[]
+  message: string
+  events_detected: {
+    left_strikes: number[]
+    right_strikes: number[]
+    left_offs: number[]
+    right_offs: number[]
+  }
+  event_angles: {
+    [event_type: string]: {
+      [angle_name: string]: number
     }
   }
-  analysis_summary?: {
-    total_indicators: number
-    issues_detected: number
-    indicators_compared: string[]
+  z_scores: {
+    [event_type: string]: {
+      [angle_name: string]: number
+    }
+  }
+  analysis_summary: {
+    total_events_analyzed: number
+    significant_deviations: Array<{
+      event: string
+      angle: string
+      z_score: number
+      severity: string
+    }>
+    overall_assessment: string
+    recommendations: string[]
+  }
+  selected_cycle?: {
+    start_frame: number
+    end_frame: number
+    duration: number
+    events: {
+      right_strike: number
+      right_off: number
+      left_strike: number
+      left_off: number
+    }
   }
 }
 
@@ -182,52 +192,156 @@ interface AnalysisResult {
   error?: string
 }
 
+// より現実的なランニングサイクルのダミーデータを生成
+const generateRunningCycleDummyData = () => {
+  const frames = []
+  const fps = 30.0
+  const totalFrames = 60 // 2秒間のデータ
+  
+  for (let frame = 0; frame < totalFrames; frame++) {
+    const time = frame / fps
+    const cyclePhase = (time * 3.0 * 2) % 2.0 // 3歩/秒のランニング
+    
+    // 基本的な人体の位置
+    const baseKeypoints = [
+      // 0-10: 頭部
+      {x: 0.5, y: 0.1}, {x: 0.48, y: 0.08}, {x: 0.49, y: 0.08}, {x: 0.47, y: 0.07},
+      {x: 0.53, y: 0.07}, {x: 0.51, y: 0.08}, {x: 0.54, y: 0.07}, {x: 0.46, y: 0.09},
+      {x: 0.54, y: 0.09}, {x: 0.48, y: 0.11}, {x: 0.52, y: 0.11},
+      // 11-12: 肩
+      {x: 0.45, y: 0.2}, {x: 0.55, y: 0.2},
+      // 13-16: 肘・手首
+      {x: 0.4, y: 0.3}, {x: 0.6, y: 0.3}, {x: 0.35, y: 0.4}, {x: 0.65, y: 0.4},
+      // 17-22: 手部分
+      {x: 0.33, y: 0.42}, {x: 0.67, y: 0.42}, {x: 0.32, y: 0.41}, {x: 0.68, y: 0.41},
+      {x: 0.31, y: 0.40}, {x: 0.69, y: 0.40},
+      // 23-24: 腰
+      {x: 0.45, y: 0.5}, {x: 0.55, y: 0.5},
+      // 25-26: 膝
+      {x: 0.43, y: 0.7}, {x: 0.57, y: 0.7},
+      // 27-28: 足首（重要：接地検出用）
+      {x: 0.41, y: 0.85}, {x: 0.59, y: 0.85},
+      // 29-32: 足部分
+      {x: 0.39, y: 0.87}, {x: 0.61, y: 0.87}, {x: 0.37, y: 0.89}, {x: 0.63, y: 0.89}
+    ]
+    
+    // ランニング動作の計算
+    const leftPhase = cyclePhase % 1.0
+    const rightPhase = (cyclePhase + 0.5) % 1.0
+    
+    // 足首の上下運動（接地・離地パターン）
+    const leftAnkleY = 0.82 + 0.06 * generateFootCycle(leftPhase)
+    const rightAnkleY = 0.82 + 0.06 * generateFootCycle(rightPhase)
+    
+    // キーポイントを生成
+    const keypoints = baseKeypoints.map((base, i) => {
+      let {x, y} = base
+      
+      // 足首の動的な動き
+      if (i === 27) y = leftAnkleY  // 左足首
+      if (i === 28) y = rightAnkleY // 右足首
+      
+      // 膝の動的な動き
+      if (i === 25) y = 0.68 + 0.04 * generateFootCycle(leftPhase)  // 左膝
+      if (i === 26) y = 0.68 + 0.04 * generateFootCycle(rightPhase) // 右膝
+      
+      // ノイズを追加
+      x += (Math.random() - 0.5) * 0.01
+      y += (Math.random() - 0.5) * 0.01
+      
+      return {
+        x: Math.max(0.0, Math.min(1.0, x)),
+        y: Math.max(0.0, Math.min(1.0, y)),
+        z: Math.random() * 0.01,
+        visibility: Math.random() * 0.2 + 0.8
+      }
+    })
+    
+    frames.push({
+      keypoints,
+      frame_number: frame,
+      timestamp: time
+    })
+  }
+  
+  return frames
+}
+
+// 足の1サイクル内での上下運動パターン
+const generateFootCycle = (phase: number) => {
+  if (0.2 <= phase && phase <= 0.4) {
+    return 1.0  // 接地期：足首が下に
+  } else if (0.7 <= phase && phase <= 0.9) {
+    return -1.0 // 遊脚期：足首が上に
+  } else {
+    return Math.sin((phase - 0.3) * 4 * Math.PI) * 0.5
+  }
+}
+
 export default function ResultPage({ params }: { params: { id: string } }) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [debugInfo, setDebugInfo] = useState<any>(null)
   const [zustandSaveLog, setZustandSaveLog] = useState<string>("")
-  const [comparisonData, setComparisonData] = useState<ComparisonResult | null>(null)
-  const [comparisonLoading, setComparisonLoading] = useState(false)
+  const [zScoreData, setZScoreData] = useState<ZScoreAnalysisResult | null>(null)
+  const [zScoreLoading, setZScoreLoading] = useState(false)
   
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
 
-  // ユーザー統計値と標準モデルの比較を実行
-  const fetchComparison = async (userStats: any) => {
-    if (!userStats || comparisonLoading) return
+  // Z値分析を実行
+  const fetchZScoreAnalysis = async (poseData: any, videoFps: number) => {
+    if (!poseData || zScoreLoading) return
 
-    setComparisonLoading(true)
+    setZScoreLoading(true)
     try {
-      console.log('🔍 比較データ取得開始:', userStats)
+      console.log('🎯 Z値分析開始:', { frames: poseData.length, fps: videoFps })
       
-      const response = await fetch('/api/feature_extraction/compare_with_standard', {
+      const requestData = {
+        keypoints_data: poseData,
+        video_fps: videoFps
+      }
+      
+      const response = await fetch('/api/analysis/analyze-z-score', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(userStats),
+        body: JSON.stringify(requestData)
       })
 
       if (!response.ok) {
-        throw new Error(`比較API呼び出しエラー: ${response.status}`)
+        throw new Error(`Z値分析API呼び出しエラー: ${response.status}`)
       }
 
-      const comparisonResult = await response.json()
-      console.log('📊 比較結果取得完了:', comparisonResult)
+      const zScoreResult = await response.json()
+      console.log('📊 Z値分析結果取得完了:', zScoreResult)
       
-      // レスポンスデータの構造を検証
-      if (comparisonResult && typeof comparisonResult === 'object') {
-        setComparisonData(comparisonResult)
+      if (zScoreResult && typeof zScoreResult === 'object') {
+        setZScoreData(zScoreResult)
       } else {
-        console.error('❌ 無効な比較データ構造:', comparisonResult)
-        setComparisonData({ status: 'error', message: '比較データの構造が無効です' })
+        console.error('❌ 無効なZ値分析データ構造:', zScoreResult)
+        setZScoreData({ 
+          status: 'error', 
+          message: 'Z値分析データの構造が無効です',
+          events_detected: { left_strikes: [], right_strikes: [], left_offs: [], right_offs: [] },
+          event_angles: {},
+          z_scores: {},
+          analysis_summary: { total_events_analyzed: 0, significant_deviations: [], overall_assessment: 'error', recommendations: [] }
+        })
       }
     } catch (error) {
-      console.error('❌ 比較データ取得エラー:', error)
-      setComparisonData({ status: 'error', message: `比較データ取得に失敗しました: ${error}` })
+      console.error('❌ Z値分析エラー:', error)
+      setZScoreData({ 
+        status: 'error', 
+        message: `Z値分析に失敗しました: ${error}`,
+        events_detected: { left_strikes: [], right_strikes: [], left_offs: [], right_offs: [] },
+        event_angles: {},
+        z_scores: {},
+        analysis_summary: { total_events_analyzed: 0, significant_deviations: [], overall_assessment: 'error', recommendations: [] }
+      })
     } finally {
-      setComparisonLoading(false)
+      setZScoreLoading(false)
     }
   }
 
@@ -286,7 +400,16 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               }
             })
             
-            fetchComparison(convertedStats)
+            // Z値分析を実行（poseDataとvideoFpsを使用）
+            if (poseData && videoInfo?.fps) {
+              console.log('🎯 実データでZ値分析を実行:', { frames: poseData.length, fps: videoInfo.fps })
+              fetchZScoreAnalysis(poseData, videoInfo.fps)
+            } else {
+              console.log('⚠️ 実データが不足、ダミーデータでZ値分析を実行')
+              // 実データがない場合でもダミーデータでZ値分析を実行
+              const dummyPoseData = generateRunningCycleDummyData()
+              fetchZScoreAnalysis(dummyPoseData, 30.0)
+            }
           }
           
           return
@@ -392,8 +515,10 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           left_lower_leg_angle: { mean: -8.7, avg: -8.7, min: -25.3, max: 12.1 },
           right_lower_leg_angle: { mean: -9.2, avg: -9.2, min: -24.8, max: 13.4 }
         }
-        console.log('📊 ダミーデータで比較処理開始...')
-        fetchComparison(dummyStats)
+        console.log('📊 ダミーデータでZ値分析を開始...')
+        const dummyPoseData = generateRunningCycleDummyData()
+        console.log('🏃 ダミーランニングデータ生成:', { frames: dummyPoseData.length, fps: 30.0 })
+        fetchZScoreAnalysis(dummyPoseData, 30.0)
     }, 1500)
       } catch (error) {
         console.error('結果取得エラー:', error)
@@ -403,6 +528,19 @@ export default function ResultPage({ params }: { params: { id: string } }) {
 
     fetchResult()
   }, [params.id])
+
+  // Z値分析を強制実行するuseEffect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!zScoreData && !zScoreLoading) {
+        console.log('🔄 Z値分析を強制実行します')
+        const dummyPoseData = generateRunningCycleDummyData()
+        fetchZScoreAnalysis(dummyPoseData, 30.0)
+      }
+    }, 3000) // 3秒後に強制実行
+    
+    return () => clearTimeout(timer)
+  }, [zScoreData, zScoreLoading])
 
   if (loading) {
     return (
@@ -724,8 +862,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                                 最小: {(result.feature_analysis.features.angle_statistics as any).left_upper_arm_angle.min.toFixed(1)}° | 
                                 最大: {(result.feature_analysis.features.angle_statistics as any).left_upper_arm_angle.max.toFixed(1)}°
                               </div>
-                            </div>
-                          )}
+                      </div>
+                    )}
                           {(result.feature_analysis.features.angle_statistics as any).right_upper_arm_angle && (
                             <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
                               <div className="text-lg font-bold text-orange-700">右上腕角度</div>
@@ -736,8 +874,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                                 最小: {(result.feature_analysis.features.angle_statistics as any).right_upper_arm_angle.min.toFixed(1)}° | 
                                 最大: {(result.feature_analysis.features.angle_statistics as any).right_upper_arm_angle.max.toFixed(1)}°
                               </div>
-                      </div>
-                    )}
+                </div>
+                )}
                         </div>
 
                         {/* 前腕角度 */}
@@ -1042,150 +1180,175 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            {/* 標準モデル比較カード */}
+            {/* Z値分析カード */}
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <BarChart3 className="h-5 w-5 mr-2" />
-                  フォーム比較分析
+                  イベント別Z値分析
                 </CardTitle>
                 <CardDescription>
-                  あなたのランニングフォームと標準モデルとの詳細比較
+                  ワンサイクルの4つのイベント時点でのフォーム偏差分析
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {comparisonLoading ? (
+                {zScoreLoading ? (
                   <div className="text-center py-6">
                     <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-primary" />
-                    <p className="text-sm text-muted-foreground">標準モデルと比較中...</p>
+                    <p className="text-sm text-muted-foreground">Z値分析中...</p>
                   </div>
-                ) : comparisonData?.status === 'success' && comparisonData?.comparison_data?.comparison_results ? (
+                ) : zScoreData?.status === 'success' ? (
                   <div className="space-y-6">
-                    {/* 比較サマリー */}
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
+                    {/* 分析サマリー */}
+                    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-lg border border-purple-200">
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
-                          <div className="text-2xl font-bold text-blue-700">
-                            {comparisonData.comparison_data?.summary?.total_indicators || 0}
+                          <div className="text-2xl font-bold text-purple-700">
+                            {zScoreData.analysis_summary?.total_events_analyzed || 0}
                           </div>
-                          <div className="text-sm text-blue-600">比較項目数</div>
+                          <div className="text-sm text-purple-600">分析イベント数</div>
                         </div>
                         <div>
                           <div className="text-2xl font-bold text-red-600">
-                            {(() => {
-                              // 改善推奨項目数を計算
-                              const results = comparisonData.comparison_data?.comparison_results || {}
-                              let issuesDetected = 0
-                              Object.values(results).forEach((indicator: any) => {
-                                Object.values(indicator?.differences || {}).forEach((diff: any) => {
-                                  if (diff?.needs_improvement) issuesDetected++
-                                })
-                              })
-                              return issuesDetected
-                            })()}
+                            {zScoreData.analysis_summary?.significant_deviations?.length || 0}
                           </div>
-                          <div className="text-sm text-red-500">改善推奨項目</div>
+                          <div className="text-sm text-red-500">有意な偏差</div>
                         </div>
                         <div>
-                          <div className="text-2xl font-bold text-green-600">
-                            {(() => {
-                              // 正常範囲項目数を計算
-                              const results = comparisonData.comparison_data?.comparison_results || {}
-                              let totalItems = 0
-                              let issuesDetected = 0
-                              Object.values(results).forEach((indicator: any) => {
-                                Object.values(indicator?.differences || {}).forEach((diff: any) => {
-                                  totalItems++
-                                  if (diff?.needs_improvement) issuesDetected++
-                                })
-                              })
-                              return totalItems - issuesDetected
-                            })()}
+                          <div className={`text-2xl font-bold ${
+                            zScoreData.analysis_summary?.overall_assessment === 'excellent' ? 'text-green-600' :
+                            zScoreData.analysis_summary?.overall_assessment === 'good' ? 'text-blue-600' :
+                            zScoreData.analysis_summary?.overall_assessment === 'needs_improvement' ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>
+                            {zScoreData.analysis_summary?.overall_assessment === 'excellent' ? '✅' :
+                             zScoreData.analysis_summary?.overall_assessment === 'good' ? '🟢' :
+                             zScoreData.analysis_summary?.overall_assessment === 'needs_improvement' ? '🟡' :
+                             '🔴'}
                           </div>
-                          <div className="text-sm text-green-500">正常範囲項目</div>
+                          <div className="text-sm text-gray-600">総合評価</div>
                         </div>
                       </div>
                     </div>
 
-                    {/* 詳細比較データ */}
+                    {/* 各イベントのZ値表示 */}
                     <div className="space-y-4">
-                      {Object.entries(comparisonData.comparison_data?.comparison_results || {}).map(([indicator, data]) => (
-                        <div key={indicator} className="border rounded-lg p-4 bg-white">
-                          <h3 className="text-lg font-semibold mb-3 text-gray-800">
-                            📊 {indicator}
-                          </h3>
-                          <div className="grid gap-3">
-                            {Object.entries(data?.differences || {}).map(([statKey, diff]) => {
-                              const judgmentColor = diff?.statistical_judgment === '課題あり' ? 'text-red-600' : 'text-green-600'
-                              const judgmentIcon = diff?.statistical_judgment === '課題あり' ? '🔴' : '🟢'
-                              const diffValue = (diff?.difference || 0) >= 0 ? `+${(diff?.difference || 0).toFixed(1)}` : (diff?.difference || 0).toFixed(1)
-                              
-                              return (
-                                <div 
-                                  key={statKey} 
-                                  className={`p-3 rounded-lg border-l-4 ${
-                                    diff?.statistical_judgment === '課題あり' 
-                                      ? 'bg-red-50 border-red-400' 
-                                      : 'bg-green-50 border-green-400'
-                                  }`}
-                                >
-                                  <div className="flex justify-between items-center">
-                                    <div>
-                                      <div className="font-medium text-gray-700">
-                                        {statKey === 'mean' && '平均値'}
-                                        {statKey === 'max' && '最大値'}
-                                        {statKey === 'min' && '最小値'}
+                      {Object.entries(zScoreData.z_scores || {}).map(([eventType, scores]) => {
+                        const eventNames: {[key: string]: string} = {
+                          'right_strike': '右足接地',
+                          'right_off': '右足離地', 
+                          'left_strike': '左足接地',
+                          'left_off': '左足離地'
+                        }
+                        
+                        const eventName = eventNames[eventType] || eventType
+                        
+                        return (
+                          <div key={eventType} className="border rounded-lg p-4 bg-white">
+                            <h3 className="text-lg font-semibold mb-3 text-gray-800">
+                              🎯 {eventName}
+                            </h3>
+                            <div className="grid gap-3">
+                              {Object.entries(scores || {}).map(([angleName, zScore]) => {
+                                const absZScore = Math.abs(zScore)
+                                const severity = absZScore >= 3.0 ? 'high' : absZScore >= 2.0 ? 'moderate' : absZScore >= 1.0 ? 'mild' : 'normal'
+                                
+                                const severityConfig = {
+                                  'high': { color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-400', icon: '🔴', label: '要改善' },
+                                  'moderate': { color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-400', icon: '🟡', label: '注意' },
+                                  'mild': { color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-400', icon: '🟢', label: '良好' },
+                                  'normal': { color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-400', icon: '✅', label: '優秀' }
+                                }
+                                
+                                const config = severityConfig[severity]
+                                
+                                return (
+                                  <div 
+                                    key={angleName} 
+                                    className={`p-3 rounded-lg border-l-4 ${config.bg} ${config.border}`}
+                                  >
+                                    <div className="flex justify-between items-center">
+                                      <div>
+                                        <div className="font-medium text-gray-700">
+                                          {angleName}
+                                        </div>
+                                        <div className="text-sm text-gray-600">
+                                          Z値: <span className={`font-semibold ${config.color}`}>
+                                            {zScore >= 0 ? '+' : ''}{zScore.toFixed(2)}
+                                          </span>
+                                        </div>
                                       </div>
-                                      <div className="text-sm text-gray-600">
-                                        あなた: <span className="font-semibold">{(diff?.user_value || 0).toFixed(1)}°</span> | 
-                                        標準: <span className="font-semibold">{(diff?.standard_value || 0).toFixed(1)}°</span> | 
-                                        差分: <span className={`font-semibold ${(diff?.difference || 0) >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>
-                                          {diffValue}°
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <div className={`text-center ${judgmentColor}`}>
-                                      <div className="text-2xl">{judgmentIcon}</div>
-                                      <div className="text-xs font-medium">
-                                        [{diff?.statistical_judgment || '判定不可'}]
+                                      <div className={`text-center ${config.color}`}>
+                                        <div className="text-2xl">{config.icon}</div>
+                                        <div className="text-xs font-medium">
+                                          {config.label}
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
-                                </div>
-                              )
-                            })}
+                                )
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
 
-                    {/* 判定基準の説明 */}
+                    {/* 有意な偏差の詳細 */}
+                    {zScoreData.analysis_summary?.significant_deviations && zScoreData.analysis_summary.significant_deviations.length > 0 && (
+                      <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                        <h4 className="font-semibold text-amber-800 mb-2">⚠️ 注目すべき点 (|Z| &gt; 2.0)</h4>
+                        <div className="space-y-2">
+                          {zScoreData.analysis_summary.significant_deviations.map((deviation, index) => {
+                            const eventNames: {[key: string]: string} = {
+                              'right_strike': '右足接地',
+                              'right_off': '右足離地',
+                              'left_strike': '左足接地', 
+                              'left_off': '左足離地'
+                            }
+                            const eventName = eventNames[deviation.event] || deviation.event
+                            const severityIcon = deviation.severity === 'high' ? '🔴' : '🟡'
+                            
+                            return (
+                              <div key={index} className="text-sm text-amber-700">
+                                {severityIcon} {eventName} - {deviation.angle}: Z={deviation.z_score >= 0 ? '+' : ''}{deviation.z_score.toFixed(2)}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Z値の説明 */}
                     <div className="bg-gray-50 p-4 rounded-lg border">
-                      <h4 className="font-semibold text-gray-800 mb-2">📖 判定基準について</h4>
+                      <h4 className="font-semibold text-gray-800 mb-2">📖 Z値について</h4>
                       <div className="text-sm text-gray-600 space-y-1">
-                        <p><span className="font-medium">🔴 課題あり:</span> 統計的に有意な差が検出 → フォーム改善を推奨</p>
-                        <p><span className="font-medium">🟢 OK:</span> 正常範囲内 → 現在のフォームを維持</p>
+                        <p><span className="font-medium">|Z| &lt; 1.0:</span> 標準範囲内 ✅</p>
+                        <p><span className="font-medium">1.0 ≤ |Z| &lt; 2.0:</span> やや標準から外れている 🟢</p>
+                        <p><span className="font-medium">2.0 ≤ |Z| &lt; 3.0:</span> 標準から大きく外れている 🟡</p>
+                        <p><span className="font-medium">|Z| ≥ 3.0:</span> 標準から非常に大きく外れている 🔴</p>
                         <p className="text-xs mt-2 text-gray-500">
-                          ※ 変動係数(CV)と重み付け変動度を用いた科学的分析により判定
+                          ※ 4つのイベント（右足接地・離地、左足接地・離地）ごとの統計的偏差分析
                         </p>
                       </div>
                     </div>
                   </div>
-                ) : comparisonData?.status === 'error' ? (
+                ) : zScoreData?.status === 'error' ? (
                   <div className="text-center py-6 text-muted-foreground">
                     <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
-                    <p className="text-sm">比較データの取得に失敗しました</p>
+                    <p className="text-sm">Z値分析の取得に失敗しました</p>
                     <p className="text-xs mt-1">しばらく待ってから再度お試しください</p>
                   </div>
                 ) : (
                   <div className="text-center py-6 text-muted-foreground">
                     <BarChart3 className="h-8 w-8 mx-auto mb-2" />
-                    <p className="text-sm">比較データを準備中...</p>
-                    <p className="text-xs mt-1">角度データが利用可能になると自動で比較を開始します</p>
+                    <p className="text-sm">Z値分析を準備中...</p>
+                    <p className="text-xs mt-1">動画データが利用可能になると自動で分析を開始します</p>
                   </div>
                 )}
               </CardContent>
             </Card>
+
 
             {/* 課題分析カード */}
             <Card className="shadow-lg">

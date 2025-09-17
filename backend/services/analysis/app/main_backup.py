@@ -7,9 +7,9 @@ import uvicorn
 from typing import List, Dict, Any, Optional, Tuple
 
 app = FastAPI(
-    title="Z-Score Analysis Service",
-    description="イベント別Z値によるランニングフォーム分析サービス",
-    version="3.0.0"
+    title="Analysis Service - Advanced Angular Analysis",
+    description="5つの主要関節角度パラメータに基づく統計的ランニングフォーム分析サービス",
+    version="2.0.0"
 )
 
 # CORS設定
@@ -20,6 +20,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 従来の比較分析機能は削除されました
+# Z値分析機能のみを使用します
 
 # =============================================================================
 # イベント別標準モデルデータの定義 (Z値分析用)
@@ -122,6 +125,108 @@ def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -
             'right_offs': []
         }
 
+def detect_strikes_from_y_coords(y_coords: List[float], video_fps: float) -> List[int]:
+    """
+    Y座標から接地を検出（改良版）
+    
+    Args:
+        y_coords: 足首のY座標リスト
+        video_fps: 動画のフレームレート
+    
+    Returns:
+        List[int]: 接地フレームインデックス
+    """
+    if not y_coords or len(y_coords) < 10:
+        return []
+    
+    y_array = np.array(y_coords)
+    print(f"   📊 Y座標範囲: {np.min(y_array):.3f} - {np.max(y_array):.3f}")
+    
+    # 1. ガウシアンフィルタによる平滑化（ノイズ除去）
+    from scipy import ndimage
+    try:
+        sigma = max(1.0, video_fps * 0.03)  # 0.03秒相当のシグマ
+        smoothed_y = ndimage.gaussian_filter1d(y_array, sigma=sigma)
+    except ImportError:
+        # scipyがない場合は移動平均を使用
+        window_size = max(3, int(video_fps * 0.1))
+        if len(y_array) < window_size:
+            return []
+        smoothed_y = np.convolve(y_array, np.ones(window_size)/window_size, mode='same')
+    
+    print(f"   🔧 平滑化後Y座標範囲: {np.min(smoothed_y):.3f} - {np.max(smoothed_y):.3f}")
+    
+    # 2. 極値検出による接地候補の特定
+    strikes = []
+    
+    # 局所最大値を検出（接地時は足首が最も下に来る = Y座標最大）
+    min_distance = max(5, int(video_fps * 0.2))  # 最小接地間隔（0.2秒）
+    
+    for i in range(min_distance, len(smoothed_y) - min_distance):
+        # 局所最大値の判定
+        is_local_max = True
+        current_y = smoothed_y[i]
+        
+        # 前後のウィンドウ内で最大値かチェック
+        window_start = max(0, i - min_distance//2)
+        window_end = min(len(smoothed_y), i + min_distance//2 + 1)
+        window_max = np.max(smoothed_y[window_start:window_end])
+        
+        if current_y >= window_max * 0.98:  # 98%以上で局所最大と判定（ノイズ耐性）
+            # 3. 接地の継続性チェック
+            # 接地は数フレーム継続するはずなので、周辺フレームもチェック
+            sustained_frames = 0
+            threshold = current_y * 0.95  # 現在値の95%以上
+            
+            for j in range(max(0, i-3), min(len(smoothed_y), i+4)):
+                if smoothed_y[j] >= threshold:
+                    sustained_frames += 1
+            
+            # 4. 接地判定（3フレーム以上継続）
+            if sustained_frames >= 3:
+                strikes.append(i)
+                print(f"   🦶 接地検出: フレーム{i}, Y={current_y:.3f}, 継続={sustained_frames}フレーム")
+    
+    # 5. 重複除去（近すぎる接地を統合）
+    if len(strikes) > 1:
+        filtered_strikes = [strikes[0]]
+        for strike in strikes[1:]:
+            if strike - filtered_strikes[-1] >= min_distance:
+                filtered_strikes.append(strike)
+        strikes = filtered_strikes
+    
+    print(f"   ✅ 検出された接地数: {len(strikes)}")
+    return strikes
+
+def detect_offs_from_strikes(strikes: List[int], total_frames: int) -> List[int]:
+    """
+    接地から離地を推定（簡易版）
+    
+    Args:
+        strikes: 接地フレームインデックス
+        total_frames: 総フレーム数
+    
+    Returns:
+        List[int]: 離地フレームインデックス
+    """
+    if len(strikes) < 2:
+        return []
+    
+    offs = []
+    
+    # 接地間の中間点を離地とする
+    for i in range(len(strikes) - 1):
+        mid_point = (strikes[i] + strikes[i + 1]) // 2
+        offs.append(mid_point)
+    
+    # 最後の接地から次のサイクル開始までの間も離地とする
+    if strikes:
+        last_strike = strikes[-1]
+        next_off = min(last_strike + (strikes[1] - strikes[0]) // 2, total_frames - 1)
+        offs.append(next_off)
+    
+    return offs
+
 def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: float, foot_side: str) -> List[Tuple[int, str]]:
     """
     Y座標から接地（極小値）と離地（極大値）を統合検出
@@ -183,9 +288,9 @@ def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: floa
         
     except ImportError:
         print(f"   ⚠️  scipy.signal未利用 - 従来方式で検出します")
-        # scipyがない場合は従来の方式でフォールバック
-        strike_peaks = []
-        off_peaks = []
+        # scipyがない場合は従来の方式
+        strike_peaks = detect_strikes_from_y_coords(y_coords, video_fps)
+        off_peaks = detect_offs_from_strikes(strike_peaks, len(y_coords))
     
     # 3. イベントリストを作成・ソート
     events = []
@@ -564,6 +669,37 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
             'z_scores': {},
             'analysis_summary': {}
         }
+
+def calculate_event_angles(keypoints_data: List[Dict], events: Dict[str, List[int]]) -> Dict[str, Dict[str, float]]:
+    """
+    各イベントの角度を計算
+    
+    Args:
+        keypoints_data: 全フレームのキーポイントデータ
+        events: イベントフレームインデックス
+    
+    Returns:
+        Dict: 各イベントの角度データ
+    """
+    event_angles = {}
+    
+    # 各イベントの角度を計算
+    event_types = ['right_strike', 'right_off', 'left_strike', 'left_off']
+    event_frames = ['right_strikes', 'right_offs', 'left_strikes', 'left_offs']
+    
+    for event_type, frame_key in zip(event_types, event_frames):
+        if frame_key in events and events[frame_key]:
+            # 最初のイベントフレームを使用
+            frame_idx = events[frame_key][0]
+            if frame_idx < len(keypoints_data):
+                angles = calculate_angles_for_frame(keypoints_data[frame_idx])
+                event_angles[event_type] = angles
+            else:
+                event_angles[event_type] = {}
+        else:
+            event_angles[event_type] = {}
+    
+    return event_angles
 
 def calculate_angles_for_frame(frame_data: Dict) -> Dict[str, float]:
     """
@@ -978,6 +1114,8 @@ def print_selected_cycle_info(cycle: Dict[str, Any]) -> None:
 # =============================================================================
 # リクエスト・レスポンスのデータモデル
 # =============================================================================
+# 従来の比較分析用データモデルは削除されました
+
 class ZScoreAnalysisRequest(BaseModel):
     """Z値分析リクエスト"""
     keypoints_data: List[Dict[str, Any]]
@@ -993,6 +1131,16 @@ class ZScoreAnalysisResponse(BaseModel):
     analysis_summary: Dict[str, Any]
 
 # =============================================================================
+# 従来の統計的分析ロジックは削除されました
+# =============================================================================
+# 従来の分析関数群は削除されました
+
+# 削除された関数:
+# - calculate_priority_score
+# - analyze_single_parameter  
+# - perform_comprehensive_analysis
+
+# =============================================================================
 # API エンドポイント
 # =============================================================================
 @app.get("/")
@@ -1000,15 +1148,186 @@ async def health_check():
     """サービスヘルスチェック"""
     return {
         "status": "healthy", 
-        "service": "z_score_analysis", 
-        "version": "3.0.0",
+        "service": "analysis", 
+        "version": "3.0.0",  # Z値分析専用バージョン
         "description": "Z-Score Based Running Form Analysis Service"
+    }
+
+# 従来の分析関数は完全に削除されました
+
+# 従来の単一パラメータ分析関数は削除されました
+
+# 従来の包括的分析関数は削除されました
+
+# =============================================================================
+# API エンドポイント
+# =============================================================================
+@app.get("/")
+async def health_check():
+    """サービスヘルスチェック"""
+    return {
+        "status": "healthy", 
+        "service": "analysis",
+        "version": "2.0.0",
+        "description": "Advanced Angular Analysis Service"
+    }
+
+# 従来の /analyze エンドポイントは削除されました
+
+# Z値分析のみを提供する新しいAPIエンドポイント
+    """
+    5つの主要角度パラメータからランニングフォームの課題を統計的に分析する
+    
+    Args:
+        request: 角度特徴量データ（体幹、股関節、膝、足首、肘）
+        
+    Returns:
+        優先度順にソートされた課題と詳細分析結果
+    """
+    try:
+        # ★★★ デバッグログ: 受け取った角度データを出力 ★★★
+        print("=" * 80)
+        print("🔍 [ADVANCED ANALYSIS SERVICE] 受け取った角度データ:")
+        
+        if request.trunk_angle:
+            print(f"   - 体幹角度: {request.trunk_angle.avg:.1f}° (範囲: {request.trunk_angle.min:.1f}°-{request.trunk_angle.max:.1f}°)")
+        
+        for side in ["left", "right"]:
+            side_jp = "左" if side == "left" else "右"
+            angles = {
+                "股関節": getattr(request, f"{side}_hip_angle"),
+                "膝": getattr(request, f"{side}_knee_angle"),
+                "足首": getattr(request, f"{side}_ankle_angle"),
+                "肘": getattr(request, f"{side}_elbow_angle")
+            }
+            
+            for name_jp, angle_data in angles.items():
+                if angle_data:
+                    print(f"   - {side_jp}{name_jp}角度: {angle_data.avg:.1f}° (範囲: {angle_data.min:.1f}°-{angle_data.max:.1f}°)")
+        
+        print("=" * 80)
+        
+        # 包括的分析の実行
+        issues = perform_comprehensive_analysis(request)
+        
+        # 結果メッセージの生成
+        if not issues:
+            status = "success"
+            message = "分析した関節角度は全て理想的な範囲内にあります。優れたランニングフォームです！"
+        else:
+            status = "success"
+            message = f"{len(issues)}個の改善ポイントが検出されました。優先度順に表示しています。"
+        
+        # 分析詳細の計算
+        total_analyzed = sum([
+            1 if request.trunk_angle else 0,
+            1 if request.left_hip_angle else 0,
+            1 if request.right_hip_angle else 0,
+            1 if request.left_knee_angle else 0,
+            1 if request.right_knee_angle else 0,
+            1 if request.left_ankle_angle else 0,
+            1 if request.right_ankle_angle else 0,
+            1 if request.left_elbow_angle else 0,
+            1 if request.right_elbow_angle else 0
+        ])
+        
+        analysis_details = {
+            "total_parameters_analyzed": total_analyzed,
+            "issues_detected": len(issues),
+            "highest_priority_score": round(issues[0].priority_score, 1) if issues else 0.0,
+            "analysis_method": "Statistical Deviation Analysis with Dummy Standard Model",
+            "standard_model_version": "dummy_v1.0",
+            "evaluation_summary": {
+                "excellent": len(issues) == 0,
+                "good": 0 < len(issues) <= 2,
+                "needs_improvement": 2 < len(issues) <= 4,
+                "significant_issues": len(issues) > 4
+            }
+        }
+        
+        # ★★★ デバッグログ: 検出された課題を優先度順に出力 ★★★
+        print("🎯 [ADVANCED ANALYSIS SERVICE] 検出された課題（優先度順）:")
+        if issues:
+            for i, issue in enumerate(issues, 1):
+                print(f"   {i}. {issue.parameter} (スコア: {issue.priority_score})")
+                print(f"      {issue.message}")
+                print(f"      ユーザー値: {issue.user_value}°, 標準値: {issue.standard_value}°, 差: {issue.deviation:+.1f}°")
+        else:
+            print("   課題は検出されませんでした - 優秀なフォームです！")
+        
+        print(f"📊 分析パラメータ数: {total_analyzed}")
+        print("=" * 80)
+        
+        return AdvancedAnalysisResponse(
+            status=status,
+            message=message,
+            issues=issues,
+            analysis_details=analysis_details
+        )
+        
+    except Exception as e:
+        print(f"❌ [ADVANCED ANALYSIS SERVICE] エラー発生: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"高度分析中にエラーが発生しました: {str(e)}")
+
+@app.get("/standard-model")
+async def get_standard_model():
+    """現在使用中の標準動作モデルを取得"""
+    return {
+        "model_type": "dummy",
+        "version": "1.0",
+        "description": "実装・テスト用のダミー標準動作モデル",
+        "warning": "このモデルは将来的に実際の標準データに差し替えられる予定です",
+        "parameters": DUMMY_STANDARD_MODEL,
+        "notes": "mean: 平均値, std_dev: 標準偏差（単位: 度）"
+    }
+
+@app.get("/analysis-parameters")
+async def get_analysis_parameters():
+    """分析パラメータの詳細情報を取得"""
+    return {
+        "supported_parameters": [
+            {
+                "name": "trunk_angle",
+                "description": "体幹前傾角度",
+                "sides": ["none"],
+                "unit": "degrees"
+            },
+            {
+                "name": "hip_angle", 
+                "description": "股関節角度",
+                "sides": ["left", "right"],
+                "unit": "degrees"
+        },
+            {
+                "name": "knee_angle",
+                "description": "膝関節角度", 
+                "sides": ["left", "right"],
+                "unit": "degrees"
+        },
+            {
+                "name": "ankle_angle",
+                "description": "足関節角度",
+                "sides": ["left", "right"], 
+                "unit": "degrees"
+            },
+            {
+                "name": "elbow_angle",
+                "description": "肘関節角度",
+                "sides": ["left", "right"],
+                "unit": "degrees"
+        }
+        ],
+        "analysis_method": {
+            "threshold_calculation": "標準偏差 × 1.5",
+            "priority_scoring": "重み付け変動度 = (ユーザー値 + 閾値) / 変動係数",
+            "sorting": "優先度スコア降順"
+        }
     }
 
 @app.post("/analyze-z-score", response_model=ZScoreAnalysisResponse)
 async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
     """
-    Z値によるランニングフォーム分析（メインエンドポイント）
+    Z値によるランニングフォーム分析
     
     4つの主要イベント（右足接地、右足離地、左足接地、左足離地）ごとに
     各指標のZ値を算出・評価する高度な解析機能
@@ -1063,7 +1382,7 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
         )
 
 if __name__ == "__main__":
-    print("🚀 Z-Score Analysis Service v3.0.0 を起動中...")
-    print("🎯 イベント別Z値によるランニングフォーム分析")
-    print("🏆 ワンサイクル特定機能搭載")
-    uvicorn.run(app, host="0.0.0.0", port=8004)
+    print("🚀 Advanced Angular Analysis Service v2.0.0 を起動中...")
+    print("📐 5つの主要関節角度パラメータによる統計的分析")
+    print("⚠️  ダミー標準モデルを使用中（将来差し替え予定）")
+    uvicorn.run(app, host="0.0.0.0", port=8004) 

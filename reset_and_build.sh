@@ -27,7 +27,7 @@ echo "⚠️  注意: 既存の全てのデータが削除されます！"
 # ===== 設定変数 =====
 # 【重要】以下のGitHubリポジトリURLとAPIキーを環境に合わせて変更してください
 GITHUB_REPO_URL="https://github.com/riku234/running-analysis-system.git"
-GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"  # 🚨 実際のAPIキーに変更してください
+GEMINI_API_KEY="AIzaSyAt7xxYvsvXaWCPyEhslP0YqX97RacpSYU"  # 🚨 実際のAPIキーに変更してください
 
 # プロジェクトディレクトリ名
 PROJECT_DIR="running-analysis-system"
