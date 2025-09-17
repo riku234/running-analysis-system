@@ -161,22 +161,22 @@ def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: floa
         # 接地検出（極小値 = 足首が最も下）
         # Y座標を反転して極大値として検出
         inverted_y = -smoothed_y
-        min_distance = max(5, int(video_fps * 0.2))  # 最小間隔0.2秒
-        height_threshold = np.percentile(inverted_y, 70)  # 上位30%の極値のみ
+        min_distance = max(3, int(video_fps * 0.15))  # 最小間隔0.15秒（より短く）
+        height_threshold = np.percentile(inverted_y, 50)  # 上位50%の極値（より寛容）
         
         strike_peaks, strike_properties = find_peaks(
             inverted_y,
             distance=min_distance,
             height=height_threshold,
-            prominence=0.005  # 突出度の最小値
+            prominence=0.002  # 突出度をより小さく（より寛容）
         )
         
         # 離地検出（極大値 = 足首が最も上）
         off_peaks, off_properties = find_peaks(
             smoothed_y,
             distance=min_distance,
-            height=np.percentile(smoothed_y, 70),  # 上位30%の極値のみ
-            prominence=0.005
+            height=np.percentile(smoothed_y, 50),  # 上位50%の極値（より寛容）
+            prominence=0.002  # 突出度をより小さく（より寛容）
         )
         
         print(f"   🦶 {foot_side}足 find_peaks検出: 接地{len(strike_peaks)}回, 離地{len(off_peaks)}回")
@@ -372,8 +372,8 @@ def extract_cycle_candidates(events: Dict[str, List[int]], video_fps: float) -> 
         if all(event is not None for event in cycle_events.values()):
             cycle_duration = (cycle_end - cycle_start) / video_fps
             
-            # 妥当な時間範囲（0.4-2.0秒）
-            if 0.4 <= cycle_duration <= 2.0:
+            # 妥当な時間範囲（0.2-3.0秒）より寛容に
+            if 0.2 <= cycle_duration <= 3.0:
                 candidates.append({
                     'start_frame': cycle_start,
                     'end_frame': cycle_end,
@@ -739,12 +739,19 @@ def calculate_z_scores(event_angles: Dict[str, Dict[str, float]], standard_model
     """
     z_scores = {}
     
+    print("\n" + "=" * 100)
+    print("🧮 Z値計算の詳細表示")
+    print("=" * 100)
+    
     for event_type, angles in event_angles.items():
         if event_type not in standard_model or not angles:
             continue
             
         z_scores[event_type] = {}
         standard_data = standard_model[event_type]
+        
+        print(f"\n📊 【{event_type}】イベントのZ値計算:")
+        print("-" * 80)
         
         for angle_name, angle_value in angles.items():
             if angle_name in standard_data:
@@ -754,9 +761,28 @@ def calculate_z_scores(event_angles: Dict[str, Dict[str, float]], standard_model
                 if std > 0:
                     z_score = (angle_value - mean) / std
                     z_scores[event_type][angle_name] = z_score
+                    
+                    print(f"📐 {angle_name}:")
+                    print(f"   ユーザー値: {angle_value:.2f}°")
+                    print(f"   標準平均値: {mean:.4f}°")
+                    print(f"   標準偏差  : {std:.4f}°")
+                    print(f"   計算式    : ({angle_value:.2f} - {mean:.4f}) / {std:.4f}")
+                    print(f"   Z値      : {z_score:.2f}")
+                    
+                    # 評価コメント
+                    if abs(z_score) <= 1.0:
+                        comment = "✅ 正常範囲内"
+                    elif abs(z_score) <= 2.0:
+                        comment = "⚠️  やや偏差あり"
+                    else:
+                        comment = "🚨 大きな偏差"
+                    print(f"   評価      : {comment}")
+                    print()
                 else:
                     z_scores[event_type][angle_name] = 0.0
+                    print(f"📐 {angle_name}: 標準偏差が0のためZ値計算不可")
     
+    print("=" * 100)
     return z_scores
 
 def generate_analysis_summary(z_scores: Dict[str, Dict[str, float]]) -> Dict[str, Any]:

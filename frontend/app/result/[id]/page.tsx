@@ -400,13 +400,40 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               }
             })
             
-            // Z値分析を実行（poseDataとvideoFpsを使用）
-            if (poseData && videoInfo?.fps) {
-              console.log('🎯 実データでZ値分析を実行:', { frames: poseData.length, fps: videoInfo.fps })
-              fetchZScoreAnalysis(poseData, videoInfo.fps)
-            } else {
-              console.log('⚠️ 実データが不足、ダミーデータでZ値分析を実行')
-              // 実データがない場合でもダミーデータでZ値分析を実行
+            // Z値分析を実行（API経由で直接pose_dataを取得）
+            console.log('🔄 API経由でpose_dataを直接取得します')
+            
+            try {
+              const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
+              if (apiResponse.ok) {
+                const apiData = await apiResponse.json()
+                
+                if (apiData.pose_analysis?.pose_data && apiData.pose_analysis.pose_data.length > 0) {
+                  const actualPoseData = apiData.pose_analysis.pose_data
+                  const actualVideoFps = apiData.pose_analysis.video_info?.fps || 30.0
+                  
+                  console.log('✅ API経由で実データを取得:', { 
+                    frames: actualPoseData.length, 
+                    fps: actualVideoFps 
+                  })
+                  console.log('🎯 実データでZ値分析を実行:', { 
+                    frames: actualPoseData.length, 
+                    fps: actualVideoFps 
+                  })
+                  
+                  fetchZScoreAnalysis(actualPoseData, actualVideoFps)
+                } else {
+                  console.log('⚠️ APIからも実データを取得できず、ダミーデータでZ値分析を実行')
+                  const dummyPoseData = generateRunningCycleDummyData()
+                  fetchZScoreAnalysis(dummyPoseData, 30.0)
+                }
+              } else {
+                console.log('⚠️ API呼び出し失敗、ダミーデータでZ値分析を実行')
+                const dummyPoseData = generateRunningCycleDummyData()
+                fetchZScoreAnalysis(dummyPoseData, 30.0)
+              }
+            } catch (apiError) {
+              console.log('⚠️ API呼び出しエラー、ダミーデータでZ値分析を実行:', apiError)
               const dummyPoseData = generateRunningCycleDummyData()
               fetchZScoreAnalysis(dummyPoseData, 30.0)
             }
@@ -417,9 +444,57 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         
         // localStorageにデータがない場合はダミーデータを表示
 
+        // まずZ値分析を実行してから結果を表示
+        console.log('🔄 ページ読み込み時にZ値分析を実行')
+        
+        // Z値分析を実行（API経由で直接pose_dataを取得）
+        const executeZScoreAnalysis = async () => {
+          console.log('🔄 API経由でpose_dataを直接取得します')
+          
+          try {
+            const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
+            if (apiResponse.ok) {
+              const apiData = await apiResponse.json()
+              
+              if (apiData.pose_analysis?.pose_data && apiData.pose_analysis.pose_data.length > 0) {
+                const actualPoseData = apiData.pose_analysis.pose_data
+                const actualVideoFps = apiData.pose_analysis.video_info?.fps || 30.0
+                
+                console.log('✅ API経由で実データを取得:', { 
+                  frames: actualPoseData.length, 
+                  fps: actualVideoFps 
+                })
+                console.log('🎯 実データでZ値分析を実行:', { 
+                  frames: actualPoseData.length, 
+                  fps: actualVideoFps 
+                })
+                
+                await fetchZScoreAnalysis(actualPoseData, actualVideoFps)
+              } else {
+                console.log('⚠️ APIからも実データを取得できず、ダミーデータでZ値分析を実行')
+                const dummyPoseData = generateRunningCycleDummyData()
+                await fetchZScoreAnalysis(dummyPoseData, 30.0)
+              }
+            } else {
+              console.log('⚠️ API呼び出し失敗、ダミーデータでZ値分析を実行')
+              const dummyPoseData = generateRunningCycleDummyData()
+              await fetchZScoreAnalysis(dummyPoseData, 30.0)
+            }
+          } catch (apiError) {
+            console.log('⚠️ API呼び出しエラー、ダミーデータでZ値分析を実行:', apiError)
+            const dummyPoseData = generateRunningCycleDummyData()
+            await fetchZScoreAnalysis(dummyPoseData, 30.0)
+          }
+        }
+        
+        // Z値分析を実行してからダミーデータを表示
+        executeZScoreAnalysis().then(() => {
+          console.log('✅ Z値分析完了、ダミーデータ表示を開始')
+        })
+
         // ダミーデータで動作確認（実データの構造を模擬）
-    setTimeout(() => {
-      setResult({
+        setTimeout(() => {
+          setResult({
             status: "success",
             message: "動画アップロード、骨格解析、特徴量計算が完了しました",
             upload_info: {
@@ -515,11 +590,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           left_lower_leg_angle: { mean: -8.7, avg: -8.7, min: -25.3, max: 12.1 },
           right_lower_leg_angle: { mean: -9.2, avg: -9.2, min: -24.8, max: 13.4 }
         }
-        console.log('📊 ダミーデータでZ値分析を開始...')
-        const dummyPoseData = generateRunningCycleDummyData()
-        console.log('🏃 ダミーランニングデータ生成:', { frames: dummyPoseData.length, fps: 30.0 })
-        fetchZScoreAnalysis(dummyPoseData, 30.0)
-    }, 1500)
+        // Z値分析は既に上で実行済み
+        console.log('📊 ダミーデータ表示完了（Z値分析は並行実行中）')
+    }, 500)  // 表示を早める
       } catch (error) {
         console.error('結果取得エラー:', error)
         setLoading(false)
@@ -529,18 +602,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
     fetchResult()
   }, [params.id])
 
-  // Z値分析を強制実行するuseEffect
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!zScoreData && !zScoreLoading) {
-        console.log('🔄 Z値分析を強制実行します')
-        const dummyPoseData = generateRunningCycleDummyData()
-        fetchZScoreAnalysis(dummyPoseData, 30.0)
-      }
-    }, 3000) // 3秒後に強制実行
-    
-    return () => clearTimeout(timer)
-  }, [zScoreData, zScoreLoading])
+  // Z値分析の強制実行タイマーは削除（初期実行で対応）
 
   if (loading) {
     return (

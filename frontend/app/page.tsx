@@ -226,7 +226,8 @@ export default function HomePage() {
           message: result.pose_analysis?.message,
           video_info: result.pose_analysis?.video_info,
           summary: result.pose_analysis?.summary,
-          // pose_dataは除外（Zustandに保存済み）
+          // pose_dataも保存（Z値分析で必要）
+          pose_data: result.pose_analysis?.pose_data || []
         },
         feature_analysis: {
           status: result.feature_analysis?.status,

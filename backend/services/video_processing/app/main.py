@@ -15,6 +15,13 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# アップロードディレクトリの設定
+UPLOAD_DIRECTORY = Path("uploads")
+UPLOAD_DIRECTORY.mkdir(exist_ok=True)
+
+# サービスURL設定
+POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
+
 app = FastAPI(
     title="Video Processing Service",
     description="動画のアップロード、フォーマット変換、フレーム抽出を担当するサービス",
@@ -379,6 +386,51 @@ async def stream_video(filename: str):
         media_type="video/mp4",
         filename=filename
     )
+
+@app.get("/result/{video_id}")
+async def get_result(video_id: str):
+    """
+    指定されたvideo_idの解析結果を取得する
+    """
+    try:
+        # 保存されたファイルを探す
+        for file_path in UPLOAD_DIRECTORY.glob(f"*{video_id}*"):
+            if file_path.suffix.lower() in ['.mp4', '.avi', '.mov', '.mkv']:
+                # 動画ファイルが存在する場合、解析を実行
+                logger.info(f"動画ファイルが見つかりました: {file_path}")
+                
+                # 骨格推定を実行
+                pose_request = {
+                    "video_path": str(file_path),
+                    "confidence_threshold": 0.5
+                }
+                
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    pose_response = await client.post(
+                        POSE_ESTIMATION_URL,
+                        json=pose_request
+                    )
+                    pose_response.raise_for_status()
+                    pose_data = pose_response.json()
+                
+                return {
+                    "status": "success",
+                    "video_id": video_id,
+                    "pose_analysis": pose_data
+                }
+        
+        # ファイルが見つからない場合
+        raise HTTPException(
+            status_code=404,
+            detail=f"Video file not found for ID: {video_id}"
+        )
+        
+    except Exception as e:
+        logger.error(f"結果取得エラー: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"結果取得中にエラーが発生しました: {str(e)}"
+        )
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001) 
