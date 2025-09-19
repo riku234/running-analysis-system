@@ -17,6 +17,92 @@ import { Button } from '@/components/ui/button'
 import PoseVisualizer from '@/app/components/PoseVisualizer'
 import { useResultStore } from '@/lib/store'
 
+// より現実的なランニングサイクルのダミーデータを生成
+const generateRunningCycleDummyData = () => {
+  const frames = []
+  const fps = 30.0
+  const totalFrames = 60 // 2秒間のデータ
+  
+  for (let frame = 0; frame < totalFrames; frame++) {
+    const time = frame / fps
+    const cyclePhase = (time * 3.0 * 2) % 2.0 // 3歩/秒のランニング
+    
+    // 基本的な人体の位置
+    const baseKeypoints = [
+      // 0-10: 頭部
+      {x: 0.5, y: 0.1}, {x: 0.48, y: 0.08}, {x: 0.49, y: 0.08}, {x: 0.47, y: 0.07},
+      {x: 0.53, y: 0.07}, {x: 0.51, y: 0.08}, {x: 0.54, y: 0.07}, {x: 0.46, y: 0.09},
+      {x: 0.54, y: 0.09}, {x: 0.48, y: 0.11}, {x: 0.52, y: 0.11},
+      // 11-12: 肩
+      {x: 0.45, y: 0.2}, {x: 0.55, y: 0.2},
+      // 13-16: 肘・手首
+      {x: 0.4, y: 0.3}, {x: 0.6, y: 0.3}, {x: 0.35, y: 0.4}, {x: 0.65, y: 0.4},
+      // 17-22: 手部分
+      {x: 0.33, y: 0.42}, {x: 0.67, y: 0.42}, {x: 0.32, y: 0.41}, {x: 0.68, y: 0.41},
+      {x: 0.31, y: 0.40}, {x: 0.69, y: 0.40},
+      // 23-24: 腰
+      {x: 0.45, y: 0.5}, {x: 0.55, y: 0.5},
+      // 25-26: 膝
+      {x: 0.43, y: 0.7}, {x: 0.57, y: 0.7},
+      // 27-28: 足首（重要：接地検出用）
+      {x: 0.41, y: 0.85}, {x: 0.59, y: 0.85},
+      // 29-32: 足部分
+      {x: 0.39, y: 0.87}, {x: 0.61, y: 0.87}, {x: 0.37, y: 0.89}, {x: 0.63, y: 0.89}
+    ]
+    
+    // ランニング動作の計算
+    const leftPhase = cyclePhase % 1.0
+    const rightPhase = (cyclePhase + 0.5) % 1.0
+    
+    // 足首の上下運動（接地・離地パターン）
+    const leftAnkleY = 0.82 + 0.06 * generateFootCycle(leftPhase)
+    const rightAnkleY = 0.82 + 0.06 * generateFootCycle(rightPhase)
+    
+    // キーポイントを生成
+    const keypoints = baseKeypoints.map((base, i) => {
+      let {x, y} = base
+      
+      // 足首の動的な動き
+      if (i === 27) y = leftAnkleY  // 左足首
+      if (i === 28) y = rightAnkleY // 右足首
+      
+      // 膝の動的な動き
+      if (i === 25) y = 0.68 + 0.04 * generateFootCycle(leftPhase)  // 左膝
+      if (i === 26) y = 0.68 + 0.04 * generateFootCycle(rightPhase) // 右膝
+      
+      // ノイズを追加
+      x += (Math.random() - 0.5) * 0.01
+      y += (Math.random() - 0.5) * 0.01
+      
+      return {
+        x: Math.max(0.0, Math.min(1.0, x)),
+        y: Math.max(0.0, Math.min(1.0, y)),
+        z: Math.random() * 0.01,
+        visibility: Math.random() * 0.2 + 0.8
+      }
+    })
+    
+    frames.push({
+      keypoints,
+      frame_number: frame,
+      timestamp: time
+    })
+  }
+  
+  return frames
+}
+
+// 足の1サイクル内での上下運動パターン
+const generateFootCycle = (phase: number) => {
+  if (0.2 <= phase && phase <= 0.4) {
+    return 1.0  // 接地期：足首が下に
+  } else if (0.7 <= phase && phase <= 0.9) {
+    return -1.0 // 遊脚期：足首が上に
+  } else {
+    return Math.sin((phase - 0.3) * 4 * Math.PI) * 0.5
+  }
+}
+
 interface ZScoreAnalysisResult {
   status: string
   message: string
@@ -192,92 +278,6 @@ interface AnalysisResult {
   error?: string
 }
 
-// より現実的なランニングサイクルのダミーデータを生成
-const generateRunningCycleDummyData = () => {
-  const frames = []
-  const fps = 30.0
-  const totalFrames = 60 // 2秒間のデータ
-  
-  for (let frame = 0; frame < totalFrames; frame++) {
-    const time = frame / fps
-    const cyclePhase = (time * 3.0 * 2) % 2.0 // 3歩/秒のランニング
-    
-    // 基本的な人体の位置
-    const baseKeypoints = [
-      // 0-10: 頭部
-      {x: 0.5, y: 0.1}, {x: 0.48, y: 0.08}, {x: 0.49, y: 0.08}, {x: 0.47, y: 0.07},
-      {x: 0.53, y: 0.07}, {x: 0.51, y: 0.08}, {x: 0.54, y: 0.07}, {x: 0.46, y: 0.09},
-      {x: 0.54, y: 0.09}, {x: 0.48, y: 0.11}, {x: 0.52, y: 0.11},
-      // 11-12: 肩
-      {x: 0.45, y: 0.2}, {x: 0.55, y: 0.2},
-      // 13-16: 肘・手首
-      {x: 0.4, y: 0.3}, {x: 0.6, y: 0.3}, {x: 0.35, y: 0.4}, {x: 0.65, y: 0.4},
-      // 17-22: 手部分
-      {x: 0.33, y: 0.42}, {x: 0.67, y: 0.42}, {x: 0.32, y: 0.41}, {x: 0.68, y: 0.41},
-      {x: 0.31, y: 0.40}, {x: 0.69, y: 0.40},
-      // 23-24: 腰
-      {x: 0.45, y: 0.5}, {x: 0.55, y: 0.5},
-      // 25-26: 膝
-      {x: 0.43, y: 0.7}, {x: 0.57, y: 0.7},
-      // 27-28: 足首（重要：接地検出用）
-      {x: 0.41, y: 0.85}, {x: 0.59, y: 0.85},
-      // 29-32: 足部分
-      {x: 0.39, y: 0.87}, {x: 0.61, y: 0.87}, {x: 0.37, y: 0.89}, {x: 0.63, y: 0.89}
-    ]
-    
-    // ランニング動作の計算
-    const leftPhase = cyclePhase % 1.0
-    const rightPhase = (cyclePhase + 0.5) % 1.0
-    
-    // 足首の上下運動（接地・離地パターン）
-    const leftAnkleY = 0.82 + 0.06 * generateFootCycle(leftPhase)
-    const rightAnkleY = 0.82 + 0.06 * generateFootCycle(rightPhase)
-    
-    // キーポイントを生成
-    const keypoints = baseKeypoints.map((base, i) => {
-      let {x, y} = base
-      
-      // 足首の動的な動き
-      if (i === 27) y = leftAnkleY  // 左足首
-      if (i === 28) y = rightAnkleY // 右足首
-      
-      // 膝の動的な動き
-      if (i === 25) y = 0.68 + 0.04 * generateFootCycle(leftPhase)  // 左膝
-      if (i === 26) y = 0.68 + 0.04 * generateFootCycle(rightPhase) // 右膝
-      
-      // ノイズを追加
-      x += (Math.random() - 0.5) * 0.01
-      y += (Math.random() - 0.5) * 0.01
-      
-      return {
-        x: Math.max(0.0, Math.min(1.0, x)),
-        y: Math.max(0.0, Math.min(1.0, y)),
-        z: Math.random() * 0.01,
-        visibility: Math.random() * 0.2 + 0.8
-      }
-    })
-    
-    frames.push({
-      keypoints,
-      frame_number: frame,
-      timestamp: time
-    })
-  }
-  
-  return frames
-}
-
-// 足の1サイクル内での上下運動パターン
-const generateFootCycle = (phase: number) => {
-  if (0.2 <= phase && phase <= 0.4) {
-    return 1.0  // 接地期：足首が下に
-  } else if (0.7 <= phase && phase <= 0.9) {
-    return -1.0 // 遊脚期：足首が上に
-  } else {
-    return Math.sin((phase - 0.3) * 4 * Math.PI) * 0.5
-  }
-}
-
 export default function ResultPage({ params }: { params: { id: string } }) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -345,6 +345,52 @@ export default function ResultPage({ params }: { params: { id: string } }) {
     }
   }
 
+  // localStorage方式でZ値分析を実行
+  const executeLocalStorageZScoreAnalysis = async () => {
+    try {
+      console.log('🔄 localStorage方式でZ値分析を開始')
+      
+      // 1. localStorageから実データを取得
+      const savedResult = localStorage.getItem(`light_analysis_result_${params.id}`)
+      if (!savedResult) {
+        console.log('⚠️ localStorage結果データなし、ダミーデータでZ値分析')
+        const dummyPoseData = generateRunningCycleDummyData()
+        await fetchZScoreAnalysis(dummyPoseData, 30.0)
+        return
+      }
+      
+      const result = JSON.parse(savedResult)
+      
+      // 2. pose_dataの存在確認
+      if (result.pose_analysis?.pose_data && result.pose_analysis.pose_data.length > 0) {
+        const actualPoseData = result.pose_analysis.pose_data
+        const actualVideoFps = result.pose_analysis.video_info?.fps || 30.0
+        
+        console.log('✅ localStorage結果データから実データを取得:', {
+          frames: actualPoseData.length,
+          fps: actualVideoFps
+        })
+        
+        await fetchZScoreAnalysis(actualPoseData, actualVideoFps)
+      } else {
+        console.log('⚠️ localStorage内にpose_dataなし、ダミーデータでZ値分析')
+        console.log('デバッグ情報:', {
+          hasPoseAnalysis: !!result.pose_analysis,
+          hasPoseData: !!result.pose_analysis?.pose_data,
+          poseDataLength: result.pose_analysis?.pose_data?.length || 0,
+          poseDataType: typeof result.pose_analysis?.pose_data
+        })
+        
+        const dummyPoseData = generateRunningCycleDummyData()
+        await fetchZScoreAnalysis(dummyPoseData, 30.0)
+      }
+    } catch (error) {
+      console.error('❌ localStorage Z値分析エラー:', error)
+      const dummyPoseData = generateRunningCycleDummyData()
+      await fetchZScoreAnalysis(dummyPoseData, 30.0)
+    }
+  }
+
   useEffect(() => {
     const fetchResult = async () => {
       try {
@@ -400,43 +446,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               }
             })
             
-            // Z値分析を実行（API経由で直接pose_dataを取得）
-            console.log('🔄 API経由でpose_dataを直接取得します')
-            
-            try {
-              const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
-              if (apiResponse.ok) {
-                const apiData = await apiResponse.json()
-                
-                if (apiData.pose_analysis?.pose_data && apiData.pose_analysis.pose_data.length > 0) {
-                  const actualPoseData = apiData.pose_analysis.pose_data
-                  const actualVideoFps = apiData.pose_analysis.video_info?.fps || 30.0
-                  
-                  console.log('✅ API経由で実データを取得:', { 
-                    frames: actualPoseData.length, 
-                    fps: actualVideoFps 
-                  })
-                  console.log('🎯 実データでZ値分析を実行:', { 
-                    frames: actualPoseData.length, 
-                    fps: actualVideoFps 
-                  })
-                  
-                  fetchZScoreAnalysis(actualPoseData, actualVideoFps)
-                } else {
-                  console.log('⚠️ APIからも実データを取得できず、ダミーデータでZ値分析を実行')
-                  const dummyPoseData = generateRunningCycleDummyData()
-                  fetchZScoreAnalysis(dummyPoseData, 30.0)
-                }
-              } else {
-                console.log('⚠️ API呼び出し失敗、ダミーデータでZ値分析を実行')
-                const dummyPoseData = generateRunningCycleDummyData()
-                fetchZScoreAnalysis(dummyPoseData, 30.0)
-              }
-            } catch (apiError) {
-              console.log('⚠️ API呼び出しエラー、ダミーデータでZ値分析を実行:', apiError)
-              const dummyPoseData = generateRunningCycleDummyData()
-              fetchZScoreAnalysis(dummyPoseData, 30.0)
-            }
+            // Z値分析を実行（localStorage方式）
+            executeLocalStorageZScoreAnalysis()
           }
           
           return
