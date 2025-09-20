@@ -1338,24 +1338,62 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                                 return (
                                   <div 
                                     key={angleName} 
-                                    className={`p-3 rounded-lg border-l-4 ${config.bg} ${config.border}`}
+                                    className={`p-4 rounded-lg border ${config.border} ${config.bg}`}
                                   >
-                                    <div className="flex justify-between items-center">
-                                      <div>
+                                    <div className="space-y-3">
+                                      {/* 角度名とZ値 */}
+                                      <div className="flex justify-between items-center">
                                         <div className="font-medium text-gray-700">
                                           {angleName}
                                         </div>
-                                        <div className="text-sm text-gray-600">
-                                          Z値: <span className={`font-semibold ${config.color}`}>
-                                            {zScore >= 0 ? '+' : ''}{zScore.toFixed(2)}
-                                          </span>
+                                        <div className={`text-sm font-semibold ${config.color}`}>
+                                          Z値: {zScore >= 0 ? '+' : ''}{zScore.toFixed(2)}
                                         </div>
                                       </div>
-                                      <div className={`text-center ${config.color}`}>
-                                        <div className="text-2xl">{config.icon}</div>
-                                        <div className="text-xs font-medium">
-                                          {config.label}
+                                      
+                                      {/* メモリ表示 */}
+                                      <div className="space-y-2">
+                                        <div className="flex justify-between text-xs text-gray-500">
+                                          <span>-3.0</span>
+                                          <span>0</span>
+                                          <span>+3.0</span>
                                         </div>
+                                        
+                                        <div className="relative h-4 bg-gray-200 rounded-full overflow-hidden">
+                                          {/* 背景のゾーン表示 */}
+                                          <div className="absolute inset-0 flex">
+                                            <div className="w-1/6 bg-red-100"></div>
+                                            <div className="w-1/6 bg-yellow-100"></div>
+                                            <div className="w-1/3 bg-green-100"></div>
+                                            <div className="w-1/6 bg-yellow-100"></div>
+                                            <div className="w-1/6 bg-red-100"></div>
+                                          </div>
+                                          
+                                          {/* 中央線（Z=0） */}
+                                          <div className="absolute left-1/2 top-0 h-full w-0.5 bg-gray-400 transform -translate-x-0.5"></div>
+                                          
+                                          {/* Z値インジケーター */}
+                                          <div 
+                                            className={`absolute top-0 h-full w-1 ${config.color.includes('red') ? 'bg-red-500' : config.color.includes('yellow') ? 'bg-yellow-500' : config.color.includes('blue') ? 'bg-blue-500' : 'bg-green-500'} rounded-full transform -translate-x-0.5`}
+                                            style={{
+                                              left: `${Math.max(0, Math.min(100, ((zScore + 3) / 6) * 100))}%`
+                                            }}
+                                          ></div>
+                                        </div>
+                                        
+                                        {/* ゾーンラベル */}
+                                        <div className="flex justify-between text-xs">
+                                          <span className="text-red-600">危険</span>
+                                          <span className="text-yellow-600">注意</span>
+                                          <span className="text-green-600">正常</span>
+                                          <span className="text-yellow-600">注意</span>
+                                          <span className="text-red-600">危険</span>
+                                        </div>
+                                      </div>
+                                      
+                                      {/* 評価コメント */}
+                                      <div className={`text-center text-sm font-medium ${config.color}`}>
+                                        {config.icon} {config.label}
                                       </div>
                                     </div>
                                   </div>
