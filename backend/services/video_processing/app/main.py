@@ -192,9 +192,9 @@ async def upload_video(file: UploadFile = File(...)):
                     issue_data["issues"] = issues
                     issue_data["analysis_details"]["total_issues"] = len(issues)
                 
-                # Step 4: アドバイス生成（必須）
+                # Step 4: アドバイス生成（従来のGemini AI + 新しい高レベルアドバイス）
                 try:
-                    logger.info("アドバイス生成サービスを呼び出します")
+                    logger.info("アドバイス生成サービス（Gemini AI）を呼び出します")
                     advice_request = {
                         "video_id": unique_id,
                         "issues": issue_data.get("issues", [])
@@ -207,7 +207,52 @@ async def upload_video(file: UploadFile = File(...)):
                     )
                     advice_response.raise_for_status()
                     advice_data = advice_response.json()
-                    logger.info("アドバイス生成完了")
+                    logger.info("Gemini AIアドバイス生成完了")
+                    
+                    # 高レベルアドバイス生成を追加
+                    logger.info("高レベルアドバイス生成サービスを呼び出します")
+                    
+                    # Z値分析結果から課題を抽出（高レベルアドバイス用）
+                    high_level_issues = []
+                    if z_score_data and z_score_data.get("analysis_summary", {}).get("significant_deviations"):
+                        for deviation in z_score_data["analysis_summary"]["significant_deviations"]:
+                            # 角度名を簡略化（例: "右大腿角度" -> "右大腿角度大"）
+                            angle_mapping = {
+                                "右大腿角度": "右大腿角度大",
+                                "左大腿角度": "左大腿角度大", 
+                                "右下腿角度": "右下腿角度大",
+                                "左下腿角度": "左下腿角度大",
+                                "体幹角度": "体幹後傾" if deviation["z_score"] < 0 else "体幹前傾"
+                            }
+                            
+                            mapped_issue = angle_mapping.get(deviation["angle"], deviation["angle"])
+                            if mapped_issue not in high_level_issues:
+                                high_level_issues.append(mapped_issue)
+                    
+                    advanced_advice_request = {
+                        "video_id": unique_id,
+                        "issues_list": high_level_issues
+                    }
+                    
+                    advanced_advice_response = await client.post(
+                        f"http://advice_generation:8005/generate-advanced",
+                        json=advanced_advice_request,
+                        timeout=60.0
+                    )
+                    advanced_advice_response.raise_for_status()
+                    advanced_advice_data = advanced_advice_response.json()
+                    logger.info("高レベルアドバイス生成完了")
+                    
+                    # デバッグログ: 高レベルアドバイスデータの内容確認
+                    logger.info(f"高レベルアドバイスデータ: {advanced_advice_data}")
+                    logger.info(f"抽出された課題: {high_level_issues}")
+                    
+                    # アドバイスデータに高レベルアドバイスを追加
+                    advice_data["advanced_advice"] = advanced_advice_data.get("advice", "")
+                    advice_data["high_level_issues"] = high_level_issues
+                    
+                    # デバッグログ: 最終的なadvice_dataの確認
+                    logger.info(f"最終advice_dataに高レベルアドバイス追加: {bool(advice_data.get('advanced_advice'))}")
                     
                 except Exception as e:
                     logger.warning(f"アドバイス生成でエラーが発生しましたが、処理を続行します: {e}")

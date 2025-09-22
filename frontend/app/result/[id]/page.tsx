@@ -10,7 +10,9 @@ import {
   BarChart3,
   Loader2,
   ArrowLeft,
-  Download
+  Download,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -244,6 +246,8 @@ interface AnalysisResult {
       total_advice: number
       generation_timestamp: string
     }
+    advanced_advice?: string
+    high_level_issues?: string[]
   }
   advice_results?: {
     status: string
@@ -260,6 +264,8 @@ interface AnalysisResult {
       total_advice: number
       generation_timestamp: string
     }
+    advanced_advice?: string
+    high_level_issues?: string[]
   }
   issue_analysis?: {
     status: string
@@ -285,6 +291,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   const [zustandSaveLog, setZustandSaveLog] = useState<string>("")
   const [zScoreData, setZScoreData] = useState<ZScoreAnalysisResult | null>(null)
   const [zScoreLoading, setZScoreLoading] = useState(false)
+  const [showAngleReference, setShowAngleReference] = useState(false)
   
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
@@ -745,20 +752,42 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   </div>
                 )}
                 
-                {/* 角度参照図 */}
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                  <h3 className="text-lg font-semibold mb-3 text-center">角度測定の基準</h3>
-                  <div className="flex justify-center">
-                    <img 
-                      src="/angle_reference_diagram.png" 
-                      alt="角度測定の基準図"
-                      className="max-w-full h-auto rounded-lg shadow-sm"
-                      style={{ maxHeight: '400px' }}
-                    />
-                  </div>
-                  <p className="text-sm text-gray-600 mt-2 text-center">
-                    各角度の定義と符号規則を示した図
-                  </p>
+                {/* 角度参照図 - アコーディオン形式 */}
+                <div className="mt-6 border rounded-lg bg-white">
+                  <button
+                    onClick={() => setShowAngleReference(!showAngleReference)}
+                    className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors duration-200"
+                  >
+                    <h3 className="text-lg font-semibold text-gray-800">角度測定の基準</h3>
+                    <div className="flex items-center">
+                      <span className="text-sm text-gray-600 mr-2">
+                        {showAngleReference ? '非表示' : '表示'}
+                      </span>
+                      {showAngleReference ? (
+                        <ChevronUp className="h-5 w-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5 text-gray-600" />
+                      )}
+                    </div>
+                  </button>
+                  
+                  {showAngleReference && (
+                    <div className="px-4 pb-4 border-t">
+                      <div className="pt-4">
+                        <div className="flex justify-center">
+                          <img 
+                            src="/angle_reference_diagram.png" 
+                            alt="角度測定の基準図"
+                            className="max-w-full h-auto rounded-lg shadow-sm"
+                            style={{ maxHeight: '400px' }}
+                          />
+                        </div>
+                        <p className="text-sm text-gray-600 mt-3 text-center">
+                          各角度の定義と符号規則を示した図
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1253,214 +1282,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            {/* Z値分析カード */}
-            <Card className="shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <BarChart3 className="h-5 w-5 mr-2" />
-                  イベント別Z値分析
-                </CardTitle>
-                <CardDescription>
-                  ワンサイクルの4つのイベント時点でのフォーム偏差分析
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {zScoreLoading ? (
-                  <div className="text-center py-6">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-primary" />
-                    <p className="text-sm text-muted-foreground">Z値分析中...</p>
-                  </div>
-                ) : zScoreData?.status === 'success' ? (
-                  <div className="space-y-6">
-                    {/* 分析サマリー */}
-                    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-lg border border-purple-200">
-                      <div className="grid grid-cols-3 gap-4 text-center">
-                        <div>
-                          <div className="text-2xl font-bold text-purple-700">
-                            {zScoreData.analysis_summary?.total_events_analyzed || 0}
-                          </div>
-                          <div className="text-sm text-purple-600">分析イベント数</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-bold text-red-600">
-                            {zScoreData.analysis_summary?.significant_deviations?.length || 0}
-                          </div>
-                          <div className="text-sm text-red-500">有意な偏差</div>
-                        </div>
-                        <div>
-                          <div className={`text-2xl font-bold ${
-                            zScoreData.analysis_summary?.overall_assessment === 'excellent' ? 'text-green-600' :
-                            zScoreData.analysis_summary?.overall_assessment === 'good' ? 'text-blue-600' :
-                            zScoreData.analysis_summary?.overall_assessment === 'needs_improvement' ? 'text-yellow-600' :
-                            'text-red-600'
-                          }`}>
-                            {zScoreData.analysis_summary?.overall_assessment === 'excellent' ? '✅' :
-                             zScoreData.analysis_summary?.overall_assessment === 'good' ? '🟢' :
-                             zScoreData.analysis_summary?.overall_assessment === 'needs_improvement' ? '🟡' :
-                             '🔴'}
-                          </div>
-                          <div className="text-sm text-gray-600">総合評価</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 各イベントのZ値表示 */}
-                    <div className="space-y-4">
-                      {Object.entries(zScoreData.z_scores || {}).map(([eventType, scores]) => {
-                        const eventNames: {[key: string]: string} = {
-                          'right_strike': '右足接地',
-                          'right_off': '右足離地', 
-                          'left_strike': '左足接地',
-                          'left_off': '左足離地'
-                        }
-                        
-                        const eventName = eventNames[eventType] || eventType
-                        
-                        return (
-                          <div key={eventType} className="border rounded-lg p-4 bg-white">
-                            <h3 className="text-lg font-semibold mb-3 text-gray-800">
-                              🎯 {eventName}
-                            </h3>
-                            <div className="grid gap-3">
-                              {Object.entries(scores || {}).map(([angleName, zScore]) => {
-                                const absZScore = Math.abs(zScore)
-                                const severity = absZScore >= 3.0 ? 'high' : absZScore >= 2.0 ? 'moderate' : absZScore >= 1.0 ? 'mild' : 'normal'
-                                
-                                const severityConfig = {
-                                  'high': { color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-400', icon: '🔴', label: '要改善' },
-                                  'moderate': { color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-400', icon: '🟡', label: '注意' },
-                                  'mild': { color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-400', icon: '🟢', label: '良好' },
-                                  'normal': { color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-400', icon: '✅', label: '優秀' }
-                                }
-                                
-                                const config = severityConfig[severity]
-                                
-                                return (
-                                  <div 
-                                    key={angleName} 
-                                    className={`p-4 rounded-lg border ${config.border} ${config.bg}`}
-                                  >
-                                    <div className="space-y-3">
-                                      {/* 角度名とZ値 */}
-                                      <div className="flex justify-between items-center">
-                                        <div className="font-medium text-gray-700">
-                                          {angleName}
-                                        </div>
-                                        <div className={`text-sm font-semibold ${config.color}`}>
-                                          Z値: {zScore >= 0 ? '+' : ''}{zScore.toFixed(2)}
-                                        </div>
-                                      </div>
-                                      
-                                      {/* メモリ表示 */}
-                                      <div className="space-y-2">
-                                        <div className="flex justify-between text-xs text-gray-500">
-                                          <span>-3.0</span>
-                                          <span>0</span>
-                                          <span>+3.0</span>
-                                        </div>
-                                        
-                                        <div className="relative h-4 bg-gray-200 rounded-full overflow-hidden">
-                                          {/* 背景のゾーン表示 */}
-                                          <div className="absolute inset-0 flex">
-                                            <div className="w-1/6 bg-red-100"></div>
-                                            <div className="w-1/6 bg-yellow-100"></div>
-                                            <div className="w-1/3 bg-green-100"></div>
-                                            <div className="w-1/6 bg-yellow-100"></div>
-                                            <div className="w-1/6 bg-red-100"></div>
-                                          </div>
-                                          
-                                          {/* 中央線（Z=0） */}
-                                          <div className="absolute left-1/2 top-0 h-full w-0.5 bg-gray-400 transform -translate-x-0.5"></div>
-                                          
-                                          {/* Z値インジケーター */}
-                                          <div 
-                                            className={`absolute top-0 h-full w-1 ${config.color.includes('red') ? 'bg-red-500' : config.color.includes('yellow') ? 'bg-yellow-500' : config.color.includes('blue') ? 'bg-blue-500' : 'bg-green-500'} rounded-full transform -translate-x-0.5`}
-                                            style={{
-                                              left: `${Math.max(0, Math.min(100, ((zScore + 3) / 6) * 100))}%`
-                                            }}
-                                          ></div>
-                                        </div>
-                                        
-                                        {/* ゾーンラベル */}
-                                        <div className="flex justify-between text-xs">
-                                          <span className="text-red-600">危険</span>
-                                          <span className="text-yellow-600">注意</span>
-                                          <span className="text-green-600">正常</span>
-                                          <span className="text-yellow-600">注意</span>
-                                          <span className="text-red-600">危険</span>
-                                        </div>
-                                      </div>
-                                      
-                                      {/* 評価コメント */}
-                                      <div className={`text-center text-sm font-medium ${config.color}`}>
-                                        {config.icon} {config.label}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* 有意な偏差の詳細 */}
-                    {zScoreData.analysis_summary?.significant_deviations && zScoreData.analysis_summary.significant_deviations.length > 0 && (
-                      <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
-                        <h4 className="font-semibold text-amber-800 mb-2">⚠️ 注目すべき点 (|Z| &gt; 2.0)</h4>
-                        <div className="space-y-2">
-                          {zScoreData.analysis_summary.significant_deviations.map((deviation, index) => {
-                            const eventNames: {[key: string]: string} = {
-                              'right_strike': '右足接地',
-                              'right_off': '右足離地',
-                              'left_strike': '左足接地', 
-                              'left_off': '左足離地'
-                            }
-                            const eventName = eventNames[deviation.event] || deviation.event
-                            const severityIcon = deviation.severity === 'high' ? '🔴' : '🟡'
-                            
-                            return (
-                              <div key={index} className="text-sm text-amber-700">
-                                {severityIcon} {eventName} - {deviation.angle}: Z={deviation.z_score >= 0 ? '+' : ''}{deviation.z_score.toFixed(2)}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Z値の説明 */}
-                    <div className="bg-gray-50 p-4 rounded-lg border">
-                      <h4 className="font-semibold text-gray-800 mb-2">📖 Z値について</h4>
-                      <div className="text-sm text-gray-600 space-y-1">
-                        <p><span className="font-medium">|Z| &lt; 1.0:</span> 標準範囲内 ✅</p>
-                        <p><span className="font-medium">1.0 ≤ |Z| &lt; 2.0:</span> やや標準から外れている 🟢</p>
-                        <p><span className="font-medium">2.0 ≤ |Z| &lt; 3.0:</span> 標準から大きく外れている 🟡</p>
-                        <p><span className="font-medium">|Z| ≥ 3.0:</span> 標準から非常に大きく外れている 🔴</p>
-                        <p className="text-xs mt-2 text-gray-500">
-                          ※ 4つのイベント（右足接地・離地、左足接地・離地）ごとの統計的偏差分析
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : zScoreData?.status === 'error' ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
-                    <p className="text-sm">Z値分析の取得に失敗しました</p>
-                    <p className="text-xs mt-1">しばらく待ってから再度お試しください</p>
-                  </div>
-                ) : (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <BarChart3 className="h-8 w-8 mx-auto mb-2" />
-                    <p className="text-sm">Z値分析を準備中...</p>
-                    <p className="text-xs mt-1">動画データが利用可能になると自動で分析を開始します</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-
             {/* 課題分析カード */}
             <Card className="shadow-lg">
               <CardHeader>
@@ -1524,6 +1345,213 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
+        {/* Z値分析カード - 画面全体幅で4イベント並列表示 */}
+        <Card className="shadow-lg mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <BarChart3 className="h-5 w-5 mr-2" />
+              イベント別Z値分析
+            </CardTitle>
+            <CardDescription>
+              ワンサイクルの4つのイベント時点でのフォーム偏差分析
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {zScoreLoading ? (
+              <div className="text-center py-6">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-primary" />
+                <p className="text-sm text-muted-foreground">Z値分析中...</p>
+              </div>
+            ) : zScoreData?.status === 'success' ? (
+              <div className="space-y-6">
+                {/* 分析サマリー */}
+                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-lg border border-purple-200">
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                      <div className="text-2xl font-bold text-purple-700">
+                        {zScoreData.analysis_summary?.total_events_analyzed || 0}
+                      </div>
+                      <div className="text-sm text-purple-600">分析イベント数</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-red-600">
+                        {zScoreData.analysis_summary?.significant_deviations?.length || 0}
+                      </div>
+                      <div className="text-sm text-red-500">有意な偏差</div>
+                    </div>
+                    <div>
+                      <div className={`text-2xl font-bold ${
+                        zScoreData.analysis_summary?.overall_assessment === 'excellent' ? 'text-green-600' :
+                        zScoreData.analysis_summary?.overall_assessment === 'good' ? 'text-blue-600' :
+                        zScoreData.analysis_summary?.overall_assessment === 'needs_improvement' ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>
+                        {zScoreData.analysis_summary?.overall_assessment === 'excellent' ? '✅' :
+                         zScoreData.analysis_summary?.overall_assessment === 'good' ? '🟢' :
+                         zScoreData.analysis_summary?.overall_assessment === 'needs_improvement' ? '🟡' :
+                         '🔴'}
+                      </div>
+                      <div className="text-sm text-gray-600">総合評価</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4つのイベントを並列表示 */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {['right_strike', 'right_off', 'left_strike', 'left_off'].map((eventType) => {
+                    const scores = zScoreData.z_scores?.[eventType]
+                    if (!scores || Object.keys(scores).length === 0) return null
+                    
+                    const eventNames: {[key: string]: string} = {
+                      'right_strike': '右足接地',
+                      'right_off': '右足離地', 
+                      'left_strike': '左足接地',
+                      'left_off': '左足離地'
+                    }
+                    
+                    const eventName = eventNames[eventType] || eventType
+                    
+                    return (
+                      <div key={eventType} className="border rounded-lg p-4 bg-white shadow-sm">
+                        <h3 className="text-lg font-semibold mb-3 text-gray-800 text-center">
+                          🎯 {eventName}
+                        </h3>
+                        <div className="space-y-3">
+                          {Object.entries(scores || {}).map(([angleName, zScore]) => {
+                            const absZScore = Math.abs(zScore)
+                            const severity = absZScore >= 3.0 ? 'high' : absZScore >= 2.0 ? 'moderate' : absZScore >= 1.0 ? 'mild' : 'normal'
+                            
+                            const severityConfig = {
+                              'high': { color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-400', icon: '🔴', label: '要改善' },
+                              'moderate': { color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-400', icon: '🟡', label: '注意' },
+                              'mild': { color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-400', icon: '🟢', label: '良好' },
+                              'normal': { color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-400', icon: '✅', label: '優秀' }
+                            }
+                            
+                            const config = severityConfig[severity]
+                            
+                            return (
+                              <div 
+                                key={angleName} 
+                                className={`p-3 rounded-lg border ${config.border} ${config.bg}`}
+                              >
+                                <div className="space-y-2">
+                                  {/* 角度名とZ値 */}
+                                  <div className="text-center">
+                                    <div className="font-medium text-gray-700 text-sm">
+                                      {angleName}
+                                    </div>
+                                    <div className={`text-sm font-semibold ${config.color}`}>
+                                      Z値: {zScore >= 0 ? '+' : ''}{zScore.toFixed(2)}
+                                    </div>
+                                  </div>
+                                  
+                                  {/* コンパクトなメモリ表示 */}
+                                  <div className="space-y-1">
+                                    <div className="relative h-3 bg-gray-200 rounded-full overflow-hidden">
+                                      {/* 背景のゾーン表示 */}
+                                      <div className="absolute inset-0 flex">
+                                        <div className="w-1/6 bg-red-100"></div>
+                                        <div className="w-1/6 bg-yellow-100"></div>
+                                        <div className="w-1/3 bg-green-100"></div>
+                                        <div className="w-1/6 bg-yellow-100"></div>
+                                        <div className="w-1/6 bg-red-100"></div>
+                                      </div>
+                                      
+                                      {/* 中央線（Z=0） */}
+                                      <div className="absolute left-1/2 top-0 h-full w-0.5 bg-gray-400 transform -translate-x-0.5"></div>
+                                      
+                                      {/* Z値インジケーター */}
+                                      <div 
+                                        className={`absolute top-0 h-full w-0.5 ${config.color.includes('red') ? 'bg-red-500' : config.color.includes('yellow') ? 'bg-yellow-500' : config.color.includes('blue') ? 'bg-blue-500' : 'bg-green-500'} transform -translate-x-0.5`}
+                                        style={{
+                                          left: `${Math.max(0, Math.min(100, ((zScore + 3) / 6) * 100))}%`
+                                        }}
+                                      ></div>
+                                    </div>
+                                    
+                                    {/* 評価アイコン */}
+                                    <div className={`text-center text-xs ${config.color}`}>
+                                      {config.icon} {config.label}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                
+                {/* 有意な偏差の詳細 */}
+                {zScoreData.analysis_summary?.significant_deviations && zScoreData.analysis_summary.significant_deviations.length > 0 && (
+                  <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                    <h4 className="font-semibold text-amber-800 mb-2">⚠️ 注目すべき点 (|Z| &gt; 2.0)</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {zScoreData.analysis_summary.significant_deviations.map((deviation, index) => {
+                        const eventNames: {[key: string]: string} = {
+                          'right_strike': '右足接地',
+                          'right_off': '右足離地',
+                          'left_strike': '左足接地', 
+                          'left_off': '左足離地'
+                        }
+                        const eventName = eventNames[deviation.event] || deviation.event
+                        const severityIcon = deviation.severity === 'high' ? '🔴' : '🟡'
+                        
+                        return (
+                          <div key={index} className="text-sm text-amber-700">
+                            {severityIcon} {eventName} - {deviation.angle}: Z={deviation.z_score >= 0 ? '+' : ''}{deviation.z_score.toFixed(2)}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Z値の説明 */}
+                <div className="bg-gray-50 p-4 rounded-lg border">
+                  <h4 className="font-semibold text-gray-800 mb-2">📖 Z値について</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-600">
+                    <div className="text-center p-2 bg-green-100 rounded">
+                      <div className="font-medium">|Z| &lt; 1.0</div>
+                      <div className="text-green-600">✅ 標準範囲内</div>
+                    </div>
+                    <div className="text-center p-2 bg-blue-100 rounded">
+                      <div className="font-medium">1.0 ≤ |Z| &lt; 2.0</div>
+                      <div className="text-blue-600">🟢 やや外れ</div>
+                    </div>
+                    <div className="text-center p-2 bg-yellow-100 rounded">
+                      <div className="font-medium">2.0 ≤ |Z| &lt; 3.0</div>
+                      <div className="text-yellow-600">🟡 大きく外れ</div>
+                    </div>
+                    <div className="text-center p-2 bg-red-100 rounded">
+                      <div className="font-medium">|Z| ≥ 3.0</div>
+                      <div className="text-red-600">🔴 非常に外れ</div>
+                    </div>
+                  </div>
+                  <p className="text-xs mt-2 text-gray-500 text-center">
+                    ※ 4つのイベント（右足接地・離地、左足接地・離地）ごとの統計的偏差分析
+                  </p>
+                </div>
+              </div>
+            ) : zScoreData?.status === 'error' ? (
+              <div className="text-center py-6 text-muted-foreground">
+                <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
+                <p className="text-sm">Z値分析の取得に失敗しました</p>
+                <p className="text-xs mt-1">しばらく待ってから再度お試しください</p>
+              </div>
+            ) : (
+              <div className="text-center py-6 text-muted-foreground">
+                <BarChart3 className="h-8 w-8 mx-auto mb-2" />
+                <p className="text-sm">Z値分析を準備中...</p>
+                <p className="text-xs mt-1">動画データが利用可能になると自動で分析を開始します</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* 動画情報 - 開発環境でのみ詳細表示 */}
         {process.env.NODE_ENV === 'development' && (
           <Card className="shadow-lg">
@@ -1564,6 +1592,40 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             </CardContent>
           </Card>
         )}
+
+          {/* 高レベルアドバイスセクション */}
+          {(() => {
+            const advancedAdvice = result?.advice_results?.advanced_advice || result?.advice_analysis?.advanced_advice;
+            const highLevelIssues = result?.advice_results?.high_level_issues || result?.advice_analysis?.high_level_issues || [];
+            
+            if (advancedAdvice && advancedAdvice.trim()) {
+              return (
+                <Card className="shadow-xl mt-6 border-l-4 border-purple-500">
+                  <CardHeader>
+                    <CardTitle className="flex items-center text-purple-800">
+                      🎯 プロコーチからのアドバイス
+                    </CardTitle>
+                    <CardDescription>
+                      課題の組み合わせを考慮した総合的な改善提案
+                    </CardDescription>
+                    {highLevelIssues.length > 0 && (
+                      <div className="text-sm text-purple-600">
+                        検出された課題: {highLevelIssues.join(', ')}
+                      </div>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-purple-50 p-4 rounded-lg">
+                      <pre className="whitespace-pre-wrap text-gray-800 leading-relaxed">
+                        {advancedAdvice}
+                      </pre>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            }
+            return null;
+          })()}
 
                   {/* アドバイスセクション */}
           {(() => {
