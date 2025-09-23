@@ -529,6 +529,8 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         if not best_cycle:
             print("⚠️  明確なランニングサイクルが見つかりませんでした")
             print("🔧 代替方法：検出された全イベントでZ値分析を実行します")
+            print(f"   📊 検出されたイベント数: {len(all_events)}")
+            print(f"   📝 イベント詳細: {all_events[:5]}...")
             
             # 代替方法：全イベントからランダムに4つのイベントを選択
             if len(all_events) >= 4:
@@ -553,6 +555,7 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
                 # 代替サイクルが有効かチェック
                 if all(v is not None for v in alternative_cycle['events'].values()):
                     print("✅ 代替サイクルを使用して分析を継続します")
+                    print(f"   📋 代替サイクル: {alternative_cycle['events']}")
                     best_cycle = alternative_cycle
                 else:
                     print("❌ 代替サイクルも作成できませんでした")
