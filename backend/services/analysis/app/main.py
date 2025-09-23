@@ -559,15 +559,15 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
                 left_strikes = [e[0] for e in all_events if e[1] == 'left' and e[2] == 'strike']
                 left_offs = [e[0] for e in all_events if e[1] == 'left' and e[2] == 'off']
                 
-                # 各イベントから最初のものを選択
+                # 各イベントから最初のものを選択（安全な整数変換）
                 alternative_cycle = {
                     'start_frame': min([e[0] for e in all_events]),
                     'end_frame': max([e[0] for e in all_events]),
                     'events': {
-                        'right_strike': right_strikes[0] if right_strikes else None,
-                        'right_off': right_offs[0] if right_offs else None,
-                        'left_strike': left_strikes[0] if left_strikes else None,
-                        'left_off': left_offs[0] if left_offs else None
+                        'right_strike': int(right_strikes[0]) if right_strikes else None,
+                        'right_off': int(right_offs[0]) if right_offs else None,
+                        'left_strike': int(left_strikes[0]) if left_strikes else None,
+                        'left_off': int(left_offs[0]) if left_offs else None
                     }
                 }
                 
