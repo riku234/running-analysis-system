@@ -266,13 +266,14 @@ export default function HomePage() {
             status: result.status,
             message: result.message,
             upload_info: result.upload_info,
-            feature_analysis: {
-              features: result.feature_analysis?.features ? {
-                trunk_angle: result.feature_analysis.features.trunk_angle,
-                vertical_oscillation: result.feature_analysis.features.vertical_oscillation,
-                cadence: result.feature_analysis.features.cadence
-              } : null
-            },
+        feature_analysis: {
+          features: result.feature_analysis?.features ? {
+            trunk_angle: result.feature_analysis.features.trunk_angle,
+            vertical_oscillation: result.feature_analysis.features.vertical_oscillation,
+            cadence: result.feature_analysis.features.cadence,
+            angle_statistics: result.feature_analysis.features.angle_statistics // 角度推移グラフ用データを追加
+          } : null
+        },
             error: result.error
           }
           localStorage.setItem(`light_analysis_result_${result.upload_info.file_id}`, JSON.stringify(minimalResult))

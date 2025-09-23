@@ -713,7 +713,7 @@ def calculate_angle_between_vectors(vec1: np.ndarray, vec2: np.ndarray) -> Optio
         norm2 = np.linalg.norm(vec2)
         
         if norm1 == 0 or norm2 == 0:
-            return None
+        return None
         
         # 角度を計算（ラジアンから度に変換）
         cos_angle = dot_product / (norm1 * norm2)
@@ -1092,4 +1092,4 @@ if __name__ == "__main__":
     print("🚀 Z-Score Analysis Service v3.0.0 を起動中...")
     print("🎯 イベント別Z値によるランニングフォーム分析")
     print("🏆 ワンサイクル特定機能搭載")
-    uvicorn.run(app, host="0.0.0.0", port=8004)
+    uvicorn.run(app, host="0.0.0.0", port=8004) 
