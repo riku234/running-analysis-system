@@ -528,13 +528,50 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         
         if not best_cycle:
             print("⚠️  明確なランニングサイクルが見つかりませんでした")
-            return {
-                'error': '明確なランニングサイクルが検出できませんでした',
-                'events_detected': all_events,
-                'event_angles': {},
-                'z_scores': {},
-                'analysis_summary': {}
-            }
+            print("🔧 代替方法：検出された全イベントでZ値分析を実行します")
+            
+            # 代替方法：全イベントからランダムに4つのイベントを選択
+            if len(all_events) >= 4:
+                # 右足接地、右足離地、左足接地、左足離地の順で検索
+                right_strikes = [e[0] for e in all_events if e[1] == 'right' and e[2] == 'strike']
+                right_offs = [e[0] for e in all_events if e[1] == 'right' and e[2] == 'off']
+                left_strikes = [e[0] for e in all_events if e[1] == 'left' and e[2] == 'strike']
+                left_offs = [e[0] for e in all_events if e[1] == 'left' and e[2] == 'off']
+                
+                # 各イベントから最初のものを選択
+                alternative_cycle = {
+                    'start_frame': min([e[0] for e in all_events]),
+                    'end_frame': max([e[0] for e in all_events]),
+                    'events': {
+                        'right_strike': right_strikes[0] if right_strikes else None,
+                        'right_off': right_offs[0] if right_offs else None,
+                        'left_strike': left_strikes[0] if left_strikes else None,
+                        'left_off': left_offs[0] if left_offs else None
+                    }
+                }
+                
+                # 代替サイクルが有効かチェック
+                if all(v is not None for v in alternative_cycle['events'].values()):
+                    print("✅ 代替サイクルを使用して分析を継続します")
+                    best_cycle = alternative_cycle
+                else:
+                    print("❌ 代替サイクルも作成できませんでした")
+                    return {
+                        'error': '分析可能なイベントが不足しています',
+                        'events_detected': all_events,
+                        'event_angles': {},
+                        'z_scores': {},
+                        'analysis_summary': {}
+                    }
+            else:
+                print("❌ 検出されたイベントが不足しています")
+                return {
+                    'error': '分析可能なイベントが不足しています',
+                    'events_detected': all_events,
+                    'event_angles': {},
+                    'z_scores': {},
+                    'analysis_summary': {}
+                }
         
         # 4. 選択されたサイクルのイベント角度を計算
         cycle_event_angles = calculate_cycle_event_angles(all_keypoints, best_cycle)
