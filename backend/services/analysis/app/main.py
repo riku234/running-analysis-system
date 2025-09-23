@@ -492,17 +492,22 @@ def calculate_cycle_event_angles(keypoints_data: List[Dict], cycle: Dict[str, An
         frame_idx = events[event_key]
         print(f"🔧 処理中: {event_key} -> {angle_key}, フレーム: {frame_idx}, データ型: {type(frame_idx)}")
         
-        if frame_idx is not None and frame_idx < len(keypoints_data):
-            print(f"🔧 keypoints_data[{frame_idx}] アクセス試行...")
-            frame_data = keypoints_data[frame_idx]
-            print(f"🔧 フレームデータ取得成功: {type(frame_data)}")
-            
-            angles = calculate_angles_for_frame(frame_data)
-            cycle_angles[angle_key] = angles
-            print(f"   📐 {angle_key} (フレーム{frame_idx}): 角度計算完了")
-        else:
+        # frame_idxが整数かどうかをチェック
+        try:
+            if frame_idx is not None and isinstance(frame_idx, int) and 0 <= frame_idx < len(keypoints_data):
+                print(f"🔧 keypoints_data[{frame_idx}] アクセス試行...")
+                frame_data = keypoints_data[frame_idx]
+                print(f"🔧 フレームデータ取得成功: {type(frame_data)}")
+                
+                angles = calculate_angles_for_frame(frame_data)
+                cycle_angles[angle_key] = angles
+                print(f"   📐 {angle_key} (フレーム{frame_idx}): 角度計算完了")
+            else:
+                cycle_angles[angle_key] = {}
+                print(f"   ⚠️  {angle_key}: フレーム{frame_idx}が無効（型: {type(frame_idx)}, 値: {frame_idx}）")
+        except Exception as e:
             cycle_angles[angle_key] = {}
-            print(f"   ⚠️  {angle_key}: フレーム{frame_idx}がデータ範囲外または無効")
+            print(f"   ❌ {angle_key}: フレーム{frame_idx}でエラー - {type(e).__name__}: {e}")
     
     return cycle_angles
 
@@ -522,15 +527,23 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
     """
     try:
         print("🎯 ワンサイクル Z値分析を開始します...")
+        print(f"🔧 入力データ確認: all_keypoints型={type(all_keypoints)}, 長さ={len(all_keypoints) if hasattr(all_keypoints, '__len__') else 'unknown'}")
+        print(f"🔧 video_fps={video_fps}")
         
         # 1. 標準モデルデータを取得
+        print("🔧 標準モデルデータ取得開始")
         standard_model = get_event_based_standard_model()
+        print("🔧 標準モデルデータ取得完了")
         
         # 2. 足接地・離地を検出
+        print("🔧 detect_foot_strikes_advanced 呼び出し開始")
         all_events = detect_foot_strikes_advanced(all_keypoints, video_fps)
+        print(f"🔧 detect_foot_strikes_advanced 呼び出し完了: {len(all_events)}個のイベント検出")
         
         # 3. 最良のワンサイクルを特定
+        print("🔧 identify_best_running_cycle 呼び出し開始")
         best_cycle = identify_best_running_cycle(all_events, all_keypoints, video_fps)
+        print(f"🔧 identify_best_running_cycle 呼び出し完了: best_cycle={best_cycle is not None}")
         
         if not best_cycle:
             print("⚠️  明確なランニングサイクルが見つかりませんでした")
@@ -585,7 +598,17 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         # 4. 選択されたサイクルのイベント角度を計算
         print(f"🔧 サイクル情報をデバッグ: {best_cycle}")
         print(f"🔧 キーポイントデータ型: {type(all_keypoints)}, サイズ: {len(all_keypoints) if hasattr(all_keypoints, '__len__') else 'unknown'}")
-        cycle_event_angles = calculate_cycle_event_angles(all_keypoints, best_cycle)
+        
+        try:
+            print("🔧 calculate_cycle_event_angles 関数呼び出し開始")
+            cycle_event_angles = calculate_cycle_event_angles(all_keypoints, best_cycle)
+            print("🔧 calculate_cycle_event_angles 関数呼び出し成功")
+        except Exception as e:
+            print(f"❌ calculate_cycle_event_angles でエラー発生: {type(e).__name__}: {e}")
+            import traceback
+            print(f"🔍 スタックトレース:")
+            traceback.print_exc()
+            raise e
         
         # 5. Z値を計算
         z_scores = calculate_z_scores(cycle_event_angles, standard_model)
@@ -603,7 +626,20 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         return analysis_result
         
     except Exception as e:
-        print(f"❌ Z値分析エラー: {e}")
+        print(f"❌ Z値分析エラー: {type(e).__name__}: {e}")
+        import traceback
+        print(f"🔍 詳細なスタックトレース:")
+        traceback.print_exc()
+        
+        # エラーの詳細な情報を出力
+        print(f"🔧 エラー発生時の変数状態:")
+        try:
+            print(f"   - all_keypoints型: {type(all_keypoints)}")
+            print(f"   - all_keypoints長さ: {len(all_keypoints) if hasattr(all_keypoints, '__len__') else 'unknown'}")
+            print(f"   - video_fps: {video_fps}")
+        except Exception as debug_e:
+            print(f"   - デバッグ情報取得エラー: {debug_e}")
+        
         return {
             'error': str(e),
             'events_detected': {},
