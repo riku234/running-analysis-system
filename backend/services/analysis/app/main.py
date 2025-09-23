@@ -490,13 +490,19 @@ def calculate_cycle_event_angles(keypoints_data: List[Dict], cycle: Dict[str, An
     
     for event_key, angle_key in event_mapping.items():
         frame_idx = events[event_key]
-        if frame_idx < len(keypoints_data):
-            angles = calculate_angles_for_frame(keypoints_data[frame_idx])
+        print(f"🔧 処理中: {event_key} -> {angle_key}, フレーム: {frame_idx}, データ型: {type(frame_idx)}")
+        
+        if frame_idx is not None and frame_idx < len(keypoints_data):
+            print(f"🔧 keypoints_data[{frame_idx}] アクセス試行...")
+            frame_data = keypoints_data[frame_idx]
+            print(f"🔧 フレームデータ取得成功: {type(frame_data)}")
+            
+            angles = calculate_angles_for_frame(frame_data)
             cycle_angles[angle_key] = angles
             print(f"   📐 {angle_key} (フレーム{frame_idx}): 角度計算完了")
         else:
             cycle_angles[angle_key] = {}
-            print(f"   ⚠️  {angle_key}: フレーム{frame_idx}がデータ範囲外")
+            print(f"   ⚠️  {angle_key}: フレーム{frame_idx}がデータ範囲外または無効")
     
     return cycle_angles
 
@@ -577,6 +583,8 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
                 }
         
         # 4. 選択されたサイクルのイベント角度を計算
+        print(f"🔧 サイクル情報をデバッグ: {best_cycle}")
+        print(f"🔧 キーポイントデータ型: {type(all_keypoints)}, サイズ: {len(all_keypoints) if hasattr(all_keypoints, '__len__') else 'unknown'}")
         cycle_event_angles = calculate_cycle_event_angles(all_keypoints, best_cycle)
         
         # 5. Z値を計算
