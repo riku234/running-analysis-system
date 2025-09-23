@@ -750,7 +750,7 @@ def calculate_angle_between_vectors(vec1: np.ndarray, vec2: np.ndarray) -> Optio
         norm2 = np.linalg.norm(vec2)
         
         if norm1 == 0 or norm2 == 0:
-        return None
+            return None
         
         # 角度を計算（ラジアンから度に変換）
         cos_angle = dot_product / (norm1 * norm2)
