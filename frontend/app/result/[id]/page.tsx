@@ -247,6 +247,7 @@ interface AnalysisResult {
       generation_timestamp: string
     }
     advanced_advice?: string
+    integrated_advice?: string
     high_level_issues?: string[]
   }
   advice_results?: {
@@ -265,6 +266,7 @@ interface AnalysisResult {
       generation_timestamp: string
     }
     advanced_advice?: string
+    integrated_advice?: string
     high_level_issues?: string[]
   }
   issue_analysis?: {
@@ -511,8 +513,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         })
 
         // ダミーデータで動作確認（実データの構造を模擬）
-        setTimeout(() => {
-          setResult({
+    setTimeout(() => {
+      setResult({
             status: "success",
             message: "動画アップロード、骨格解析、特徴量計算が完了しました",
             upload_info: {
@@ -789,6 +791,209 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* 角度推移グラフカード */}
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <BarChart3 className="h-5 w-5 mr-2" />
+                  角度推移グラフ
+                </CardTitle>
+                <CardDescription>
+                  体幹・大腿・下腿角度の時系列変化
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  // feature_analysisから角度統計データを取得
+                  const angleStats = result?.feature_analysis?.features?.angle_statistics;
+                  
+                  if (!angleStats) {
+                    return (
+                      <div className="text-center py-8 text-gray-500">
+                        角度データが利用できません
+          </div>
+                    );
+                  }
+
+                  // 各角度のフレームごとのデータを取得
+                  const trunkData = angleStats['体幹角度']?.frame_data || [];
+                  const leftThighData = angleStats['左大腿角度']?.frame_data || [];
+                  const rightThighData = angleStats['右大腿角度']?.frame_data || [];
+                  const leftCalfData = angleStats['左下腿角度']?.frame_data || [];
+                  const rightCalfData = angleStats['右下腿角度']?.frame_data || [];
+
+                  // 全てのデータが空の場合
+                  if (trunkData.length === 0 && leftThighData.length === 0 && rightThighData.length === 0 && 
+                      leftCalfData.length === 0 && rightCalfData.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-gray-500">
+                        角度データが利用できません
+                      </div>
+                    );
+                  }
+
+                  // 最大フレーム数を取得
+                  const maxFrames = Math.max(
+                    trunkData.length, leftThighData.length, rightThighData.length,
+                    leftCalfData.length, rightCalfData.length
+                  );
+
+                  // 角度データを抽出（フレーム毎）
+                  const frameNumbers = Array.from({length: maxFrames}, (_, i) => i);
+                  const trunkAngles = frameNumbers.map(i => trunkData[i]?.angle || 0);
+                  const leftThighAngles = frameNumbers.map(i => leftThighData[i]?.angle || 0);
+                  const rightThighAngles = frameNumbers.map(i => rightThighData[i]?.angle || 0);
+                  const leftCalfAngles = frameNumbers.map(i => leftCalfData[i]?.angle || 0);
+                  const rightCalfAngles = frameNumbers.map(i => rightCalfData[i]?.angle || 0);
+
+                  // SVGグラフの設定
+                  const width = 600;
+                  const height = 200;
+                  const margin = { top: 20, right: 20, bottom: 30, left: 40 };
+                  const chartWidth = width - margin.left - margin.right;
+                  const chartHeight = height - margin.top - margin.bottom;
+
+                  // データの範囲を計算
+                  const allAngles = [...trunkAngles, ...leftThighAngles, ...rightThighAngles, ...leftCalfAngles, ...rightCalfAngles];
+                  const minAngle = Math.min(...allAngles);
+                  const maxAngle = Math.max(...allAngles);
+                  const angleRange = maxAngle - minAngle;
+
+                  // スケール関数
+                  const xScale = (frame: number) => (frame / (frameNumbers.length - 1)) * chartWidth;
+                  const yScale = (angle: number) => chartHeight - ((angle - minAngle) / angleRange) * chartHeight;
+
+                  // パスを生成する関数
+                  const createPath = (angles: number[]) => {
+                    return angles.map((angle, index) => 
+                      `${index === 0 ? 'M' : 'L'} ${xScale(index)} ${yScale(angle)}`
+                    ).join(' ');
+                  };
+
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <svg width={width} height={height} className="mx-auto">
+                          {/* 背景 */}
+                          <rect 
+                            x={margin.left} 
+                            y={margin.top} 
+                            width={chartWidth} 
+                            height={chartHeight} 
+                            fill="white" 
+                            stroke="#e5e7eb" 
+                          />
+                          
+                          {/* グリッド線（水平） */}
+                          {[0, 0.25, 0.5, 0.75, 1].map(ratio => (
+                            <line 
+                              key={ratio}
+                              x1={margin.left} 
+                              y1={margin.top + chartHeight * ratio} 
+                              x2={margin.left + chartWidth} 
+                              y2={margin.top + chartHeight * ratio} 
+                              stroke="#f3f4f6" 
+                              strokeWidth="1"
+                            />
+                          ))}
+                          
+                          {/* 角度線 */}
+                          <g transform={`translate(${margin.left}, ${margin.top})`}>
+                            {/* 体幹角度 */}
+                            <path 
+                              d={createPath(trunkAngles)} 
+                              fill="none" 
+                              stroke="#ef4444" 
+                              strokeWidth="2"
+                            />
+                            
+                            {/* 左大腿角度 */}
+                            <path 
+                              d={createPath(leftThighAngles)} 
+                              fill="none" 
+                              stroke="#3b82f6" 
+                              strokeWidth="2"
+                            />
+                            
+                            {/* 右大腿角度 */}
+                            <path 
+                              d={createPath(rightThighAngles)} 
+                              fill="none" 
+                              stroke="#1d4ed8" 
+                              strokeWidth="2"
+                              strokeDasharray="5,5"
+                            />
+                            
+                            {/* 左下腿角度 */}
+                            <path 
+                              d={createPath(leftCalfAngles)} 
+                              fill="none" 
+                              stroke="#10b981" 
+                              strokeWidth="2"
+                            />
+                            
+                            {/* 右下腿角度 */}
+                            <path 
+                              d={createPath(rightCalfAngles)} 
+                              fill="none" 
+                              stroke="#059669" 
+                              strokeWidth="2"
+                              strokeDasharray="5,5"
+                            />
+                          </g>
+                          
+                          {/* Y軸ラベル */}
+                          <text 
+                            x={15} 
+                            y={margin.top + chartHeight / 2} 
+                            textAnchor="middle" 
+                            transform={`rotate(-90, 15, ${margin.top + chartHeight / 2})`}
+                            className="text-xs fill-gray-600"
+                          >
+                            角度 (度)
+                          </text>
+                          
+                          {/* X軸ラベル */}
+                          <text 
+                            x={margin.left + chartWidth / 2} 
+                            y={height - 5} 
+                            textAnchor="middle" 
+                            className="text-xs fill-gray-600"
+                          >
+                            フレーム
+                          </text>
+                        </svg>
+                      </div>
+                      
+                      {/* 凡例 */}
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+                        <div className="flex items-center">
+                          <div className="w-4 h-0.5 bg-red-500 mr-2"></div>
+                          <span>体幹角度</span>
+                        </div>
+                        <div className="flex items-center">
+                          <div className="w-4 h-0.5 bg-blue-500 mr-2"></div>
+                          <span>左大腿角度</span>
+                        </div>
+                        <div className="flex items-center">
+                          <div className="w-4 h-0.5 bg-blue-800 mr-2 border-dashed" style={{borderTop: '2px dashed'}}></div>
+                          <span>右大腿角度</span>
+                        </div>
+                        <div className="flex items-center">
+                          <div className="w-4 h-0.5 bg-green-500 mr-2"></div>
+                          <span>左下腿角度</span>
+                        </div>
+                        <div className="flex items-center">
+                          <div className="w-4 h-0.5 bg-green-700 mr-2 border-dashed" style={{borderTop: '2px dashed'}}></div>
+                          <span>右下腿角度</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           </div>
@@ -1593,20 +1798,25 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </Card>
         )}
 
-          {/* 高レベルアドバイスセクション */}
+          {/* 統合アドバイスセクション */}
           {(() => {
+            // 統合アドバイスを優先し、なければ高レベルアドバイスを表示
+            const integratedAdvice = result?.advice_results?.integrated_advice || result?.advice_analysis?.integrated_advice;
             const advancedAdvice = result?.advice_results?.advanced_advice || result?.advice_analysis?.advanced_advice;
+            const finalAdvice = integratedAdvice || advancedAdvice;
             const highLevelIssues = result?.advice_results?.high_level_issues || result?.advice_analysis?.high_level_issues || [];
             
-            if (advancedAdvice && advancedAdvice.trim()) {
+            if (finalAdvice && finalAdvice.trim()) {
+              const isIntegrated = !!integratedAdvice;
+              
               return (
                 <Card className="shadow-xl mt-6 border-l-4 border-purple-500">
                   <CardHeader>
                     <CardTitle className="flex items-center text-purple-800">
-                      🎯 プロコーチからのアドバイス
+                      🎯 {isIntegrated ? '総合アドバイス（プロコーチ＋AI統合）' : 'プロコーチからのアドバイス'}
                     </CardTitle>
                     <CardDescription>
-                      課題の組み合わせを考慮した総合的な改善提案
+                      {isIntegrated ? 'プロコーチの知見とAI詳細解析を統合した包括的な改善提案' : '課題の組み合わせを考慮した総合的な改善提案'}
                     </CardDescription>
                     {highLevelIssues.length > 0 && (
                       <div className="text-sm text-purple-600">
@@ -1617,9 +1827,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   <CardContent>
                     <div className="bg-purple-50 p-4 rounded-lg">
                       <pre className="whitespace-pre-wrap text-gray-800 leading-relaxed">
-                        {advancedAdvice}
+                        {finalAdvice}
                       </pre>
-                    </div>
+        </div>
                   </CardContent>
                 </Card>
               );
@@ -1627,56 +1837,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             return null;
           })()}
 
-                  {/* アドバイスセクション */}
-          {(() => {
-            // advice_resultsまたはadvice_analysisからアドバイスリストを取得
-            const adviceList = result?.advice_results?.advice_list || result?.advice_analysis?.advice_list || [];
-            
-            if (adviceList.length > 0) {
-              return (
-                <Card className="shadow-xl mt-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      💡 改善アドバイス
-                    </CardTitle>
-                    <CardDescription>
-                      検出された課題に基づく具体的な改善提案
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-6">
-                      {adviceList.map((advice: any, index: number) => (
-                        <div key={index} className="border-l-4 border-blue-500 pl-4">
-                          <h3 className="font-semibold text-lg mb-2">{advice.title}</h3>
-                          <p className="text-gray-700 mb-3">{advice.description}</p>
-                          <div className="bg-blue-50 p-3 rounded-md">
-                            <h4 className="font-medium text-blue-800 mb-1">推奨エクササイズ:</h4>
-                            <p className="text-blue-700">{advice.exercise}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-                  </CardContent>
-                </Card>
-              );
-            } else {
-              // アドバイスがない場合の表示
-              return (
-                <Card className="shadow-xl mt-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      ✨ 素晴らしい走りです！
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-gray-700">
-                      今回の分析では、特に改善を要する大きな課題は見つかりませんでした。現在の良いフォームを維持しましょう！
-                    </p>
-                  </CardContent>
-                </Card>
-              );
-            }
-          })()}
+                  {/* 従来の改善アドバイスカードは統合アドバイス機能により不要になったため削除 */}
 
           {/* デバッグ情報セクション - 本番環境では非表示 */}
           {process.env.NODE_ENV === 'development' && debugInfo && (

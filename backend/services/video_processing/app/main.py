@@ -6,6 +6,7 @@ import os
 import aiofiles
 from pathlib import Path
 import uuid
+import re
 from datetime import datetime
 import httpx
 import asyncio
@@ -209,10 +210,10 @@ async def upload_video(file: UploadFile = File(...)):
                     advice_data = advice_response.json()
                     logger.info("Gemini AIアドバイス生成完了")
                     
-                    # 高レベルアドバイス生成を追加
-                    logger.info("高レベルアドバイス生成サービスを呼び出します")
+                    # 統合アドバイス生成を追加
+                    logger.info("統合アドバイス生成サービスを呼び出します")
                     
-                    # Z値分析結果から課題を抽出（高レベルアドバイス用）
+                    # Z値分析結果から課題を抽出（統合アドバイス用）
                     high_level_issues = []
                     if z_score_data and z_score_data.get("analysis_summary", {}).get("significant_deviations"):
                         for deviation in z_score_data["analysis_summary"]["significant_deviations"]:
@@ -229,30 +230,31 @@ async def upload_video(file: UploadFile = File(...)):
                             if mapped_issue not in high_level_issues:
                                 high_level_issues.append(mapped_issue)
                     
-                    advanced_advice_request = {
+                    integrated_advice_request = {
                         "video_id": unique_id,
                         "issues_list": high_level_issues
                     }
                     
-                    advanced_advice_response = await client.post(
-                        f"http://advice_generation:8005/generate-advanced",
-                        json=advanced_advice_request,
-                        timeout=60.0
+                    integrated_advice_response = await client.post(
+                        f"http://advice_generation:8005/generate-integrated",
+                        json=integrated_advice_request,
+                        timeout=90.0  # 統合処理のため時間を延長
                     )
-                    advanced_advice_response.raise_for_status()
-                    advanced_advice_data = advanced_advice_response.json()
-                    logger.info("高レベルアドバイス生成完了")
+                    integrated_advice_response.raise_for_status()
+                    integrated_advice_data = integrated_advice_response.json()
+                    logger.info("統合アドバイス生成完了")
                     
-                    # デバッグログ: 高レベルアドバイスデータの内容確認
-                    logger.info(f"高レベルアドバイスデータ: {advanced_advice_data}")
+                    # デバッグログ: 統合アドバイスデータの内容確認
+                    logger.info(f"統合アドバイスデータ: {integrated_advice_data}")
                     logger.info(f"抽出された課題: {high_level_issues}")
                     
-                    # アドバイスデータに高レベルアドバイスを追加
-                    advice_data["advanced_advice"] = advanced_advice_data.get("advice", "")
+                    # アドバイスデータに統合アドバイスを追加
+                    advice_data["integrated_advice"] = integrated_advice_data.get("integrated_advice", "")
+                    advice_data["advanced_advice"] = integrated_advice_data.get("integrated_advice", "")  # 後方互換性
                     advice_data["high_level_issues"] = high_level_issues
                     
                     # デバッグログ: 最終的なadvice_dataの確認
-                    logger.info(f"最終advice_dataに高レベルアドバイス追加: {bool(advice_data.get('advanced_advice'))}")
+                    logger.info(f"最終advice_dataに統合アドバイス追加: {bool(advice_data.get('integrated_advice'))}")
                     
                 except Exception as e:
                     logger.warning(f"アドバイス生成でエラーが発生しましたが、処理を続行します: {e}")
@@ -405,14 +407,30 @@ async def stream_video(filename: str):
     保存された動画ファイルをストリーミング配信する
     
     Args:
-        filename: ストリーミングする動画ファイル名
+        filename: ストリーミングする動画ファイル名 (UUIDも可)
         
     Returns:
         動画ファイルのレスポンス
     """
     file_path = UPLOAD_DIR / filename
     
+    # ファイルが存在しない場合、UUIDでの検索を試行
     if not file_path.exists():
+        # UUIDパターンを検出（8-4-4-4-12形式）
+        uuid_pattern = r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
+        
+        if re.match(uuid_pattern, filename.replace('.mp4', '').replace('.mov', '')):
+            # UUIDが含まれている場合、そのUUIDを含むファイルを検索
+            uuid_part = re.search(uuid_pattern, filename).group(0)
+            
+            for file in UPLOAD_DIR.glob(f"*{uuid_part}*"):
+                if file.is_file() and file.suffix.lower() in ['.mp4', '.avi', '.mov', '.mkv', '.wmv']:
+                    file_path = file
+                    logger.info(f"UUIDによるファイル検索成功: {filename} -> {file_path.name}")
+                    break
+    
+    if not file_path.exists():
+        logger.error(f"動画ファイルが見つかりません: {filename}")
         raise HTTPException(
             status_code=404,
             detail="指定された動画ファイルが見つかりません"

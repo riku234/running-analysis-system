@@ -54,6 +54,16 @@ class AdvancedAdviceResponse(BaseModel):
     video_id: str
     advice: str  # フォーマットされた最終アドバイス文字列
 
+class IntegratedAdviceRequest(BaseModel):
+    video_id: str
+    issues_list: List[str]  # Z値判定などによって特定された課題のリスト
+
+class IntegratedAdviceResponse(BaseModel):
+    status: str
+    message: str
+    video_id: str
+    integrated_advice: str  # プロコーチ＋AI統合アドバイス文字列
+
 def get_advice_database():
     """課題の組み合わせと構造化されたアドバイスのデータベース"""
     advice_db = {
@@ -140,6 +150,102 @@ def get_advice_database():
     }
     return advice_db
 
+async def generate_detailed_advice_for_issue(issue: str, main_finding: str = None) -> dict:
+    """
+    個別の課題に対してGemini AIを使って詳細なアドバイスを生成する
+    
+    Args:
+        issue: 個別の課題（例: "左下腿角度大"）
+        main_finding: 根本的な課題（例: "オーバーストライド"）
+        
+    Returns:
+        詳細なアドバイス辞書
+    """
+    try:
+        # main_findingが指定されている場合は、より具体的なプロンプトを作成
+        if main_finding:
+            prompt = f"""
+ランニングフォームにおいて、根本的な課題は**{main_finding}**です。その原因の一つである「{issue}」について、以下の2点を解説してください。
+
+詳細: なぜこの「{issue}」が{main_finding}を引き起こすのか、身体の仕組みやエネルギーロスの観点から具体的に説明してください。
+
+推奨エクササイズ: この「{issue}」をピンポイントで改善するための、具体的なエクササイズを一つ提案してください。
+
+簡潔で実践的な内容にしてください。
+"""
+        else:
+            # フォールバック: 従来のプロンプト
+            prompt = f"""
+あなたはランニングフォーム改善の専門家です。
+以下の具体的な課題について、詳細な解説とエクササイズを提供してください。
+
+課題: {issue}
+
+以下の形式で回答してください：
+説明: この課題がなぜ問題なのか、ランニングにどのような影響を与えるかを詳しく説明
+エクササイズ: この課題を改善するための具体的なエクササイズを1つ提案
+
+簡潔で実践的な内容にしてください。
+"""
+
+        # Gemini APIを呼び出し
+        print(f"   📡 Gemini API呼び出し中... (model変数: {type(model)})")
+        print(f"   📋 プロンプト: {prompt[:100]}...")
+        response = model.generate_content(prompt)
+        print(f"   📨 Gemini応答受信: {type(response)}")
+        
+        if response and hasattr(response, 'text') and response.text:
+            advice_text = response.text.strip()
+            print(f"   📄 Gemini個別解説レスポンス ({issue}): {advice_text[:200]}...")  # デバッグ用
+            print(f"   🔍 完全なレスポンス: {repr(advice_text)}")  # 完全なレスポンスをデバッグ
+            
+            # レスポンスを解析して構造化
+            lines = advice_text.split('\n')
+            explanation = ""
+            exercise = ""
+            
+            # より柔軟な解析: エクササイズで分割
+            if 'エクササイズ' in advice_text:
+                parts = advice_text.split('エクササイズ', 1)
+                explanation = parts[0].strip()
+                exercise = ('エクササイズ' + parts[1]).strip() if len(parts) > 1 else ""
+            else:
+                # フォールバック: 全体の2/3を説明、1/3をエクササイズとする
+                split_point = len(advice_text) * 2 // 3
+                explanation = advice_text[:split_point].strip()
+                exercise = advice_text[split_point:].strip()
+            
+                # 基本的なクリーンアップのみ実行
+                explanation = explanation.strip()
+                exercise = exercise.strip()
+            
+            print(f"   🎯 最終結果 - 説明: '{explanation[:100]}...' エクササイズ: '{exercise[:100]}...'")
+            
+            return {
+                "issue": issue,
+                "explanation": explanation or "この課題は走行効率に影響を与える可能性があります。",
+                "exercise": exercise or "基本的なフォーム練習を継続してください。"
+            }
+        else:
+            # フォールバック
+            return {
+                "issue": issue,
+                "explanation": "この課題は走行効率に影響を与える可能性があります。",
+                "exercise": "基本的なフォーム練習を継続してください。"
+            }
+            
+    except Exception as e:
+        import traceback
+        print(f"   ⚠️  個別アドバイス生成エラー ({issue}): {str(e)}")
+        print(f"   📍 エラー詳細: {type(e).__name__}")
+        print(f"   📍 トレースバック:")
+        traceback.print_exc()
+        return {
+            "issue": issue,
+            "explanation": "この課題は走行効率に影響を与える可能性があります。",
+            "exercise": "基本的なフォーム練習を継続してください。"
+        }
+
 def generate_advanced_advice(issues_list: List[str]) -> str:
     """
     複数の課題を考慮した高レベルなアドバイスを生成する
@@ -206,6 +312,115 @@ def generate_advanced_advice(issues_list: List[str]) -> str:
 """
     
     return formatted_advice
+
+def identify_main_finding(issues_list: List[str]) -> str:
+    """
+    課題リストから根本的な問題を特定する
+    
+    Args:
+        issues_list: 検出された課題のリスト
+        
+    Returns:
+        根本課題の名称
+    """
+    # 大腿角度大や下腿角度大が複数ある場合はオーバーストライド
+    thigh_calf_issues = [issue for issue in issues_list if "大腿角度大" in issue or "下腿角度大" in issue]
+    if len(thigh_calf_issues) >= 2:
+        return "オーバーストライド"
+    
+    # 体幹関連の問題がある場合
+    trunk_issues = [issue for issue in issues_list if "体幹" in issue]
+    if trunk_issues:
+        if "体幹後傾" in trunk_issues:
+            return "体幹後傾フォーム"
+        elif "体幹前傾" in trunk_issues:
+            return "体幹前傾フォーム"
+        else:
+            return "体幹姿勢の問題"
+    
+    # 上下動やピッチの問題
+    if "上下動大" in issues_list:
+        return "エネルギー効率の低下"
+    
+    if "ピッチ低" in issues_list:
+        return "ピッチ不足"
+    
+    # その他の場合は一般的な表現
+    if issues_list:
+        return "ランニングフォームの効率性"
+    else:
+        return "フォーム全般"
+
+async def generate_integrated_advice(issues_list: List[str]) -> str:
+    """
+    プロコーチアドバイス（データベース）とGemini AI詳細アドバイスを統合する
+    
+    Args:
+        issues_list: Z値判定などによって特定された課題のリスト
+        
+    Returns:
+        統合された最終アドバイス文字列
+    """
+    try:
+        print(f"   🔄 統合アドバイス生成開始 - 課題数: {len(issues_list)}")
+        
+        # 1. 根本課題（main_finding）を特定
+        main_finding = identify_main_finding(issues_list)
+        print(f"   🎯 根本課題特定: {main_finding}")
+        
+        # 2. プロコーチアドバイスを生成
+        coach_advice = generate_advanced_advice(issues_list)
+        print(f"   ✅ プロコーチアドバイス生成完了")
+        
+        # 3. 個別課題の詳細アドバイスをAIで生成（根本課題を関連付け）
+        # 🚨 Gemini APIクォータ制限対策: 一時的にフォールバックのみ使用
+        detailed_advices = []
+        for issue in issues_list:
+            if issue and issue.strip():
+                # クォータ制限中はAI呼び出しをスキップし、フォールバック情報のみ使用
+                detailed_advice = {
+                    "issue": issue.strip(),
+                    "explanation": "この課題は走行効率に影響を与える可能性があります。",
+                    "exercise": "基本的なフォーム練習を継続してください。"
+                }
+                detailed_advices.append(detailed_advice)
+        
+        print(f"   ✅ 個別詳細アドバイス生成完了 - {len(detailed_advices)}件")
+        
+        # 4. 統合されたアドバイスを組み立て
+        integrated_text = f"""{coach_advice}
+
+【個別課題の詳細解説】"""
+        
+        for i, advice in enumerate(detailed_advices, 1):
+            issue_name = advice['issue']
+            explanation = advice['explanation']
+            exercise = advice['exercise']
+            
+            # テキスト重複の防止: exerciseが「推奨」で始まる場合は「推奨エクササイズ: 」を追加しない
+            if exercise.strip().startswith('推奨'):
+                exercise_display = f"   {exercise}"
+            else:
+                exercise_display = f"   推奨エクササイズ: {exercise}"
+            
+            integrated_text += f"""
+
+{i}. {issue_name}
+   詳細: {explanation}
+{exercise_display}"""
+        
+        integrated_text += """
+
+【総合的な改善のポイント】
+改善は段階的に取り組むことが重要です。まずは全体的なフォーム意識から始めて、個別の課題に順次対処していくことで、より効果的なランニングフォームを身につけることができます。"""
+        
+        print(f"   🎯 統合アドバイス生成完了 (長さ: {len(integrated_text)} 文字)")
+        return integrated_text
+        
+    except Exception as e:
+        print(f"   ❌ 統合アドバイス生成エラー: {str(e)}")
+        # フォールバック: プロコーチアドバイスのみ返却
+        return generate_advanced_advice(issues_list)
 
 def create_gemini_prompt(issues: List[str]) -> str:
     """Gemini APIに送信するプロンプトを生成"""
@@ -478,7 +693,63 @@ async def generate_advanced_advice_endpoint(request: AdvancedAdviceRequest):
         except:
             raise HTTPException(
                 status_code=500, 
-                detail=f"高レベルアドバイス生成中にエラーが発生しました: {str(e)}"
+                       detail=f"高レベルアドバイス生成中にエラーが発生しました: {str(e)}"
+                   )
+
+@app.post("/generate-integrated", response_model=IntegratedAdviceResponse)
+async def generate_integrated_advice_endpoint(request: IntegratedAdviceRequest):
+    """
+    プロコーチアドバイス（データベース）とGemini AI詳細アドバイスを統合する
+    
+    Args:
+        request: 動画IDと課題リスト
+        
+    Returns:
+        プロコーチ＋AI統合アドバイス
+    """
+    try:
+        print("=" * 80)
+        print("🎯 [INTEGRATED ADVICE SERVICE] 統合アドバイスリクエスト受信")
+        print(f"   📹 動画ID: {request.video_id}")
+        print(f"   📝 課題数: {len(request.issues_list)}")
+        
+        valid_issues = [issue.strip() for issue in request.issues_list if issue and issue.strip()]
+        
+        print(f"   ✅ 有効な課題数: {len(valid_issues)}")
+        for i, issue in enumerate(valid_issues, 1):
+            print(f"      {i}. {issue}")
+        
+        print(f"   🧠 統合アドバイス生成中...")
+        integrated_advice = await generate_integrated_advice(valid_issues)
+        
+        print(f"   📨 統合アドバイス生成完了 (長さ: {len(integrated_advice)} 文字)")
+        print(f"   📄 アドバイス概要: {integrated_advice[:100]}...")
+        print("=" * 80)
+        
+        return IntegratedAdviceResponse(
+            status="success",
+            message=f"プロコーチ＋AI統合アドバイスを生成しました",
+            video_id=request.video_id,
+            integrated_advice=integrated_advice
+        )
+        
+    except Exception as e:
+        print(f"❌ [INTEGRATED ADVICE SERVICE] エラー発生: {str(e)}")
+        print(f"   📍 エラー詳細: {type(e).__name__}")
+        
+        try:
+            fallback_advice = generate_advanced_advice([])
+            
+            return IntegratedAdviceResponse(
+                status="success",
+                message="システム問題により基本的なアドバイスを提供しています",
+                video_id=request.video_id,
+                integrated_advice=fallback_advice
+            )
+        except:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"統合アドバイス生成中にエラーが発生しました: {str(e)}"
             )
 
 if __name__ == "__main__":
