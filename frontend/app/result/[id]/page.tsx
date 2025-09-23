@@ -660,7 +660,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
     )
   }
 
-  const videoUrl = `/api/video/stream/${result.upload_info.saved_filename}`
+  const videoUrl = `/api/video/stream/${params.id}?t=${Date.now()}`
 
   return (
     <div className="min-h-screen bg-gradient-running">
