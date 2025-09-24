@@ -599,6 +599,11 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         print(f"🔧 サイクル情報をデバッグ: {best_cycle}")
         print(f"🔧 キーポイントデータ型: {type(all_keypoints)}, サイズ: {len(all_keypoints) if hasattr(all_keypoints, '__len__') else 'unknown'}")
         
+        # 代替サイクルのevents値を詳細チェック
+        if best_cycle and 'events' in best_cycle:
+            for event_name, frame_idx in best_cycle['events'].items():
+                print(f"🔧 イベント詳細チェック: {event_name} = {frame_idx} (型: {type(frame_idx)})")
+        
         try:
             print("🔧 calculate_cycle_event_angles 関数呼び出し開始")
             cycle_event_angles = calculate_cycle_event_angles(all_keypoints, best_cycle)
@@ -606,9 +611,16 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         except Exception as e:
             print(f"❌ calculate_cycle_event_angles でエラー発生: {type(e).__name__}: {e}")
             import traceback
-            print(f"🔍 スタックトレース:")
+            print(f"🔍 完全なスタックトレース:")
             traceback.print_exc()
-            raise e
+            print(f"🔧 エラー発生時のbest_cycle: {best_cycle}")
+            return {
+                'error': f'cycle_event_angles計算エラー: {str(e)}',
+                'events_detected': all_events,
+                'event_angles': {},
+                'z_scores': {},
+                'analysis_summary': {}
+            }
         
         # 5. Z値を計算
         z_scores = calculate_z_scores(cycle_event_angles, standard_model)
@@ -706,6 +718,11 @@ def calculate_angles_for_frame(frame_data: Dict) -> Dict[str, float]:
 def calculate_trunk_angle_from_keypoints(keypoints: List[Dict], landmarks: Dict) -> float:
     """体幹角度を計算"""
     try:
+        print(f"🔧 keypoints型: {type(keypoints)}, 長さ: {len(keypoints) if hasattr(keypoints, '__len__') else 'unknown'}")
+        print(f"🔧 keypoints[0]型: {type(keypoints[0]) if keypoints else 'empty'}")
+        print(f"🔧 landmarks: {landmarks}")
+        print(f"🔧 left_shoulder index: {landmarks['left_shoulder']}")
+        
         # 肩の中点
         left_shoulder = keypoints[landmarks['left_shoulder']]
         right_shoulder = keypoints[landmarks['right_shoulder']]
