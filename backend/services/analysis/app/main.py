@@ -1136,7 +1136,7 @@ class ZScoreAnalysisResponse(BaseModel):
     """Z値分析レスポンス"""
     status: str
     message: str
-    events_detected: Dict[str, List[int]]
+    events_detected: List[Tuple[int, str, str]]
     event_angles: Dict[str, Dict[str, float]]
     z_scores: Dict[str, Dict[str, float]]
     analysis_summary: Dict[str, Any]
@@ -1185,7 +1185,7 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
             return ZScoreAnalysisResponse(
                 status="error",
                 message=f"Z値分析中にエラーが発生しました: {analysis_result['error']}",
-                events_detected={},
+                events_detected=[],
                 event_angles={},
                 z_scores={},
                 analysis_summary={}
