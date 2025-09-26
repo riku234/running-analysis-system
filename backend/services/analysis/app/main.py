@@ -66,7 +66,7 @@ def get_event_based_standard_model():
 # =============================================================================
 # 足接地・離地検出機能
 # =============================================================================
-def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -> Dict[str, List[int]]:
+def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -> List[Tuple[int, str, str]]:
     """
     高度な足接地・離地検出機能（改良版）
     
@@ -75,8 +75,9 @@ def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -
         video_fps: 動画のフレームレート
     
     Returns:
-        Dict: 各足の接地・離地フレームインデックス
+        List[Tuple[int, str, str]]: (フレーム番号, 足, イベント種類)のリスト
     """
+    all_events = []
     try:
         print("🦶 足接地・離地検出を開始します...")
         
@@ -106,21 +107,32 @@ def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -
         print(f"   ✅ 検出完了 - 左足: 接地{len(left_strikes)}回, 離地{len(left_offs)}回")
         print(f"   ✅ 検出完了 - 右足: 接地{len(right_strikes)}回, 離地{len(right_offs)}回")
         
-        return {
-            'left_strikes': left_strikes,
-            'right_strikes': right_strikes,
-            'left_offs': left_offs,
-            'right_offs': right_offs
-        }
+        # 全イベントをリストに統合
+        all_events = []
+        for frame in left_strikes:
+            all_events.append((frame, 'left', 'strike'))
+        for frame in left_offs:
+            all_events.append((frame, 'left', 'off'))
+        for frame in right_strikes:
+            all_events.append((frame, 'right', 'strike'))
+        for frame in right_offs:
+            all_events.append((frame, 'right', 'off'))
+        
+        # フレーム順にソート
+        all_events.sort(key=lambda x: x[0])
+        
+        print(f"   📊 統合イベント数: {len(all_events)}")
+        if all_events:
+            print(f"   📝 最初の5イベント: {all_events[:5]}")
+        
+        return all_events
         
     except Exception as e:
         print(f"❌ 足接地検出エラー: {e}")
-        return {
-            'left_strikes': [],
-            'right_strikes': [],
-            'left_offs': [],
-            'right_offs': []
-        }
+        import traceback
+        traceback.print_exc()
+        # エラー時も統一されたリスト形式で返却
+        return []
 
 def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: float, foot_side: str) -> List[Tuple[int, str]]:
     """
@@ -548,11 +560,15 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         if not best_cycle:
             print("⚠️  明確なランニングサイクルが見つかりませんでした")
             print("🔧 代替方法：検出された全イベントでZ値分析を実行します")
-            print(f"   📊 検出されたイベント数: {len(all_events)}")
-            print(f"   📝 イベント詳細: {all_events[:5]}...")
+            print(f"   📊 検出されたイベント数: {len(all_events) if isinstance(all_events, list) else 'unknown'}")
+            if isinstance(all_events, list):
+                print(f"   📝 イベント詳細: {all_events[:5]}...")
+            else:
+                print(f"   📝 イベント詳細: {str(all_events)[:100]}...")
+                print("   ⚠️  all_eventsがリスト形式ではありません。戻り値型を確認してください。")
             
             # 代替方法：全イベントからランダムに4つのイベントを選択
-            if len(all_events) >= 4:
+            if isinstance(all_events, list) and len(all_events) >= 4:
                 # 右足接地、右足離地、左足接地、左足離地の順で検索
                 right_strikes = [e[0] for e in all_events if e[1] == 'right' and e[2] == 'strike']
                 right_offs = [e[0] for e in all_events if e[1] == 'right' and e[2] == 'off']
@@ -586,10 +602,16 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
                         'analysis_summary': {}
                     }
             else:
-                print("❌ 検出されたイベントが不足しています")
+                if isinstance(all_events, list):
+                    print("❌ 検出されたイベントが不足しています")
+                    error_msg = '分析可能なイベントが不足しています'
+                else:
+                    print("❌ all_eventsがリスト形式ではありません")
+                    error_msg = 'detect_foot_strikes_advanced関数の戻り値型が不正です'
+                
                 return {
-                    'error': '分析可能なイベントが不足しています',
-                    'events_detected': all_events,
+                    'error': error_msg,
+                    'events_detected': all_events if isinstance(all_events, list) else str(all_events),
                     'event_angles': {},
                     'z_scores': {},
                     'analysis_summary': {}
@@ -1169,14 +1191,28 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
                 analysis_summary={}
             )
         
-        return ZScoreAnalysisResponse(
-            status="success",
-            message="Z値分析が正常に完了しました",
-            events_detected=analysis_result.get('events_detected', {}),
-            event_angles=analysis_result.get('event_angles', {}),
-            z_scores=analysis_result.get('z_scores', {}),
-            analysis_summary=analysis_result.get('analysis_summary', {})
-        )
+        # analysis_resultが辞書形式かチェック
+        if isinstance(analysis_result, dict):
+            return ZScoreAnalysisResponse(
+                status="success",
+                message="Z値分析が正常に完了しました",
+                events_detected=analysis_result.get('events_detected', all_events or []),
+                event_angles=analysis_result.get('event_angles', {}),
+                z_scores=analysis_result.get('z_scores', {}),
+                analysis_summary=analysis_result.get('analysis_summary', {})
+            )
+        else:
+            # analysis_resultがリスト形式の場合はエラーログ出力
+            print(f"⚠️  analysis_resultが予期しない形式です: {type(analysis_result)}")
+            print(f"   📝 内容: {str(analysis_result)[:200]}...")
+            return ZScoreAnalysisResponse(
+                status="error",
+                message="分析結果の構造が予期しない形式です",
+                events_detected=all_events or [],
+                event_angles={},
+                z_scores={},
+                analysis_summary={}
+            )
         
     except Exception as e:
         print(f"❌ Z値分析APIエラー: {e}")
