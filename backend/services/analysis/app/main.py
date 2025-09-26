@@ -1216,6 +1216,8 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
         
     except Exception as e:
         print(f"❌ Z値分析APIエラー: {e}")
+        import traceback
+        traceback.print_exc()
         return ZScoreAnalysisResponse(
             status="error",
             message=f"Z値分析中に予期しないエラーが発生しました: {str(e)}",
