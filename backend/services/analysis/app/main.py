@@ -1219,7 +1219,7 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
         return ZScoreAnalysisResponse(
             status="error",
             message=f"Z値分析中に予期しないエラーが発生しました: {str(e)}",
-            events_detected={},
+            events_detected=[],
             event_angles={},
             z_scores={},
             analysis_summary={}
