@@ -26,7 +26,13 @@ model = genai.GenerativeModel(
         temperature=0.7,  # より創造的で自然な回答
         top_p=0.8,       # 多様性のバランス
         max_output_tokens=1000,  # より詳細な回答を可能に
-    )
+    ),
+    safety_settings=[
+        {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+        {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+        {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+        {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+    ]
 )
 
 app = FastAPI(

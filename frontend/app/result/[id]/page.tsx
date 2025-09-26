@@ -495,7 +495,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
     try {
       console.log('🤖 AIアドバイス生成開始')
       
-      const response = await fetch(`http://localhost:8005/generate`, {
+      const response = await fetch(`/api/advice_generation/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
