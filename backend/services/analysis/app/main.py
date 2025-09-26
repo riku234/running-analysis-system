@@ -279,6 +279,34 @@ def get_all_events_sorted(events_dict: Dict[str, List[int]]) -> List[Tuple[int, 
     
     return all_events
 
+def convert_events_list_to_dict(all_events: List[Tuple[int, str, str]]) -> Dict[str, List[int]]:
+    """
+    all_eventsリストを辞書形式に変換する
+    
+    Args:
+        all_events: [(frame, side, event_type), ...] 形式のリスト
+    
+    Returns:
+        Dict: {'left_strikes': [...], 'left_offs': [...], ...} 形式の辞書
+    """
+    events_dict = {
+        'left_strikes': [],
+        'left_offs': [],
+        'right_strikes': [],
+        'right_offs': []
+    }
+    
+    for frame, side, event_type in all_events:
+        key = f"{side}_{event_type}s"
+        if key in events_dict:
+            events_dict[key].append(frame)
+    
+    # フレーム番号でソート
+    for key in events_dict:
+        events_dict[key].sort()
+    
+    return events_dict
+
 # =============================================================================
 # ワンサイクル特定・解析機能
 # =============================================================================
@@ -552,9 +580,14 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         all_events = detect_foot_strikes_advanced(all_keypoints, video_fps)
         print(f"🔧 detect_foot_strikes_advanced 呼び出し完了: {len(all_events)}個のイベント検出")
         
-        # 3. 最良のワンサイクルを特定
+        # 3. all_eventsをリストから辞書形式に変換
+        print("🔧 all_eventsをリストから辞書形式に変換開始")
+        events_dict = convert_events_list_to_dict(all_events)
+        print(f"🔧 変換完了: {events_dict}")
+        
+        # 4. 最良のワンサイクルを特定
         print("🔧 identify_best_running_cycle 呼び出し開始")
-        best_cycle = identify_best_running_cycle(all_events, all_keypoints, video_fps)
+        best_cycle = identify_best_running_cycle(events_dict, all_keypoints, video_fps)
         print(f"🔧 identify_best_running_cycle 呼び出し完了: best_cycle={best_cycle is not None}")
         
         if not best_cycle:
@@ -1101,8 +1134,11 @@ def print_selected_cycle_info(cycle: Dict[str, Any]) -> None:
     
     print(f"📅 期間: フレーム{cycle['start_frame']}-{cycle['end_frame']}")
     # durationキーが存在する場合のみ表示
-    if 'duration' in cycle:
-        print(f"⏱️  時間: {cycle['duration']:.3f}秒")
+    duration = cycle.get('duration', 0)
+    if duration > 0:
+        print(f"⏱️  時間: {duration:.3f}秒")
+    else:
+        print("⏱️  時間: 計算中...")
     
     events = cycle['events']
     print(f"\n🎯 サイクル内イベント:")

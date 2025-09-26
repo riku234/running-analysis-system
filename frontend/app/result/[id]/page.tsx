@@ -361,6 +361,78 @@ export default function ResultPage({ params }: { params: { id: string } }) {
     }
   }
 
+  // アドバイステキストを読みやすく整形
+  const formatAdviceText = (text: string): string => {
+    if (!text) return '詳細な分析結果をもとに改善提案を準備中です。'
+    
+    // HTMLタグやMarkdown記号を除去
+    let cleanText = text
+      .replace(/<[^>]*>/g, '') // HTMLタグ除去
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // **太字** → 太字
+      .replace(/\*([^*]+)\*/g, '$1') // *イタリック* → イタリック
+      .replace(/#{1,6}\s+/g, '') // Markdownヘッダー除去
+      .replace(/^\s*[\-\*\+]\s+/gm, '• ') // リスト記号統一
+      .replace(/^\s*\d+\.\s+/gm, '') // 番号リスト除去
+      .replace(/\n{3,}/g, '\n\n') // 過度な改行を2つまでに制限
+      .trim()
+    
+    // 適切な長さに調整（120文字程度）
+    if (cleanText.length > 120) {
+      // 句読点や改行で自然に区切る
+      const naturalBreaks = cleanText.split(/[。．\n]/);
+      if (naturalBreaks.length > 1 && naturalBreaks[0].length > 30) {
+        return naturalBreaks[0] + '。'
+      }
+      // 自然な区切りがない場合は120文字で切る
+      return cleanText.substring(0, 120) + '...'
+    }
+    return cleanText
+  }
+
+  // アドバイスカードコンポーネント
+  const AdviceCard = ({ advice, index }: { advice: any, index: number }) => (
+    <div className="bg-white border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow h-full">
+      <div className="flex flex-col h-full">
+        {/* ヘッダー部分 */}
+        <div className="flex items-start space-x-3 mb-4">
+          <div className="flex-shrink-0 w-7 h-7 bg-emerald-500 text-white rounded-full flex items-center justify-center text-sm font-bold">
+            {index + 1}
+          </div>
+          <div className="flex-1">
+            <h4 className="font-semibold text-gray-900 text-base mb-1 leading-tight">
+              {advice.issue || advice.title || `課題 ${index + 1}`}
+            </h4>
+          </div>
+        </div>
+        
+        {/* 詳細説明部分 */}
+        <div className="flex-1 mb-4">
+          <div className="text-gray-700 text-sm leading-relaxed space-y-2">
+            {formatAdviceText(advice.description || '詳細な分析結果をもとに改善提案を準備中です。').split('\n').map((line, i) => (
+              <p key={i} className="mb-1">{line}</p>
+            ))}
+          </div>
+        </div>
+        
+        {/* エクササイズ部分 */}
+        {advice.exercise && (
+          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-4">
+            <div className="flex items-center mb-2">
+              <span className="text-sm font-medium text-emerald-700 flex items-center">
+                💪 <span className="ml-1">推奨エクササイズ</span>
+              </span>
+            </div>
+            <div className="text-sm text-emerald-800 leading-relaxed space-y-1">
+              {formatAdviceText(advice.exercise).split('\n').map((line, i) => (
+                <p key={i} className="mb-1">{line}</p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
   // Z値分析結果から課題リストを抽出
   const extractIssuesFromZScore = (zScoreData: ZScoreAnalysisResult): string[] => {
     if (!zScoreData || zScoreData.status !== 'success') {
@@ -378,8 +450,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
       const severity = absZScore >= 3.0 ? '大' : absZScore >= 2.0 ? '中' : '小'
       
       // 角度名と部位を日本語化
-      const angleName = deviation.angle_name || ''
-      const eventType = deviation.event_type || ''
+      const angleName = deviation.angle || ''
+      const eventType = deviation.event || ''
       
       let bodyPart = ''
       let issue = ''
@@ -423,7 +495,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
     try {
       console.log('🤖 AIアドバイス生成開始')
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/advice/generate`, {
+      const response = await fetch(`http://localhost:8005/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1692,59 +1764,70 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </Card>
         )}
 
-          {/* Z値分析によるAIアドバイスセクション */}
+          {/* Z値分析によるAIアドバイスセクション - 改善版 */}
           {adviceData && (
-            <Card className="shadow-xl mt-6 border-l-4 border-blue-500">
-              <CardHeader>
-                <CardTitle className="flex items-center text-blue-800">
-                  🤖 AIフォーム分析アドバイス
+            <Card className="shadow-lg mt-6 border-l-4 border-emerald-500">
+              <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50">
+                <CardTitle className="flex items-center text-emerald-800 text-lg">
+                  🎯 個別課題の詳細解説
                 </CardTitle>
-                <CardDescription>
-                  Z値分析結果に基づく詳細な改善提案
+                <CardDescription className="text-emerald-700">
+                  AI分析による具体的な改善ポイント
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                {adviceData.advice_list && adviceData.advice_list.length > 0 ? (
-                  <div className="space-y-4">
-                    {adviceData.advice_list.map((advice: any, index: number) => (
-                      <div key={index} className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
-                        <div className="flex items-start space-x-3">
-                          <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">
-                            {index + 1}
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-blue-900 mb-2">{advice.title}</h4>
-                            <p className="text-blue-800 mb-3">{advice.description}</p>
-                            {advice.exercise && (
-                              <div className="bg-white p-3 rounded-md border border-blue-300">
-                                <span className="text-xs font-medium text-blue-600 uppercase tracking-wide">推奨エクササイズ</span>
-                                <p className="text-sm text-gray-700 mt-1">{advice.exercise}</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-600">アドバイスデータが見つかりません</p>
-                )}
-              </CardContent>
+           <CardContent className="p-6">
+             {adviceData.advice_list && adviceData.advice_list.length > 0 ? (
+               <div className="space-y-6">
+                 {/* アドバイスカードのグリッド */}
+                 <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+                   {adviceData.advice_list.slice(0, 4).map((advice: any, index: number) => (
+                     <AdviceCard key={index} advice={advice} index={index} />
+                   ))}
+                 </div>
+                 
+                 {/* 総合的な改善のポイント */}
+                 <div className="mt-8 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
+                   <h5 className="font-semibold text-blue-900 text-base mb-3 flex items-center">
+                     💡 <span className="ml-2">総合的な改善のポイント</span>
+                   </h5>
+                   <div className="text-blue-800 text-sm leading-relaxed space-y-2">
+                     <p>改善は段階的に取り組むことが重要です。</p>
+                     <p>まずは全体的なフォーム意識から始めて、個別の課題に順次対処していくことで、より効果的なランニングフォームを身につけることができます。</p>
+                   </div>
+                 </div>
+               </div>
+             ) : (
+               <div className="text-center py-12">
+                 <div className="text-gray-400 mb-3">
+                   🔍
+                 </div>
+                 <p className="text-gray-500 text-sm">
+                   分析結果からアドバイスを生成中です...
+                 </p>
+               </div>
+             )}
+           </CardContent>
             </Card>
           )}
 
-          {/* ローディング中の表示 */}
+          {/* ローディング中の表示 - 改善版 */}
           {adviceLoading && (
-            <Card className="shadow-xl mt-6 border-l-4 border-blue-500">
-              <CardHeader>
-                <CardTitle className="flex items-center text-blue-800">
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  AIアドバイス生成中...
+            <Card className="shadow-lg mt-6 border-l-4 border-amber-400">
+              <CardHeader className="bg-gradient-to-r from-amber-50 to-yellow-50">
+                <CardTitle className="flex items-center text-amber-800 text-lg">
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin text-amber-600" />
+                  🤖 AI分析中...
                 </CardTitle>
-                <CardDescription>
-                  Z値分析結果を解析して最適なアドバイスを生成しています
+                <CardDescription className="text-amber-700">
+                  ランニングフォームを詳細分析してアドバイスを生成しています
                 </CardDescription>
               </CardHeader>
+              <CardContent className="py-4">
+                <div className="flex items-center space-x-2 text-sm text-amber-600">
+                  <div className="animate-pulse">📊</div>
+                  <span>Z値分析結果の解析中...</span>
+                </div>
+              </CardContent>
             </Card>
           )}
 
