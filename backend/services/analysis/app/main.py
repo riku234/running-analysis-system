@@ -1196,7 +1196,7 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
             return ZScoreAnalysisResponse(
                 status="success",
                 message="Z値分析が正常に完了しました",
-                events_detected=analysis_result.get('events_detected', all_events or []),
+                events_detected=analysis_result.get('events_detected', []),
                 event_angles=analysis_result.get('event_angles', {}),
                 z_scores=analysis_result.get('z_scores', {}),
                 analysis_summary=analysis_result.get('analysis_summary', {})
@@ -1208,7 +1208,7 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
             return ZScoreAnalysisResponse(
                 status="error",
                 message="分析結果の構造が予期しない形式です",
-                events_detected=all_events or [],
+                events_detected=[],
                 event_angles={},
                 z_scores={},
                 analysis_summary={}
