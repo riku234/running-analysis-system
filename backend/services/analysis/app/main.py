@@ -1173,8 +1173,7 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
         
         # 全イベントのソート済みリストも表示
         if 'events_detected' in analysis_result:
-            all_events = get_all_events_sorted(analysis_result['events_detected'])
-            print_all_events_summary(all_events)
+            print_all_events_summary(analysis_result['events_detected'])
         
         # 選択されたサイクル情報も表示
         if 'selected_cycle' in analysis_result and analysis_result['selected_cycle']:
