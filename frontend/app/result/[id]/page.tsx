@@ -294,6 +294,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   const [zScoreData, setZScoreData] = useState<ZScoreAnalysisResult | null>(null)
   const [zScoreLoading, setZScoreLoading] = useState(false)
   const [showAngleReference, setShowAngleReference] = useState(false)
+  const [adviceData, setAdviceData] = useState<any>(null)
+  const [adviceLoading, setAdviceLoading] = useState(false)
   
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
@@ -328,6 +330,11 @@ export default function ResultPage({ params }: { params: { id: string } }) {
       
       if (zScoreResult && typeof zScoreResult === 'object') {
         setZScoreData(zScoreResult)
+        
+        // Z値分析成功後、自動的にAIアドバイス生成を呼び出し
+        if (zScoreResult.status === 'success') {
+          await generateAdviceFromZScore(zScoreResult)
+        }
       } else {
         console.error('❌ 無効なZ値分析データ構造:', zScoreResult)
         setZScoreData({ 
@@ -351,6 +358,94 @@ export default function ResultPage({ params }: { params: { id: string } }) {
       })
     } finally {
       setZScoreLoading(false)
+    }
+  }
+
+  // Z値分析結果から課題リストを抽出
+  const extractIssuesFromZScore = (zScoreData: ZScoreAnalysisResult): string[] => {
+    if (!zScoreData || zScoreData.status !== 'success') {
+      return []
+    }
+
+    const issues: string[] = []
+    
+    // 分析サマリーから有意な偏差を課題として抽出
+    const significantDeviations = zScoreData.analysis_summary?.significant_deviations || []
+    
+    significantDeviations.forEach(deviation => {
+      // Z値の重要度に基づいて課題を分類
+      const absZScore = Math.abs(deviation.z_score || 0)
+      const severity = absZScore >= 3.0 ? '大' : absZScore >= 2.0 ? '中' : '小'
+      
+      // 角度名と部位を日本語化
+      const angleName = deviation.angle_name || ''
+      const eventType = deviation.event_type || ''
+      
+      let bodyPart = ''
+      let issue = ''
+      
+      if (angleName.includes('left_lower_leg') || angleName.includes('左下腿')) {
+        bodyPart = '左下腿'
+        issue = `${bodyPart}角度${severity}`
+      } else if (angleName.includes('right_lower_leg') || angleName.includes('右下腿')) {
+        bodyPart = '右下腿'
+        issue = `${bodyPart}角度${severity}`
+      } else if (angleName.includes('left_thigh') || angleName.includes('左大腿')) {
+        bodyPart = '左大腿'
+        issue = `${bodyPart}角度${severity}`
+      } else if (angleName.includes('right_thigh') || angleName.includes('右大腿')) {
+        bodyPart = '右大腿'
+        issue = `${bodyPart}角度${severity}`
+      } else if (angleName.includes('trunk') || angleName.includes('体幹')) {
+        bodyPart = '体幹'
+        issue = `${bodyPart}角度${severity}`
+      }
+      
+      if (issue && !issues.includes(issue)) {
+        issues.push(issue)
+      }
+    })
+    
+    // 最低1つの課題は生成する（フォールバック）
+    if (issues.length === 0) {
+      issues.push('基本的なランニングフォーム練習')
+    }
+    
+    console.log('📝 抽出された課題リスト:', issues)
+    return issues
+  }
+
+  // Z値分析結果からAIアドバイスを生成
+  const generateAdviceFromZScore = async (zScoreResult: ZScoreAnalysisResult) => {
+    if (!zScoreResult || zScoreResult.status !== 'success') return
+    
+    setAdviceLoading(true)
+    try {
+      console.log('🤖 AIアドバイス生成開始')
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/advice/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          video_id: params.id,
+          issues: extractIssuesFromZScore(zScoreResult)
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const adviceResult = await response.json()
+      console.log('✅ AIアドバイス生成成功:', adviceResult)
+      setAdviceData(adviceResult)
+      
+    } catch (error) {
+      console.error('❌ AIアドバイス生成エラー:', error)
+    } finally {
+      setAdviceLoading(false)
     }
   }
 
@@ -1596,6 +1691,62 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             </CardContent>
           </Card>
         )}
+
+          {/* Z値分析によるAIアドバイスセクション */}
+          {adviceData && (
+            <Card className="shadow-xl mt-6 border-l-4 border-blue-500">
+              <CardHeader>
+                <CardTitle className="flex items-center text-blue-800">
+                  🤖 AIフォーム分析アドバイス
+                </CardTitle>
+                <CardDescription>
+                  Z値分析結果に基づく詳細な改善提案
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {adviceData.advice_list && adviceData.advice_list.length > 0 ? (
+                  <div className="space-y-4">
+                    {adviceData.advice_list.map((advice: any, index: number) => (
+                      <div key={index} className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
+                        <div className="flex items-start space-x-3">
+                          <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">
+                            {index + 1}
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-blue-900 mb-2">{advice.title}</h4>
+                            <p className="text-blue-800 mb-3">{advice.description}</p>
+                            {advice.exercise && (
+                              <div className="bg-white p-3 rounded-md border border-blue-300">
+                                <span className="text-xs font-medium text-blue-600 uppercase tracking-wide">推奨エクササイズ</span>
+                                <p className="text-sm text-gray-700 mt-1">{advice.exercise}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-600">アドバイスデータが見つかりません</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ローディング中の表示 */}
+          {adviceLoading && (
+            <Card className="shadow-xl mt-6 border-l-4 border-blue-500">
+              <CardHeader>
+                <CardTitle className="flex items-center text-blue-800">
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  AIアドバイス生成中...
+                </CardTitle>
+                <CardDescription>
+                  Z値分析結果を解析して最適なアドバイスを生成しています
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
 
           {/* 統合アドバイスセクション */}
           {(() => {

@@ -1,5 +1,7 @@
 import os
 import json
+import time
+import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -18,7 +20,14 @@ if not GEMINI_API_KEY:
 
 # Gemini APIの初期化
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash-latest')
+model = genai.GenerativeModel(
+    'gemini-flash-latest',
+    generation_config=genai.types.GenerationConfig(
+        temperature=0.7,  # より創造的で自然な回答
+        top_p=0.8,       # 多様性のバランス
+        max_output_tokens=1000,  # より詳細な回答を可能に
+    )
+)
 
 app = FastAPI(
     title="Advice Generation Service (Gemini-Powered)",
@@ -176,23 +185,41 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
         else:
             # フォールバック: 従来のプロンプト
             prompt = f"""
-あなたはランニングフォーム改善の専門家です。
-以下の具体的な課題について、詳細な解説とエクササイズを提供してください。
+あなたは10年以上の経験を持つプロのランニングコーチです。以下のランニングフォームの課題について、科学的根拠に基づく詳細で実践的なアドバイスを提供してください。
 
 課題: {issue}
+{f"（関連する主要問題: {main_finding}）" if main_finding else ""}
 
 以下の形式で回答してください：
-説明: この課題がなぜ問題なのか、ランニングにどのような影響を与えるかを詳しく説明
-エクササイズ: この課題を改善するための具体的なエクササイズを1つ提案
+説明: この課題がなぜ問題なのか、ランニング効率・怪我のリスク・パフォーマンスにどのような具体的影響を与えるかを科学的に説明してください（120-180文字）
+エクササイズ: この課題を改善するための効果的で実践しやすい具体的なエクササイズを1つ提案してください。セット数や頻度、ポイントも含めてください（100-150文字）
 
-簡潔で実践的な内容にしてください。
+専門的でありながら、ランナーが実践しやすい内容にしてください。
 """
 
-        # Gemini APIを呼び出し
+        # Gemini APIを呼び出し（レート制限対応）
         print(f"   📡 Gemini API呼び出し中... (model変数: {type(model)})")
         print(f"   📋 プロンプト: {prompt[:100]}...")
-        response = model.generate_content(prompt)
-        print(f"   📨 Gemini応答受信: {type(response)}")
+        
+        # レート制限対応: 複数回リトライ
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = model.generate_content(prompt)
+                print(f"   📨 Gemini応答受信: {type(response)}")
+                break
+            except Exception as api_error:
+                if "429" in str(api_error) or "quota" in str(api_error).lower():
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 10  # 10秒, 20秒, 30秒の間隔
+                        print(f"   ⏳ レート制限検出、{wait_time}秒待機後にリトライ ({attempt + 1}/{max_retries})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"   ❌ 最大リトライ回数に達しました。フォールバックを使用します。")
+                        raise api_error
+                else:
+                    raise api_error
         
         if response and hasattr(response, 'text') and response.text:
             advice_text = response.text.strip()
@@ -204,20 +231,44 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
             explanation = ""
             exercise = ""
             
-            # より柔軟な解析: エクササイズで分割
-            if 'エクササイズ' in advice_text:
-                parts = advice_text.split('エクササイズ', 1)
-                explanation = parts[0].strip()
-                exercise = ('エクササイズ' + parts[1]).strip() if len(parts) > 1 else ""
-            else:
-                # フォールバック: 全体の2/3を説明、1/3をエクササイズとする
-                split_point = len(advice_text) * 2 // 3
-                explanation = advice_text[:split_point].strip()
-                exercise = advice_text[split_point:].strip()
+            # 改良されたレスポンス解析
+            explanation = ""
+            exercise = ""
             
-                # 基本的なクリーンアップのみ実行
-                explanation = explanation.strip()
-                exercise = exercise.strip()
+            # 段落ベースでの解析
+            paragraphs = [p.strip() for p in advice_text.split('\n') if p.strip()]
+            
+            # キーワードベースの分類
+            explanation_lines = []
+            exercise_lines = []
+            current_section = "explanation"
+            
+            for paragraph in paragraphs:
+                # セクション判定
+                if any(keyword in paragraph for keyword in ['エクササイズ', '練習', 'ドリル', '運動', 'トレーニング']):
+                    current_section = "exercise"
+                elif any(keyword in paragraph for keyword in ['説明', '影響', '問題', '原因', '効果']):
+                    current_section = "explanation"
+                
+                # セクション別に分類
+                if current_section == "exercise":
+                    exercise_lines.append(paragraph)
+                else:
+                    explanation_lines.append(paragraph)
+            
+            # 結果をまとめる
+            explanation = ' '.join(explanation_lines).strip()
+            exercise = ' '.join(exercise_lines).strip()
+            
+            # クリーンアップ
+            explanation = explanation.replace('説明:', '').replace('説明：', '').strip()
+            exercise = exercise.replace('エクササイズ:', '').replace('エクササイズ：', '').strip()
+            
+            # 最低限の品質保証
+            if len(explanation) < 20:  # 説明が短すぎる場合
+                explanation = advice_text[:len(advice_text)//2] if advice_text else "この課題は走行効率に影響を与える可能性があります。"
+            if len(exercise) < 15:  # エクササイズが短すぎる場合
+                exercise = advice_text[len(advice_text)//2:] if advice_text else "基本的なフォーム練習を継続してください。"
             
             print(f"   🎯 最終結果 - 説明: '{explanation[:100]}...' エクササイズ: '{exercise[:100]}...'")
             
@@ -373,17 +424,24 @@ async def generate_integrated_advice(issues_list: List[str]) -> str:
         print(f"   ✅ プロコーチアドバイス生成完了")
         
         # 3. 個別課題の詳細アドバイスをAIで生成（根本課題を関連付け）
-        # 🚨 Gemini APIクォータ制限対策: 一時的にフォールバックのみ使用
         detailed_advices = []
         for issue in issues_list:
             if issue and issue.strip():
-                # クォータ制限中はAI呼び出しをスキップし、フォールバック情報のみ使用
-                detailed_advice = {
-                    "issue": issue.strip(),
-                    "explanation": "この課題は走行効率に影響を与える可能性があります。",
-                    "exercise": "基本的なフォーム練習を継続してください。"
-                }
-                detailed_advices.append(detailed_advice)
+                print(f"   🤖 AI詳細アドバイス生成中: {issue.strip()}")
+                try:
+                    # Gemini APIを使用してより詳細なアドバイスを生成
+                    detailed_advice = await generate_detailed_advice_for_issue(issue.strip(), main_finding)
+                    detailed_advices.append(detailed_advice)
+                    print(f"   ✅ AI詳細アドバイス生成完了: {issue.strip()}")
+                except Exception as ai_error:
+                    print(f"   ⚠️ AI詳細アドバイス生成失敗: {ai_error}, フォールバック使用")
+                    # AIアドバイス生成に失敗した場合はフォールバック
+                    detailed_advice = {
+                        "issue": issue.strip(),
+                        "explanation": "この課題は走行効率に影響を与える可能性があります。",
+                        "exercise": "基本的なフォーム練習を継続してください。"
+                    }
+                    detailed_advices.append(detailed_advice)
         
         print(f"   ✅ 個別詳細アドバイス生成完了 - {len(detailed_advices)}件")
         
@@ -426,31 +484,33 @@ def create_gemini_prompt(issues: List[str]) -> str:
     """Gemini APIに送信するプロンプトを生成"""
     issues_text = "\n".join([f"- {issue}" for issue in issues])
     
-    prompt = f"""あなたは、ランニングフォームを分析する専門家であり、優れたランニングコーチです。
+    prompt = f"""あなたは、スポーツ科学に基づくランニングフォーム分析の専門家であり、世界トップクラスのランニングコーチです。
 
-以下のリストにあるランニングフォームの課題点について、具体的で、ポジティブで、実践的なアドバイスを生成してください。
+ランニングフォーム分析において以下の課題が検出されました。各課題について、詳細で実践的なアドバイスを生成してください。
 
 【検出された課題】:
 {issues_text}
 
-必ず以下のJSON形式の文字列"のみ"を返してください。説明文や```jsonのようなマークダウンは一切含めないでください。
+以下の要求に従って、必ずJSON形式の文字列"のみ"を返してください。```jsonなどのマークダウンは一切含めないでください。
 
 {{
   "advices": [
     {{
-      "title": "（課題を一言でまとめたタイトル）",
-      "description": "（なぜそれが課題なのか、どう改善すべきかの詳細な説明。具体的で前向きな表現を使用）",
-      "exercise": "（改善に役立つ具体的な練習ドリルやエクササイズ。実践しやすい形で説明）"
+      "title": "（課題名に基づいた改善タイトル）",
+      "description": "（課題の具体的影響と改善必要性を60-80文字で詳細に説明。なぜ問題なのか、放置した場合のリスク、改善メリットを含める）",
+      "exercise": "（改善のための具体的なエクササイズ・練習方法を40-60文字で説明。実施方法、回数、頻度を含める）"
     }}
   ]
 }}
 
-注意事項:
-- 各課題に対して1つずつアドバイスを生成してください
-- タイトルは簡潔で分かりやすく
-- 説明は初心者にも理解しやすい言葉で
-- エクササイズは自宅や公園で実践できる内容で
-- JSON形式以外は一切出力しないでください"""
+要求事項:
+- 各課題に対して1つのアドバイスを生成
+- 角度の問題（左下腿角度大など）では、バイオメカニクス的な影響を説明
+- 説明部分は走行効率、怪我リスク、エネルギー消費への影響を含める
+- エクササイズは初心者でも実践できる具体的な方法を提示
+- 医学的・科学的根拠に基づいた内容で
+- ポジティブで励ましの要素を含める
+- JSON形式以外は一切出力しない"""
     
     return prompt
 
@@ -497,9 +557,31 @@ async def generate_advice(request: AdviceRequest):
         prompt = create_gemini_prompt(valid_issues)
         print(f"   🤖 Gemini APIにリクエスト送信中...")
         
-        # Gemini APIの呼び出し
-        response = model.generate_content(prompt)
-        ai_response = response.text.strip()
+        # Gemini APIの呼び出し（レート制限対応）
+        max_retries = 3
+        response = None
+        for attempt in range(max_retries):
+            try:
+                response = model.generate_content(prompt)
+                ai_response = response.text.strip()
+                break
+            except Exception as api_error:
+                if "429" in str(api_error) or "quota" in str(api_error).lower():
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 5  # 5秒, 10秒, 15秒の間隔
+                        print(f"   ⏳ レート制限検出、{wait_time}秒待機後にリトライ ({attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"   ❌ 最大リトライ回数に達しました。フォールバックを使用します。")
+                        # フォールバック処理を開始
+                        ai_response = ""
+                        break
+                else:
+                    raise api_error
+        
+        if not response or not hasattr(response, 'text') or not response.text:
+            ai_response = ""
         
         print(f"   📨 Gemini応答受信 (長さ: {len(ai_response)} 文字)")
         print(f"   📄 生の応答: {ai_response[:200]}...")
@@ -600,7 +682,7 @@ async def get_model_info():
     """使用しているAIモデルの情報を取得"""
     return {
         "ai_provider": "Google Gemini",
-        "model": "gemini-1.5-flash-latest",
+        "model": "gemini-flash-latest",
         "version": "2.0.0",
         "features": [
             "自然言語によるアドバイス生成",

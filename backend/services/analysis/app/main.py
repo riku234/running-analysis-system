@@ -1100,7 +1100,9 @@ def print_selected_cycle_info(cycle: Dict[str, Any]) -> None:
     print("="*80)
     
     print(f"📅 期間: フレーム{cycle['start_frame']}-{cycle['end_frame']}")
-    print(f"⏱️  時間: {cycle['duration']:.3f}秒")
+    # durationキーが存在する場合のみ表示
+    if 'duration' in cycle:
+        print(f"⏱️  時間: {cycle['duration']:.3f}秒")
     
     events = cycle['events']
     print(f"\n🎯 サイクル内イベント:")
@@ -1204,14 +1206,17 @@ async def analyze_running_form_z_score(request: ZScoreAnalysisRequest):
             # analysis_resultがリスト形式の場合はエラーログ出力
             print(f"⚠️  analysis_resultが予期しない形式です: {type(analysis_result)}")
             print(f"   📝 内容: {str(analysis_result)[:200]}...")
+            import traceback
+            print("🔍 エラーのスタックトレース:")
+            traceback.print_exc()
             return ZScoreAnalysisResponse(
                 status="error",
-                message="分析結果の構造が予期しない形式です",
+                message=f"分析結果の構造が予期しない形式です - 形式: {type(analysis_result)}",
                 events_detected=[],
                 event_angles={},
                 z_scores={},
                 analysis_summary={}
-            )
+        )
         
     except Exception as e:
         print(f"❌ Z値分析APIエラー: {e}")
