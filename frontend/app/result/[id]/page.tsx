@@ -1525,39 +1525,64 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* 角度推移分析カード - デバッグ版 */}
-        {result.pose_analysis?.pose_data ? (
+        {/* 角度推移分析カード - Zustand直接使用版 */}
+        {poseData && poseData.length > 0 ? (
           <AngleGraphsCard 
-            poseData={result.pose_analysis.pose_data}
-            videoInfo={result.pose_analysis.video_info}
+            poseData={poseData}
+            videoInfo={videoInfo || { fps: 30, width: 640, height: 480, total_frames: poseData.length, duration_seconds: poseData.length / 30 }}
           />
         ) : (
           <Card className="shadow-lg mt-6">
             <CardHeader>
               <CardTitle className="flex items-center">
                 <TrendingUp className="h-5 w-5 mr-2" />
-                📈 角度推移分析（デバッグ）
+                📈 角度推移分析（詳細デバッグ）
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-center py-8 text-gray-500">
-                <p className="text-lg mb-4">🔍 データ構造デバッグ</p>
-                <div className="text-xs mt-2 bg-gray-100 p-4 rounded text-left">
-                  <p><strong>result存在:</strong> {result ? 'あり' : 'なし'}</p>
-                  <p><strong>pose_analysis存在:</strong> {result?.pose_analysis ? 'あり' : 'なし'}</p>
-                  <p><strong>pose_data存在:</strong> {result?.pose_analysis?.pose_data ? 'あり' : 'なし'}</p>
-                  <p><strong>pose_dataサイズ:</strong> {result?.pose_analysis?.pose_data?.length || 0}</p>
-                  <p><strong>video_info存在:</strong> {result?.pose_analysis?.video_info ? 'あり' : 'なし'}</p>
+                <p className="text-lg mb-4">🔍 データ不足の詳細調査</p>
+                <div className="text-xs mt-2 bg-gray-100 p-4 rounded text-left space-y-2">
+                  
+                  {/* 基本情報 */}
+                  <div className="bg-white p-2 rounded border">
+                    <strong>基本データ状況:</strong>
+                    <p>• result存在: {result ? 'あり' : 'なし'}</p>
+                    <p>• pose_analysis存在: {result?.pose_analysis ? 'あり' : 'なし'}</p>
+                    <p>• pose_data存在: {result?.pose_analysis?.pose_data ? 'あり' : 'なし'}</p>
+                    <p>• pose_dataサイズ: {result?.pose_analysis?.pose_data?.length || 0}</p>
+                    <p>• video_info存在: {result?.pose_analysis?.video_info ? 'あり' : 'なし'}</p>
+                  </div>
+
+                  {/* Zustandストア情報 */}
+                  <div className="bg-blue-50 p-2 rounded border">
+                    <strong>Zustandストア状況:</strong>
+                    <p>• Zustand poseData: {poseData?.length || 0}フレーム</p>
+                    <p>• Zustand videoInfo: {videoInfo ? 'あり' : 'なし'}</p>
+                    <p>• Zustand uploadInfo: {uploadInfo ? 'あり' : 'なし'}</p>
+                  </div>
+
+                  {/* オブジェクトキー */}
                   {result?.pose_analysis && (
-                    <div className="mt-2 pt-2 border-t">
-                      <p><strong>pose_analysis keys:</strong> {Object.keys(result.pose_analysis).join(', ')}</p>
+                    <div className="bg-green-50 p-2 rounded border">
+                      <strong>pose_analysis keys:</strong>
+                      <p>{Object.keys(result.pose_analysis).join(', ')}</p>
                     </div>
                   )}
+                  
                   {result && (
-                    <div className="mt-2 pt-2 border-t">
-                      <p><strong>result keys:</strong> {Object.keys(result).join(', ')}</p>
+                    <div className="bg-yellow-50 p-2 rounded border">
+                      <strong>result keys:</strong>
+                      <p>{Object.keys(result).join(', ')}</p>
                     </div>
                   )}
+
+                  {/* localStorage確認 */}
+                  <div className="bg-red-50 p-2 rounded border">
+                    <strong>localStorage確認:</strong>
+                    <p>• キー: light_analysis_result_{params.id}</p>
+                    <p>• 存在: {typeof window !== 'undefined' && localStorage.getItem(`light_analysis_result_${params.id}`) ? 'あり' : 'なし'}</p>
+                  </div>
                 </div>
               </div>
             </CardContent>
