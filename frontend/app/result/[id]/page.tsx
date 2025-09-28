@@ -17,6 +17,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import PoseVisualizer from '@/app/components/PoseVisualizer'
+import AngleGraphsCard from '@/app/components/AngleGraphsCard'
 import { useResultStore } from '@/lib/store'
 
 // より現実的なランニングサイクルのダミーデータを生成
@@ -1522,6 +1523,14 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             </div>
           </div>
         </div>
+
+        {/* 角度推移分析カード */}
+        {result.pose_analysis?.pose_data && (
+          <AngleGraphsCard 
+            poseData={result.pose_analysis.pose_data}
+            videoInfo={result.pose_analysis.video_info}
+          />
+        )}
 
         {/* Z値分析カード - 画面全体幅で4イベント並列表示 */}
         <Card className="shadow-lg mb-6">
