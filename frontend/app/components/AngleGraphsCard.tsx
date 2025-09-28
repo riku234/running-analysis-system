@@ -5,17 +5,113 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { TrendingUp, Settings2 } from 'lucide-react'
 
+// MediaPipeランドマークのインデックス定義
+const LANDMARK_INDICES = {
+  left_shoulder: 11,
+  right_shoulder: 12,
+  left_elbow: 13,
+  right_elbow: 14,
+  left_wrist: 15,
+  right_wrist: 16,
+  left_hip: 23,
+  right_hip: 24,
+  left_knee: 25,
+  right_knee: 26,
+  left_ankle: 27,
+  right_ankle: 28,
+  left_foot_index: 31,
+  right_foot_index: 32
+}
+
+// 角度計算関数
+const calculateAbsoluteAngleWithVertical = (vector: [number, number], forwardPositive: boolean): number => {
+  const [dx, dy] = vector
+  
+  // ベクトルの角度（ラジアン）
+  let angle = Math.atan2(dx, -dy) // Y軸が画像座標系では上向きが負のため
+  
+  // ラジアンから度に変換
+  angle = angle * (180 / Math.PI)
+  
+  // forward_positive = false の場合（体幹角度）は符号を反転
+  if (!forwardPositive) {
+    angle = -angle
+  }
+  
+  return angle
+}
+
+const calculateAbsoluteTrunkAngle = (keypoints: KeyPoint[]): number | null => {
+  try {
+    const leftShoulder = keypoints[LANDMARK_INDICES.left_shoulder]
+    const rightShoulder = keypoints[LANDMARK_INDICES.right_shoulder]
+    const leftHip = keypoints[LANDMARK_INDICES.left_hip]
+    const rightHip = keypoints[LANDMARK_INDICES.right_hip]
+    
+    if (!leftShoulder || !rightShoulder || !leftHip || !rightHip ||
+        leftShoulder.visibility < 0.5 || rightShoulder.visibility < 0.5 ||
+        leftHip.visibility < 0.5 || rightHip.visibility < 0.5) {
+      return null
+    }
+
+    const shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2
+    const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2
+    const hipCenterX = (leftHip.x + rightHip.x) / 2
+    const hipCenterY = (leftHip.y + rightHip.y) / 2
+    
+    // 体幹ベクトル（股関節中点→肩中点）
+    const trunkVector: [number, number] = [shoulderCenterX - hipCenterX, shoulderCenterY - hipCenterY]
+    
+    return calculateAbsoluteAngleWithVertical(trunkVector, false)
+  } catch (error) {
+    return null
+  }
+}
+
+const calculateAbsoluteThighAngle = (hip: KeyPoint, knee: KeyPoint): number | null => {
+  try {
+    if (hip.visibility < 0.5 || knee.visibility < 0.5) {
+      return null
+    }
+    
+    // 大腿ベクトル（膝→股関節）
+    const thighVector: [number, number] = [hip.x - knee.x, hip.y - knee.y]
+    
+    return calculateAbsoluteAngleWithVertical(thighVector, true)
+  } catch (error) {
+    return null
+  }
+}
+
+const calculateAbsoluteLowerLegAngle = (knee: KeyPoint, ankle: KeyPoint): number | null => {
+  try {
+    if (knee.visibility < 0.5 || ankle.visibility < 0.5) {
+      return null
+    }
+    
+    // 下腿ベクトル（足首→膝）
+    const lowerLegVector: [number, number] = [knee.x - ankle.x, knee.y - ankle.y]
+    
+    return calculateAbsoluteAngleWithVertical(lowerLegVector, true)
+  } catch (error) {
+    return null
+  }
+}
+
 // データ型定義
+interface KeyPoint {
+  x: number
+  y: number
+  z: number
+  visibility: number
+}
+
 interface FramePoseData {
   frame_number: number
   timestamp: number
-  absolute_angles?: {
-    trunk_angle?: number | null
-    left_thigh_angle?: number | null
-    right_thigh_angle?: number | null
-    left_lower_leg_angle?: number | null
-    right_lower_leg_angle?: number | null
-  }
+  keypoints: KeyPoint[]
+  landmarks_detected: boolean
+  confidence_score: number
 }
 
 interface VideoInfo {
@@ -107,15 +203,39 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
   const angleData = useMemo(() => {
     if (!poseData || poseData.length === 0) return []
     
-    return poseData.map((frame) => ({
-      time: frame.timestamp || (frame.frame_number / videoInfo.fps),
-      frame: frame.frame_number,
-      trunk: frame.absolute_angles?.trunk_angle ?? null,
-      leftThigh: frame.absolute_angles?.left_thigh_angle ?? null,
-      rightThigh: frame.absolute_angles?.right_thigh_angle ?? null,
-      leftLowerLeg: frame.absolute_angles?.left_lower_leg_angle ?? null,
-      rightLowerLeg: frame.absolute_angles?.right_lower_leg_angle ?? null,
-    }))
+    return poseData.map((frame) => {
+      // keypointsから角度を計算
+      const keypoints = frame.keypoints || []
+      
+      // 体幹角度を計算
+      const trunkAngle = calculateAbsoluteTrunkAngle(keypoints)
+      
+      // 大腿角度を計算
+      const leftHip = keypoints[LANDMARK_INDICES.left_hip]
+      const rightHip = keypoints[LANDMARK_INDICES.right_hip]
+      const leftKnee = keypoints[LANDMARK_INDICES.left_knee]
+      const rightKnee = keypoints[LANDMARK_INDICES.right_knee]
+      
+      const leftThighAngle = (leftHip && leftKnee) ? calculateAbsoluteThighAngle(leftHip, leftKnee) : null
+      const rightThighAngle = (rightHip && rightKnee) ? calculateAbsoluteThighAngle(rightHip, rightKnee) : null
+      
+      // 下腿角度を計算
+      const leftAnkle = keypoints[LANDMARK_INDICES.left_ankle]
+      const rightAnkle = keypoints[LANDMARK_INDICES.right_ankle]
+      
+      const leftLowerLegAngle = (leftKnee && leftAnkle) ? calculateAbsoluteLowerLegAngle(leftKnee, leftAnkle) : null
+      const rightLowerLegAngle = (rightKnee && rightAnkle) ? calculateAbsoluteLowerLegAngle(rightKnee, rightAnkle) : null
+      
+      return {
+        time: frame.timestamp || (frame.frame_number / videoInfo.fps),
+        frame: frame.frame_number,
+        trunk: trunkAngle,
+        leftThigh: leftThighAngle,
+        rightThigh: rightThighAngle,
+        leftLowerLeg: leftLowerLegAngle,
+        rightLowerLeg: rightLowerLegAngle,
+      }
+    })
   }, [poseData, videoInfo.fps])
 
   // 統計計算

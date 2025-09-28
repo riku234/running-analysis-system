@@ -1525,11 +1525,32 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         </div>
 
         {/* 角度推移分析カード */}
-        {result.pose_analysis?.pose_data && (
+        {result.pose_analysis?.pose_data ? (
           <AngleGraphsCard 
             poseData={result.pose_analysis.pose_data}
             videoInfo={result.pose_analysis.video_info}
           />
+        ) : (
+          <Card className="shadow-lg mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <TrendingUp className="h-5 w-5 mr-2" />
+                📈 角度推移分析
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8 text-gray-500">
+                <p>角度データが利用できません</p>
+                <p className="text-sm mt-2">デバッグ情報:</p>
+                <div className="text-xs mt-2 bg-gray-100 p-2 rounded">
+                  <p>pose_analysis存在: {result.pose_analysis ? 'あり' : 'なし'}</p>
+                  <p>pose_data存在: {result.pose_analysis?.pose_data ? 'あり' : 'なし'}</p>
+                  <p>pose_dataサイズ: {result.pose_analysis?.pose_data?.length || 0}</p>
+                  <p>video_info存在: {result.pose_analysis?.video_info ? 'あり' : 'なし'}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Z値分析カード - 画面全体幅で4イベント並列表示 */}
