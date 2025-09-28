@@ -362,34 +362,6 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
               <h3 className="text-lg font-semibold text-gray-800">🦵 下肢角度推移</h3>
               <Settings2 className="h-4 w-4 text-gray-500" />
             </div>
-            
-            {/* チェックボックス群 */}
-            <div className="flex flex-wrap gap-4 p-3 bg-gray-50 rounded-lg">
-              <AngleCheckbox
-                label="左大腿"
-                checked={legAngleSelection.leftThigh}
-                onChange={(checked) => handleAngleSelectionChange('leftThigh', checked)}
-                color="#8B5CF6"
-              />
-              <AngleCheckbox
-                label="右大腿"
-                checked={legAngleSelection.rightThigh}
-                onChange={(checked) => handleAngleSelectionChange('rightThigh', checked)}
-                color="#3B82F6"
-              />
-              <AngleCheckbox
-                label="左下腿"
-                checked={legAngleSelection.leftLowerLeg}
-                onChange={(checked) => handleAngleSelectionChange('leftLowerLeg', checked)}
-                color="#10B981"
-              />
-              <AngleCheckbox
-                label="右下腿"
-                checked={legAngleSelection.rightLowerLeg}
-                onChange={(checked) => handleAngleSelectionChange('rightLowerLeg', checked)}
-                color="#F59E0B"
-              />
-            </div>
 
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={angleData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -477,6 +449,34 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
               <strong>符号規則:</strong> 膝/足首が後方=正値, 前方=負値 | 
               <strong>平均:</strong> 左大腿{statistics.leg.leftThighMean.toFixed(1)}°, 右大腿{statistics.leg.rightThighMean.toFixed(1)}°, 
               左下腿{statistics.leg.leftLowerLegMean.toFixed(1)}°, 右下腿{statistics.leg.rightLowerLegMean.toFixed(1)}°
+            </div>
+            
+            {/* チェックボックス群 - 符号規則の下に移動 */}
+            <div className="flex flex-wrap gap-4 p-3 bg-gray-50 rounded-lg">
+              <AngleCheckbox
+                label="左大腿"
+                checked={legAngleSelection.leftThigh}
+                onChange={(checked) => handleAngleSelectionChange('leftThigh', checked)}
+                color="#8B5CF6"
+              />
+              <AngleCheckbox
+                label="右大腿"
+                checked={legAngleSelection.rightThigh}
+                onChange={(checked) => handleAngleSelectionChange('rightThigh', checked)}
+                color="#3B82F6"
+              />
+              <AngleCheckbox
+                label="左下腿"
+                checked={legAngleSelection.leftLowerLeg}
+                onChange={(checked) => handleAngleSelectionChange('leftLowerLeg', checked)}
+                color="#10B981"
+              />
+              <AngleCheckbox
+                label="右下腿"
+                checked={legAngleSelection.rightLowerLeg}
+                onChange={(checked) => handleAngleSelectionChange('rightLowerLeg', checked)}
+                color="#F59E0B"
+              />
             </div>
           </div>
         </div>

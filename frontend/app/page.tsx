@@ -10,6 +10,57 @@ export default function HomePage() {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [activePromptTab, setActivePromptTab] = useState<'preset' | 'custom'>('preset')
+  
+  // プロンプト設定の取得
+  const getPromptSettings = () => {
+    console.log('🔧 getPromptSettings 関数開始')
+    
+    // 手書きプロンプトが入力されているかチェック
+    const customPromptElement = document.getElementById('custom-prompt') as HTMLTextAreaElement
+    console.log('🔧 customPromptElement:', customPromptElement)
+    const customPrompt = customPromptElement?.value?.trim()
+    console.log('🔧 customPrompt:', customPrompt)
+    console.log('🔧 customPrompt長:', customPrompt?.length || 0)
+    
+    if (customPrompt) {
+      console.log('✅ カスタムプロンプトが入力されています')
+      // 手書きプロンプトが入力されている場合は、それを優先
+      const temperature = parseFloat((document.getElementById('temperature') as HTMLInputElement)?.value || '0.7')
+      const topP = parseFloat((document.getElementById('top-p') as HTMLInputElement)?.value || '0.8')
+      const maxTokens = parseInt((document.getElementById('max-tokens') as HTMLInputElement)?.value || '1000')
+      
+      const customSettings = {
+        custom_prompt: customPrompt,
+        use_custom_prompt: true,
+        temperature: temperature,
+        top_p: topP,
+        max_output_tokens: maxTokens
+      }
+      console.log('🔧 カスタム設定:', customSettings)
+      return customSettings
+    } else {
+      console.log('📝 プリセット設定を使用')
+      // 選択式設定を使用
+      const coachingStyle = (document.getElementById('coaching-style') as HTMLSelectElement)?.value || 'professional'
+      const detailLevel = (document.getElementById('detail-level') as HTMLSelectElement)?.value || 'detailed'
+      const includeExercises = (document.getElementById('include-exercises') as HTMLInputElement)?.checked ?? true
+      const useScientificTerms = (document.getElementById('use-scientific-terms') as HTMLInputElement)?.checked ?? false
+      
+      const presetSettings = {
+        coaching_style: coachingStyle,
+        advice_detail_level: detailLevel,
+        include_exercises: includeExercises,
+        use_scientific_terms: useScientificTerms,
+        use_custom_prompt: false,
+        temperature: 0.7,
+        top_p: 0.8,
+        max_output_tokens: 1000
+      }
+      console.log('🔧 プリセット設定:', presetSettings)
+      return presetSettings
+    }
+  }
   
   // Zustandストアのアクション
   const { setPoseData, setVideoInfo, setUploadInfo, clearData } = useResultStore()
@@ -78,6 +129,28 @@ export default function HomePage() {
       // FormDataオブジェクトを作成
       const formData = new FormData()
       formData.append('file', selectedFile)
+      
+      // プロンプト設定を取得して送信
+      try {
+        console.log('🔍 プロンプト設定取得開始...')
+        const promptSettings = getPromptSettings()
+        console.log('✅ プロンプト設定取得成功:', promptSettings)
+        
+        if (promptSettings) {
+          const jsonString = JSON.stringify(promptSettings)
+          formData.append('prompt_settings', jsonString)
+          console.log('📋 プロンプト設定を適用:', promptSettings)
+          console.log('📝 JSON文字列:', jsonString)
+          console.log('📝 JSON文字列長:', jsonString.length)
+          console.log('📤 FormData内容確認:', Array.from(formData.entries()))
+          console.log('📤 FormDataにprompSettingsが含まれているか:', formData.has('prompt_settings'))
+        } else {
+          console.warn('⚠️ プロンプト設定がnullまたはundefined')
+        }
+      } catch (error) {
+        console.error('❌ プロンプト設定の取得に失敗:', error)
+        console.error('❌ エラー詳細:', error.stack)
+      }
 
       console.log('アップロード開始:', selectedFile.name)
 
@@ -143,6 +216,13 @@ export default function HomePage() {
         pose_data_pose_data_length: result.pose_data?.pose_data?.length || 0,
         pose_analysis_keys: result.pose_analysis ? Object.keys(result.pose_analysis) : [],
         pose_data_keys: result.pose_data ? Object.keys(result.pose_data) : [],
+        // アドバイスデータのチェック追加
+        has_advice_results: !!result.advice_results,
+        has_advice_analysis: !!result.advice_analysis,
+        advice_results_keys: result.advice_results ? Object.keys(result.advice_results) : [],
+        advice_analysis_keys: result.advice_analysis ? Object.keys(result.advice_analysis) : [],
+        has_integrated_advice: !!(result.advice_results?.integrated_advice || result.advice_analysis?.integrated_advice),
+        integrated_advice_length: (result.advice_results?.integrated_advice || result.advice_analysis?.integrated_advice)?.length || 0,
         // サンプルデータ（最初の2フレームのみ）
         pose_analysis_sample: result.pose_analysis?.pose_data ? result.pose_analysis.pose_data.slice(0, 2) : null,
         pose_data_sample: result.pose_data?.pose_data ? result.pose_data.pose_data.slice(0, 2) : null,
@@ -176,6 +256,13 @@ export default function HomePage() {
       console.log("📤 pose_data.pose_data フレーム数:", debugInfo.pose_data_pose_data_length)
       console.log("📤 pose_analysis キー:", debugInfo.pose_analysis_keys)
       console.log("📤 pose_data キー:", debugInfo.pose_data_keys)
+      console.log("📤 ===== アドバイスデータチェック =====")
+      console.log("📤 advice_results有無:", debugInfo.has_advice_results)
+      console.log("📤 advice_analysis有無:", debugInfo.has_advice_analysis)
+      console.log("📤 integrated_advice有無:", debugInfo.has_integrated_advice)
+      console.log("📤 integrated_advice長:", debugInfo.integrated_advice_length)
+      console.log("📤 advice_results キー:", debugInfo.advice_results_keys)
+      console.log("📤 advice_analysis キー:", debugInfo.advice_analysis_keys)
       console.log("📤 デバッグ情報をlocalStorageに保存しました！")
       // ★★★ デバッグここまで ★★★
 
@@ -486,6 +573,196 @@ export default function HomePage() {
                 <span className="bg-gray-100 px-3 py-1 rounded-full">AVI</span>
                 <span className="bg-gray-100 px-3 py-1 rounded-full">MOV</span>
                 <span className="bg-gray-100 px-3 py-1 rounded-full">最大100MB</span>
+              </div>
+            </div>
+          </div>
+
+          {/* プロンプト設定セクション */}
+          <div className="mt-12">
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+              <div className="p-6">
+                <div className="text-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-900 mb-2">
+                    🎯 AIアドバイス設定
+                  </h2>
+                  <p className="text-gray-600 text-sm">
+                    あなたに最適なコーチングスタイルを選択してください
+                  </p>
+                </div>
+
+              {/* タブ切り替え */}
+              <div className="flex border-b border-gray-200 mb-6">
+                <button
+                  type="button"
+                  onClick={() => setActivePromptTab('preset')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activePromptTab === 'preset'
+                      ? 'border-blue-500 text-blue-600 bg-blue-50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  ⚙️ プリセット設定
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePromptTab('custom')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activePromptTab === 'custom'
+                      ? 'border-blue-500 text-blue-600 bg-blue-50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  ✍️ カスタムプロンプト
+                </button>
+              </div>
+
+              {/* プリセット設定タブ */}
+              {activePromptTab === 'preset' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      コーチングスタイル
+                    </label>
+                    <select
+                      id="coaching-style"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      defaultValue="professional"
+                    >
+                      <option value="professional">👔 プロフェッショナル - 客観的で専門的なアドバイス</option>
+                      <option value="friendly">😊 フレンドリー - 親しみやすく親切なアドバイス</option>
+                      <option value="motivational">💪 モチベーショナル - 励ましと応援重視</option>
+                      <option value="technical">🔬 テクニカル - 科学的で詳細なアドバイス</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      詳細レベル
+                    </label>
+                    <select
+                      id="detail-level"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      defaultValue="detailed"
+                    >
+                      <option value="basic">📝 基本 - 要点のみ簡潔に</option>
+                      <option value="detailed">📚 詳細 - 理由と方法を含む</option>
+                      <option value="expert">🎓 専門家レベル - 深い分析と解説</option>
+                    </select>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="include-exercises"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          defaultChecked
+                        />
+                        <span className="text-sm text-gray-700">エクササイズ提案を含める</span>
+                      </label>
+                    </div>
+                    <div>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="use-scientific-terms"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-700">専門用語を使用</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-sm text-blue-800">
+                      💡 プリセット設定が動画アップロード時に適用されます
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* カスタムプロンプトタブ */}
+              {activePromptTab === 'custom' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      カスタムプロンプト
+                    </label>
+                    <textarea
+                      id="custom-prompt"
+                      rows={8}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                      placeholder="例: あなたは経験豊富なランニングコーチです。フォーム分析の結果を元に、初心者にもわかりやすく具体的な改善アドバイスを提供してください。
+
+以下の課題について分析してください: {issues}
+
+アドバイスには以下を含めてください：
+1. 課題の説明（なぜその課題が問題なのか）
+2. 具体的な改善方法
+3. 日常でできる練習方法
+
+回答は親しみやすく、励ましの言葉も含めてください。マークダウン記法は使用せず、プレーンテキストで回答してください。"
+                    />
+                  </div>
+
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Temperature (創造性)
+                      </label>
+                      <input
+                        type="range"
+                        id="temperature"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        defaultValue="0.7"
+                        className="w-full"
+                      />
+                      <span className="text-xs text-gray-500">0.0 (保守的) - 1.0 (創造的)</span>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Top P (多様性)
+                      </label>
+                      <input
+                        type="range"
+                        id="top-p"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        defaultValue="0.8"
+                        className="w-full"
+                      />
+                      <span className="text-xs text-gray-500">0.0 (狭い) - 1.0 (広い)</span>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        最大トークン数
+                      </label>
+                      <input
+                        type="number"
+                        id="max-tokens"
+                        min="100"
+                        max="2000"
+                        step="100"
+                        defaultValue="1000"
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-sm text-green-800">
+                      ✍️ カスタムプロンプト入力時は、この内容が優先的に使用されます
+                    </p>
+                    <p className="text-xs text-green-600 mt-1">
+                      {"{issues}"}の部分には検出された課題が自動的に挿入されます
+                    </p>
+                  </div>
+                </div>
+              )}
               </div>
             </div>
           </div>

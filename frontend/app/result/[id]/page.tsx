@@ -595,6 +595,15 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         if (savedResult) {
           const lightResult = JSON.parse(savedResult)
           
+          // 開発環境でlocalStorageデータの構造をデバッグ
+          if (process.env.NODE_ENV === 'development') {
+            console.log('📋 localStorage データ構造デバッグ:');
+            console.log('  lightResult keys:', Object.keys(lightResult));
+            console.log('  lightResult.advice_results:', lightResult.advice_results ? 'あり' : 'なし');
+            console.log('  lightResult.advice_analysis:', lightResult.advice_analysis ? 'あり' : 'なし');
+            console.log('  全データ:', lightResult);
+          }
+          
           // Zustandストアからpose_dataを追加してresultを再構成
           const completeResult = {
             ...lightResult,
@@ -862,7 +871,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         <div className="grid lg:grid-cols-2 gap-6">
           {/* 左カラム：動画プレイヤー（1/2幅） */}
           <div>
-            <Card className="shadow-xl">
+            <Card className="shadow-xl h-full flex flex-col">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <PlayCircle className="h-5 w-5 mr-2" />
@@ -872,7 +881,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   骨格キーポイントがリアルタイムで表示されます
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 flex flex-col">
                 {poseData && poseData.length > 0 ? (
                   (() => {
                     // ★★★ ZustandストアからPoseVisualizerに渡すデータをデバッグ ★★★
@@ -959,6 +968,28 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                       </div>
                     </div>
                   )}
+                </div>
+                
+                {/* アクションボタン */}
+                <div className="space-y-3 mt-6 pt-4 border-t">
+                  <Button 
+                    onClick={() => window.location.href = '/'}
+                    className="w-full"
+                    size="lg"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    もう一度解析する
+                  </Button>
+                  
+                  <Button 
+                    variant="outline"
+                    onClick={() => window.open(videoUrl, '_blank')}
+                    className="w-full"
+                    size="lg"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    動画をダウンロード
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -1344,7 +1375,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             )}
 
             {/* ランニングメトリクスカード */}
-            <Card className="shadow-lg">
+            <Card className="shadow-lg h-full flex flex-col">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Activity className="h-5 w-5 mr-2" />
@@ -1354,9 +1385,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   重心上下動とピッチ（ケイデンス）
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1">
                 {result.feature_analysis?.features && (
-                  <div className="space-y-4">
+                  <div className="space-y-4 h-full flex flex-col justify-center">
                     {/* 重心上下動 */}
                     {(result.feature_analysis.features as any)?.running_metrics?.vertical_oscillation && (
                       <div className="text-center p-4 bg-emerald-50 rounded-lg border border-emerald-200">
@@ -1501,27 +1532,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             </Card>
             )}
 
-            {/* アクションボタン */}
-            <div className="space-y-3">
-              <Button 
-                onClick={() => window.location.href = '/'}
-                className="w-full"
-                size="lg"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                もう一度解析する
-              </Button>
-              
-              <Button 
-                variant="outline"
-                onClick={() => window.open(videoUrl, '_blank')}
-                className="w-full"
-                size="lg"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                動画をダウンロード
-              </Button>
-            </div>
           </div>
         </div>
 
@@ -1912,6 +1922,16 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             const finalAdvice = integratedAdvice || advancedAdvice;
             const highLevelIssues = result?.advice_results?.high_level_issues || result?.advice_analysis?.high_level_issues || [];
             
+            // 開発環境でのデバッグ情報
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🎯 統合アドバイス表示デバッグ:');
+              console.log('  integratedAdvice:', integratedAdvice ? `"${integratedAdvice.substring(0, 100)}..."` : 'なし');
+              console.log('  advancedAdvice:', advancedAdvice ? `"${advancedAdvice.substring(0, 100)}..."` : 'なし');
+              console.log('  finalAdvice:', finalAdvice ? `"${finalAdvice.substring(0, 100)}..."` : 'なし');
+              console.log('  result.advice_results:', result?.advice_results ? 'あり' : 'なし');
+              console.log('  result.advice_analysis:', result?.advice_analysis ? 'あり' : 'なし');
+            }
+            
             if (finalAdvice && finalAdvice.trim()) {
               const isIntegrated = !!integratedAdvice;
               
@@ -1940,6 +1960,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 </Card>
               );
             }
+            
+            // アドバイスが見つからない場合は何も表示しない（開発環境と本番環境で統一）
+            
             return null;
           })()}
 

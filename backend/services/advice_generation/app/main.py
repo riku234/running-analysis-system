@@ -53,6 +53,7 @@ app.add_middleware(
 class AdviceRequest(BaseModel):
     video_id: str
     issues: List[str]  # 課題リスト（issue_analysisから受け取る）
+    prompt_settings: Dict[str, Any] = None  # カスタムプロンプト設定（任意）
 
 class AdviceResponse(BaseModel):
     status: str
@@ -72,6 +73,7 @@ class AdvancedAdviceResponse(BaseModel):
 class IntegratedAdviceRequest(BaseModel):
     video_id: str
     issues_list: List[str]  # Z値判定などによって特定された課題のリスト
+    prompt_settings: Dict[str, Any] = None  # カスタムプロンプト設定（任意）
 
 class IntegratedAdviceResponse(BaseModel):
     status: str
@@ -728,16 +730,69 @@ async def generate_advice(request: AdviceRequest):
         for i, issue in enumerate(valid_issues, 1):
             print(f"      {i}. {issue}")
         
-        # Geminiプロンプト生成
-        prompt = create_gemini_prompt(valid_issues)
+        # プロンプト設定の確認
+        prompt_settings = request.prompt_settings
+        if prompt_settings:
+            if prompt_settings.get('use_custom_prompt', False):
+                print(f"   ✍️ カスタムプロンプト受信:")
+                custom_prompt = prompt_settings.get('custom_prompt', '')
+                print(f"      プロンプト長: {len(custom_prompt)} 文字")
+                print(f"      Temperature: {prompt_settings.get('temperature', 0.7)}")
+                print(f"      Top-P: {prompt_settings.get('top_p', 0.8)}")
+                print(f"      Max Tokens: {prompt_settings.get('max_output_tokens', 1000)}")
+                print(f"      プロンプト概要: {custom_prompt[:100]}...")
+            else:
+                print(f"   🎯 プリセットプロンプト設定受信:")
+                print(f"      コーチングスタイル: {prompt_settings.get('coaching_style', 'デフォルト')}")
+                print(f"      詳細レベル: {prompt_settings.get('advice_detail_level', 'デフォルト')}")
+                print(f"      エクササイズ含める: {prompt_settings.get('include_exercises', True)}")
+                print(f"      専門用語使用: {prompt_settings.get('use_scientific_terms', False)}")
+        else:
+            print(f"   📝 デフォルトプロンプト設定を使用")
+        
+        # プロンプト生成（カスタムプロンプトまたはデフォルト）
+        if prompt_settings and prompt_settings.get('use_custom_prompt', False):
+            # カスタムプロンプトを使用
+            custom_template = prompt_settings.get('custom_prompt', '')
+            issues_str = "、".join(valid_issues)
+            prompt = custom_template.replace('{issues}', issues_str)
+            print(f"   📝 カスタムプロンプト適用済み (長さ: {len(prompt)} 文字)")
+        else:
+            # デフォルトプロンプトを使用
+            prompt = create_gemini_prompt(valid_issues)
         print(f"   🤖 Gemini APIにリクエスト送信中...")
         
+        # カスタム設定に応じたモデル選択
+        current_model = model  # デフォルトモデル
+        if prompt_settings:
+            # カスタム設定がある場合、動的に設定を適用
+            try:
+                custom_config = genai.types.GenerationConfig(
+                    temperature=prompt_settings.get('temperature', 0.7),
+                    top_p=prompt_settings.get('top_p', 0.8),
+                    max_output_tokens=prompt_settings.get('max_output_tokens', 1000),
+                )
+                
+                current_model = genai.GenerativeModel(
+                    'gemini-flash-latest',
+                    generation_config=custom_config,
+                    safety_settings=[
+                        {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+                        {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+                        {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+                        {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+                    ]
+                )
+                print(f"   🎛️ カスタムモデル設定適用済み")
+            except Exception as e:
+                print(f"   ⚠️ カスタムモデル設定エラー、デフォルト使用: {e}")
+
         # Gemini APIの呼び出し（レート制限対応）
         max_retries = 3
         response = None
         for attempt in range(max_retries):
             try:
-                response = model.generate_content(prompt)
+                response = current_model.generate_content(prompt)
                 ai_response = response.text.strip()
                 break
             except Exception as api_error:
@@ -975,6 +1030,17 @@ async def generate_integrated_advice_endpoint(request: IntegratedAdviceRequest):
         print(f"   ✅ 有効な課題数: {len(valid_issues)}")
         for i, issue in enumerate(valid_issues, 1):
             print(f"      {i}. {issue}")
+        
+        # プロンプト設定の確認
+        prompt_settings = request.prompt_settings
+        if prompt_settings:
+            print(f"   🎯 カスタムプロンプト設定受信:")
+            print(f"      コーチングスタイル: {prompt_settings.get('coaching_style', 'デフォルト')}")
+            print(f"      詳細レベル: {prompt_settings.get('advice_detail_level', 'デフォルト')}")
+            print(f"      エクササイズ含める: {prompt_settings.get('include_exercises', True)}")
+            print(f"      専門用語使用: {prompt_settings.get('use_scientific_terms', False)}")
+        else:
+            print(f"   📝 デフォルトプロンプト設定を使用")
         
         print(f"   🧠 統合アドバイス生成中...")
         integrated_advice = await generate_integrated_advice(valid_issues)

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
@@ -11,6 +11,8 @@ from datetime import datetime
 import httpx
 import asyncio
 import logging
+import json
+from typing import Optional
 
 # ロギングの設定
 logging.basicConfig(level=logging.INFO)
@@ -48,12 +50,16 @@ async def health_check():
     return {"status": "healthy", "service": "video_processing"}
 
 @app.post("/upload")
-async def upload_video(file: UploadFile = File(...)):
+async def upload_video(
+    file: UploadFile = File(...),
+    prompt_settings: Optional[str] = Form(None)
+):
     """
     動画ファイルをアップロードして解析パイプラインを実行する（堅牢版）
     
     Args:
         file: アップロードされた動画ファイル
+        prompt_settings: カスタムプロンプト設定（JSON文字列、任意）
         
     Returns:
         解析結果またはエラー情報
@@ -106,6 +112,27 @@ async def upload_video(file: UploadFile = File(...)):
             "upload_timestamp": datetime.now().isoformat(),
             "file_extension": file_extension
         }
+        
+        # プロンプト設定の解析と検証
+        logger.info(f"🎯 プロンプト設定受信チェック: prompt_settings={prompt_settings}")
+        logger.info(f"🎯 プロンプト設定タイプ: {type(prompt_settings)}")
+        parsed_prompt_settings = None
+        if prompt_settings:
+            try:
+                parsed_prompt_settings = json.loads(prompt_settings)
+                logger.info(f"✅ カスタムプロンプト設定受信成功: {list(parsed_prompt_settings.keys())}")
+                logger.info(f"   コーチングスタイル: {parsed_prompt_settings.get('coaching_style', 'デフォルト')}")
+                logger.info(f"   詳細レベル: {parsed_prompt_settings.get('advice_detail_level', 'デフォルト')}")
+                logger.info(f"   カスタムプロンプト使用: {parsed_prompt_settings.get('use_custom_prompt', False)}")
+                if parsed_prompt_settings.get('use_custom_prompt', False):
+                    custom_prompt = parsed_prompt_settings.get('custom_prompt', '')
+                    logger.info(f"   📝 カスタムプロンプト長: {len(custom_prompt)} 文字")
+                    logger.info(f"   📝 カスタムプロンプト概要: {custom_prompt[:100]}...")
+            except json.JSONDecodeError as e:
+                logger.warning(f"❌ プロンプト設定のJSON解析エラー: {e}")
+                parsed_prompt_settings = None
+        else:
+            logger.info("📝 デフォルトプロンプト設定を使用（prompt_settings is None)")
         
         # 各サービスのURL定義
         POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
@@ -201,6 +228,10 @@ async def upload_video(file: UploadFile = File(...)):
                         "issues": issue_data.get("issues", [])
                     }
                     
+                    # カスタムプロンプト設定を追加
+                    if parsed_prompt_settings:
+                        advice_request["prompt_settings"] = parsed_prompt_settings
+                    
                     advice_response = await client.post(
                         ADVICE_GENERATION_URL,
                         json=advice_request,
@@ -234,6 +265,10 @@ async def upload_video(file: UploadFile = File(...)):
                         "video_id": unique_id,
                         "issues_list": high_level_issues
                     }
+                    
+                    # カスタムプロンプト設定を統合アドバイスにも追加
+                    if parsed_prompt_settings:
+                        integrated_advice_request["prompt_settings"] = parsed_prompt_settings
                     
                     integrated_advice_response = await client.post(
                         f"http://advice_generation:8005/generate-integrated",
