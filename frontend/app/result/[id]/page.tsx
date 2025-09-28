@@ -1456,7 +1456,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            {/* 課題分析カード */}
+            {/* 課題分析カード - 本番環境では非表示 */}
+            {process.env.NODE_ENV === 'development' && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -1494,6 +1495,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                 )}
               </CardContent>
             </Card>
+            )}
 
             {/* アクションボタン */}
             <div className="space-y-3">
