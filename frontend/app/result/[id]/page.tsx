@@ -966,8 +966,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
 
           {/* 右カラム：解析結果（1/2幅） */}
           <div className="space-y-6">
-            {/* 解析結果カード - 本番環境では非表示 */}
-            {process.env.NODE_ENV === 'development' && (
+            {/* 解析結果カード - 開発環境でのみ表示 */}
+            {false && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -1006,8 +1006,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         </Card>
             )}
 
-            {/* 関節角度カード - 本番環境では非表示 */}
-            {process.env.NODE_ENV === 'development' && (
+            {/* 関節角度カード - 開発環境でのみ表示 */}
+            {false && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -1458,8 +1458,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               </CardContent>
             </Card>
 
-            {/* 課題分析カード - 本番環境では非表示 */}
-            {process.env.NODE_ENV === 'development' && (
+          {/* 課題分析カード - 開発環境でのみ表示 */}
+          {false && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -1771,8 +1771,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </Card>
         )}
 
-          {/* Z値分析によるAIアドバイスセクション - 改善版 - 本番環境では非表示 */}
-          {process.env.NODE_ENV === 'development' && adviceData && (
+          {/* Z値分析によるAIアドバイスセクション - 改善版 - 開発環境でのみ表示 */}
+          {false && adviceData && (
             <Card className="shadow-lg mt-6 border-l-4 border-emerald-500">
               <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50">
                 <CardTitle className="flex items-center text-emerald-800 text-lg">

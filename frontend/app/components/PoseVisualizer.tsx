@@ -636,8 +636,8 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
           </div>
         </div>
 
-        {/* リアルタイム関節角度表示エリア - 開発環境のみ表示 */}
-        {process.env.NODE_ENV === 'development' && (
+                {/* リアルタイム関節角度表示エリア - 開発環境でのみ表示 */}
+                {false && (
           <div className="lg:col-span-1">
           <div className="bg-white rounded-lg shadow-lg p-6">
             <h3 className="text-lg font-semibold mb-4 text-gray-800 border-b pb-2">
