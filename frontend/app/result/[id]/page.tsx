@@ -12,7 +12,8 @@ import {
   ArrowLeft,
   Download,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  TrendingUp
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -1524,34 +1525,44 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* 角度推移分析カード */}
-        {result.pose_analysis?.pose_data ? (
-          <AngleGraphsCard 
-            poseData={result.pose_analysis.pose_data}
-            videoInfo={result.pose_analysis.video_info}
-          />
-        ) : (
-          <Card className="shadow-lg mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <TrendingUp className="h-5 w-5 mr-2" />
-                📈 角度推移分析
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+        {/* 角度推移分析カード - 常に表示してデバッグ */}
+        <Card className="shadow-lg mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <TrendingUp className="h-5 w-5 mr-2" />
+              📈 角度推移分析
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {result.pose_analysis?.pose_data ? (
+              <AngleGraphsCard 
+                poseData={result.pose_analysis.pose_data}
+                videoInfo={result.pose_analysis.video_info}
+              />
+            ) : (
               <div className="text-center py-8 text-gray-500">
-                <p>角度データが利用できません</p>
-                <p className="text-sm mt-2">デバッグ情報:</p>
-                <div className="text-xs mt-2 bg-gray-100 p-2 rounded">
-                  <p>pose_analysis存在: {result.pose_analysis ? 'あり' : 'なし'}</p>
-                  <p>pose_data存在: {result.pose_analysis?.pose_data ? 'あり' : 'なし'}</p>
-                  <p>pose_dataサイズ: {result.pose_analysis?.pose_data?.length || 0}</p>
-                  <p>video_info存在: {result.pose_analysis?.video_info ? 'あり' : 'なし'}</p>
+                <p className="text-lg mb-4">🔍 データ構造デバッグ</p>
+                <div className="text-xs mt-2 bg-gray-100 p-4 rounded text-left">
+                  <p><strong>result存在:</strong> {result ? 'あり' : 'なし'}</p>
+                  <p><strong>pose_analysis存在:</strong> {result?.pose_analysis ? 'あり' : 'なし'}</p>
+                  <p><strong>pose_data存在:</strong> {result?.pose_analysis?.pose_data ? 'あり' : 'なし'}</p>
+                  <p><strong>pose_dataサイズ:</strong> {result?.pose_analysis?.pose_data?.length || 0}</p>
+                  <p><strong>video_info存在:</strong> {result?.pose_analysis?.video_info ? 'あり' : 'なし'}</p>
+                  {result?.pose_analysis && (
+                    <div className="mt-2 pt-2 border-t">
+                      <p><strong>pose_analysis keys:</strong> {Object.keys(result.pose_analysis).join(', ')}</p>
+                    </div>
+                  )}
+                  {result && (
+                    <div className="mt-2 pt-2 border-t">
+                      <p><strong>result keys:</strong> {Object.keys(result).join(', ')}</p>
+                    </div>
+                  )}
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
 
         {/* Z値分析カード - 画面全体幅で4イベント並列表示 */}
         <Card className="shadow-lg mb-6">
