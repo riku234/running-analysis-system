@@ -111,7 +111,7 @@ interface FramePoseData {
   timestamp: number
   keypoints: KeyPoint[]
   landmarks_detected: boolean
-  confidence_score: number
+  confidence_score?: number // オプショナルに変更
 }
 
 interface VideoInfo {
