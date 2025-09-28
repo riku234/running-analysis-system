@@ -21,6 +21,9 @@ ssh -i "$KEY_FILE" ec2-user@$EC2_IP "cd running-analysis-system && git pull orig
 echo "🐳 Dockerサービスの状態確認..."
 ssh -i "$KEY_FILE" ec2-user@$EC2_IP "cd running-analysis-system && docker-compose ps"
 
+echo "🔨 フロントエンド強制再ビルド..."
+ssh -i "$KEY_FILE" ec2-user@$EC2_IP "cd running-analysis-system && docker-compose stop frontend && docker-compose rm -f frontend && docker image rm running-analysis-system-frontend 2>/dev/null || true && docker-compose build --no-cache frontend"
+
 echo "⚡ サービス起動..."
 ssh -i "$KEY_FILE" ec2-user@$EC2_IP "cd running-analysis-system && docker-compose up -d"
 
