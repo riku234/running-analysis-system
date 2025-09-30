@@ -263,6 +263,16 @@ export default function HomePage() {
       console.log("📤 integrated_advice長:", debugInfo.integrated_advice_length)
       console.log("📤 advice_results キー:", debugInfo.advice_results_keys)
       console.log("📤 advice_analysis キー:", debugInfo.advice_analysis_keys)
+      
+      // アップロード直後のアドバイスデータ詳細ログ
+      if (result.advice_results) {
+        console.log("🎯 アップロード直後のadvice_results詳細:", result.advice_results);
+        console.log("🎯 integrated_advice内容:", result.advice_results.integrated_advice);
+      }
+      if (result.advice_analysis) {
+        console.log("🎯 アップロード直後のadvice_analysis詳細:", result.advice_analysis);
+        console.log("🎯 integrated_advice内容:", result.advice_analysis.integrated_advice);
+      }
       console.log("📤 デバッグ情報をlocalStorageに保存しました！")
       // ★★★ デバッグここまで ★★★
 
@@ -343,8 +353,21 @@ export default function HomePage() {
       
       // localStorage保存時のエラーハンドリング
       try {
+        // localStorage保存前のアドバイスデータ確認
+        console.log("💾 localStorage保存前確認:");
+        console.log("💾 lightWeightResult.advice_results:", !!lightWeightResult.advice_results);
+        console.log("💾 lightWeightResult.advice_analysis:", !!lightWeightResult.advice_analysis);
+        if (lightWeightResult.advice_results) {
+          console.log("💾 advice_results詳細:", lightWeightResult.advice_results);
+        }
+        if (lightWeightResult.advice_analysis) {
+          console.log("💾 advice_analysis詳細:", lightWeightResult.advice_analysis);
+        }
+        
         const jsonString = JSON.stringify(lightWeightResult)
         const sizeInMB = new Blob([jsonString]).size / 1024 / 1024
+        
+        console.log("💾 localStorage保存サイズ:", `${sizeInMB.toFixed(2)}MB`);
         
         if (sizeInMB > 4) { // 4MB制限
           console.warn(`結果データが大きすぎます: ${sizeInMB.toFixed(2)}MB`)
@@ -366,6 +389,21 @@ export default function HomePage() {
           localStorage.setItem(`light_analysis_result_${result.upload_info.file_id}`, JSON.stringify(minimalResult))
         } else {
           localStorage.setItem(`light_analysis_result_${result.upload_info.file_id}`, jsonString)
+          
+          // 保存後の確認
+          const savedData = localStorage.getItem(`light_analysis_result_${result.upload_info.file_id}`)
+          if (savedData) {
+            const parsedSaved = JSON.parse(savedData)
+            console.log("✅ localStorage保存後確認:");
+            console.log("✅ 保存されたadvice_results:", !!parsedSaved.advice_results);
+            console.log("✅ 保存されたadvice_analysis:", !!parsedSaved.advice_analysis);
+            if (parsedSaved.advice_results?.integrated_advice) {
+              console.log("✅ integrated_advice長:", parsedSaved.advice_results.integrated_advice.length, "文字");
+            }
+            if (parsedSaved.advice_analysis?.integrated_advice) {
+              console.log("✅ integrated_advice長:", parsedSaved.advice_analysis.integrated_advice.length, "文字");
+            }
+          }
         }
         
         console.log(`結果をlocalStorageに保存しました: ${sizeInMB.toFixed(2)}MB`)

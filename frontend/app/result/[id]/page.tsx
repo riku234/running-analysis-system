@@ -846,7 +846,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
       {/* ヘッダー */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-primary-gradient">解析結果</h1>
+            <h1 className="text-3xl font-bold text-blue-600">解析結果</h1>
             <p className="text-muted-foreground">
               {result.upload_info.original_filename}
             </p>
@@ -1620,18 +1620,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               <div className="space-y-6">
                 {/* 分析サマリー */}
                 <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-lg border border-purple-200">
-                  <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="grid grid-cols-2 gap-4 text-center">
                     <div>
                       <div className="text-2xl font-bold text-purple-700">
                         {zScoreData.analysis_summary?.total_events_analyzed || 0}
                       </div>
                       <div className="text-sm text-purple-600">分析イベント数</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-bold text-red-600">
-                        {zScoreData.analysis_summary?.significant_deviations?.length || 0}
-                      </div>
-                      <div className="text-sm text-red-500">有意な偏差</div>
                     </div>
                     <div>
                       <div className={`text-2xl font-bold ${
@@ -1700,24 +1694,34 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                                     </div>
                                   </div>
                                   
-                                  {/* コンパクトなメモリ表示 */}
+                                  {/* コンパクトなメモリ表示（白抜き仕様） */}
                                   <div className="space-y-1">
-                                    <div className="relative h-3 bg-gray-200 rounded-full overflow-hidden">
-                                      {/* 背景のゾーン表示 */}
+                                    <div className="relative h-4 bg-white border-2 border-gray-300 rounded-full overflow-hidden">
+                                      {/* ゾーン区切り線 */}
                                       <div className="absolute inset-0 flex">
-                                        <div className="w-1/6 bg-red-100"></div>
-                                        <div className="w-1/6 bg-yellow-100"></div>
-                                        <div className="w-1/3 bg-green-100"></div>
-                                        <div className="w-1/6 bg-yellow-100"></div>
-                                        <div className="w-1/6 bg-red-100"></div>
+                                        {/* -3 to -2 ゾーン */}
+                                        <div className="w-1/6 border-r border-gray-300"></div>
+                                        {/* -2 to -1 ゾーン */}
+                                        <div className="w-1/6 border-r border-gray-300"></div>
+                                        {/* -1 to +1 ゾーン（正常範囲） */}
+                                        <div className="w-1/3 border-r border-gray-300"></div>
+                                        {/* +1 to +2 ゾーン */}
+                                        <div className="w-1/6 border-r border-gray-300"></div>
+                                        {/* +2 to +3 ゾーン */}
+                                        <div className="w-1/6"></div>
                                       </div>
                                       
-                                      {/* 中央線（Z=0） */}
-                                      <div className="absolute left-1/2 top-0 h-full w-0.5 bg-gray-400 transform -translate-x-0.5"></div>
+                                      {/* 中央線（Z=0）を太くして目立たせる */}
+                                      <div className="absolute left-1/2 top-0 h-full w-1 bg-gray-600 transform -translate-x-0.5"></div>
                                       
-                                      {/* Z値インジケーター */}
+                                      {/* Z値インジケーター（より太く、ドロップシャドウ付き） */}
                                       <div 
-                                        className={`absolute top-0 h-full w-0.5 ${config.color.includes('red') ? 'bg-red-500' : config.color.includes('yellow') ? 'bg-yellow-500' : config.color.includes('blue') ? 'bg-blue-500' : 'bg-green-500'} transform -translate-x-0.5`}
+                                        className={`absolute top-0 h-full w-1.5 rounded-full shadow-md transform -translate-x-0.5 ${
+                                          config.color.includes('red') ? 'bg-red-600' : 
+                                          config.color.includes('yellow') ? 'bg-yellow-500' : 
+                                          config.color.includes('blue') ? 'bg-blue-600' : 
+                                          'bg-green-600'
+                                        }`}
                                         style={{
                                           left: `${Math.max(0, Math.min(100, ((zScore + 3) / 6) * 100))}%`
                                         }}
@@ -1738,31 +1742,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     )
                   })}
                 </div>
-                
-                {/* 有意な偏差の詳細 */}
-                {zScoreData.analysis_summary?.significant_deviations && zScoreData.analysis_summary.significant_deviations.length > 0 && (
-                  <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
-                    <h4 className="font-semibold text-amber-800 mb-2">⚠️ 注目すべき点 (|Z| &gt; 2.0)</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {zScoreData.analysis_summary.significant_deviations.map((deviation, index) => {
-                        const eventNames: {[key: string]: string} = {
-                          'right_strike': '右足接地',
-                          'right_off': '右足離地',
-                          'left_strike': '左足接地', 
-                          'left_off': '左足離地'
-                        }
-                        const eventName = eventNames[deviation.event] || deviation.event
-                        const severityIcon = deviation.severity === 'high' ? '🔴' : '🟡'
-                        
-                        return (
-                          <div key={index} className="text-sm text-amber-700">
-                            {severityIcon} {eventName} - {deviation.angle}: Z={deviation.z_score >= 0 ? '+' : ''}{deviation.z_score.toFixed(2)}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 {/* Z値の説明 */}
                 <div className="bg-gray-50 p-4 rounded-lg border">
@@ -1922,14 +1901,24 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             const finalAdvice = integratedAdvice || advancedAdvice;
             const highLevelIssues = result?.advice_results?.high_level_issues || result?.advice_analysis?.high_level_issues || [];
             
-            // 開発環境でのデバッグ情報
-            if (process.env.NODE_ENV === 'development') {
-              console.log('🎯 統合アドバイス表示デバッグ:');
-              console.log('  integratedAdvice:', integratedAdvice ? `"${integratedAdvice.substring(0, 100)}..."` : 'なし');
-              console.log('  advancedAdvice:', advancedAdvice ? `"${advancedAdvice.substring(0, 100)}..."` : 'なし');
-              console.log('  finalAdvice:', finalAdvice ? `"${finalAdvice.substring(0, 100)}..."` : 'なし');
-              console.log('  result.advice_results:', result?.advice_results ? 'あり' : 'なし');
-              console.log('  result.advice_analysis:', result?.advice_analysis ? 'あり' : 'なし');
+            // 一時的な本番環境デバッグ情報（問題解決後に削除）
+            console.log('🎯 統合アドバイス表示デバッグ（本番環境）:');
+            console.log('  integratedAdvice:', integratedAdvice ? `"${integratedAdvice.substring(0, 100)}..."` : '❌ なし');
+            console.log('  advancedAdvice:', advancedAdvice ? `"${advancedAdvice.substring(0, 100)}..."` : '❌ なし');
+            console.log('  finalAdvice:', finalAdvice ? `"${finalAdvice.substring(0, 100)}..."` : '❌ なし');
+            console.log('  result.advice_results:', result?.advice_results ? '✅ あり' : '❌ なし');
+            console.log('  result.advice_analysis:', result?.advice_analysis ? '✅ あり' : '❌ なし');
+            console.log('  result 全体構造:', result ? Object.keys(result) : '❌ result が null/undefined');
+            console.log('  result 詳細:', result);
+            console.log('  result のタイプ:', typeof result);
+            console.log('  result は配列か:', Array.isArray(result));
+            
+            // advice_results と advice_analysis の詳細構造をチェック
+            if (result?.advice_results) {
+              console.log('  advice_results キー:', Object.keys(result.advice_results));
+            }
+            if (result?.advice_analysis) {
+              console.log('  advice_analysis キー:', Object.keys(result.advice_analysis));
             }
             
             if (finalAdvice && finalAdvice.trim()) {
