@@ -389,7 +389,8 @@ async def upload_video(
                                 logger.info(f"✅ キーポイントデータを保存しました")
                         
                         # 4. イベントデータの保存（もし存在すれば）
-                        events = issue_data.get("events_detected", [])
+                        # z_score_dataからevents_detectedを取得
+                        events = z_score_data.get("events_detected", [])
                         if events:
                             success = save_events_data(run_id, events)
                             if success:
@@ -398,14 +399,14 @@ async def upload_video(
                         # 5. 解析結果の保存
                         # Z値スコアを抽出
                         results_to_save = {}
-                        z_scores = issue_data.get("z_scores", {})
+                        z_scores = z_score_data.get("z_scores", {})
                         for event_type, scores in z_scores.items():
                             for angle_name, z_value in scores.items():
                                 metric_name = f"Z値_{event_type}_{angle_name}"
                                 results_to_save[metric_name] = z_value
                         
                         # イベント角度も保存
-                        event_angles = issue_data.get("event_angles", {})
+                        event_angles = z_score_data.get("event_angles", {})
                         for event_type, angles in event_angles.items():
                             for angle_name, angle_value in angles.items():
                                 metric_name = f"角度_{event_type}_{angle_name}"

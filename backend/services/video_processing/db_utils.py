@@ -372,7 +372,8 @@ def save_keypoints_data(run_id: int, keypoints_data: list) -> bool:
         # 一括挿入用のデータリストを作成
         insert_data = []
         for frame_data in keypoints_data:
-            frame_number = frame_data.get("frame", 0)
+            # frame_numberキーまたはframeキーを取得（どちらでも対応）
+            frame_number = frame_data.get("frame_number", frame_data.get("frame", 0))
             keypoints = frame_data.get("keypoints", [])
             
             for landmark_id, kp in enumerate(keypoints):
