@@ -15,25 +15,29 @@ load_dotenv()
 
 # Gemini APIキーの取得と検証
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY環境変数が設定されていません。.envファイルにAPIキーを設定してください。")
+USE_GEMINI_API = bool(GEMINI_API_KEY)
 
-# Gemini APIの初期化
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel(
-    'gemini-flash-latest',
-    generation_config=genai.types.GenerationConfig(
-        temperature=0.7,  # より創造的で自然な回答
-        top_p=0.8,       # 多様性のバランス
-        max_output_tokens=1000,  # より詳細な回答を可能に
-    ),
-    safety_settings=[
-        {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
-        {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
-        {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
-        {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
-    ]
-)
+if USE_GEMINI_API:
+    # Gemini APIの初期化
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        'gemini-flash-latest',
+        generation_config=genai.types.GenerationConfig(
+            temperature=0.7,  # より創造的で自然な回答
+            top_p=0.8,       # 多様性のバランス
+            max_output_tokens=1000,  # より詳細な回答を可能に
+        ),
+        safety_settings=[
+            {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+            {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+            {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+            {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+        ]
+    )
+    print("✅ Gemini API有効化")
+else:
+    model = None
+    print("⚠️  Gemini APIキー未設定 - デフォルトアドバイスを使用します")
 
 app = FastAPI(
     title="Advice Generation Service (Gemini-Powered)",
@@ -215,6 +219,26 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
 """
 
         # Gemini APIを呼び出し（レート制限対応）
+        if not USE_GEMINI_API or model is None:
+            # APIキーがない場合はデフォルトのアドバイスを返す
+            print(f"   ⚠️  Gemini APIキー未設定 - デフォルトアドバイスを使用")
+            advice_db = get_advice_database()
+            if issue in advice_db:
+                default_advice = advice_db[issue]
+                return {
+                    "title": issue,
+                    "description": default_advice.get("description", ""),
+                    "action": default_advice.get("action", ""),
+                    "drill": default_advice.get("drill", "")
+                }
+            else:
+                return {
+                    "title": issue,
+                    "description": f"{issue}について検出されました。",
+                    "action": "効率的なランニングフォームを意識してください。",
+                    "drill": "定期的な練習で改善していきましょう。"
+                }
+        
         print(f"   📡 Gemini API呼び出し中... (model変数: {type(model)})")
         print(f"   📋 プロンプト: {prompt[:100]}...")
         
