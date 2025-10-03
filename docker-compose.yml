@@ -36,6 +36,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8001:8001"
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
     volumes:
@@ -74,6 +76,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8004:8004"
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
     networks:

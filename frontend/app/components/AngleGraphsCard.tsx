@@ -5,6 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { TrendingUp, Settings2 } from 'lucide-react'
 
+// 型定義
+interface KeyPoint {
+  x: number
+  y: number
+  z: number
+  visibility: number
+}
+
 // MediaPipeランドマークのインデックス定義
 const LANDMARK_INDICES = {
   left_shoulder: 11,

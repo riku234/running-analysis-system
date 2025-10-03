@@ -13,6 +13,17 @@ import asyncio
 import logging
 import json
 from typing import Optional
+import sys
+
+# db_utils.pyをインポート
+sys.path.append('/app')
+from db_utils import (
+    create_run_record,
+    save_keypoints_data,
+    save_events_data,
+    save_analysis_results,
+    update_run_status
+)
 
 # ロギングの設定
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +35,9 @@ UPLOAD_DIRECTORY.mkdir(exist_ok=True)
 
 # サービスURL設定
 POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
+FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
+ANALYSIS_URL = "http://analysis:8004/analyze-z-score"
+ADVICE_GENERATION_URL = "http://advice_generation:8005/generate"
 
 app = FastAPI(
     title="Video Processing Service",
@@ -134,11 +148,6 @@ async def upload_video(
         else:
             logger.info("📝 デフォルトプロンプト設定を使用（prompt_settings is None)")
         
-        # 各サービスのURL定義
-        POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
-        FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
-        ANALYSIS_URL = "http://analysis:8004/analyze-z-score"
-        ADVICE_GENERATION_URL = "http://advice_generation:8005/generate"
         
         # 全サービス連携処理（堅牢版）
         async with httpx.AsyncClient() as client:
@@ -348,6 +357,83 @@ async def upload_video(
                 
                 print("=" * 80)
                 
+                # ======================================================================
+                # データベースへの保存処理
+                # ======================================================================
+                try:
+                    logger.info("💾 データベースへの保存を開始します...")
+                    
+                    # 1. ユーザーIDの設定（デフォルトユーザー）
+                    user_id = "default_user"  # 実際のユーザー認証機能があれば、そこから取得
+                    
+                    # 2. 走行記録の作成
+                    video_info = pose_data.get("video_info", {})
+                    run_id = create_run_record(
+                        video_id=unique_id,
+                        user_id=user_id,
+                        video_path=str(file_path),
+                        original_filename=file.filename,
+                        video_fps=video_info.get("fps"),
+                        video_duration=video_info.get("duration"),
+                        total_frames=video_info.get("total_frames")
+                    )
+                    
+                    if run_id:
+                        logger.info(f"✅ 走行記録を作成しました: run_id={run_id}")
+                        
+                        # 3. キーポイントデータの保存
+                        pose_data_list = pose_data.get("pose_data", [])
+                        if pose_data_list:
+                            success = save_keypoints_data(run_id, pose_data_list)
+                            if success:
+                                logger.info(f"✅ キーポイントデータを保存しました")
+                        
+                        # 4. イベントデータの保存（もし存在すれば）
+                        events = issue_data.get("events_detected", [])
+                        if events:
+                            success = save_events_data(run_id, events)
+                            if success:
+                                logger.info(f"✅ イベントデータを保存しました")
+                        
+                        # 5. 解析結果の保存
+                        # Z値スコアを抽出
+                        results_to_save = {}
+                        z_scores = issue_data.get("z_scores", {})
+                        for event_type, scores in z_scores.items():
+                            for angle_name, z_value in scores.items():
+                                metric_name = f"Z値_{event_type}_{angle_name}"
+                                results_to_save[metric_name] = z_value
+                        
+                        # イベント角度も保存
+                        event_angles = issue_data.get("event_angles", {})
+                        for event_type, angles in event_angles.items():
+                            for angle_name, angle_value in angles.items():
+                                metric_name = f"角度_{event_type}_{angle_name}"
+                                results_to_save[metric_name] = angle_value
+                        
+                        if results_to_save:
+                            success = save_analysis_results(run_id, results_to_save)
+                            if success:
+                                logger.info(f"✅ 解析結果を保存しました")
+                        
+                        # 6. ステータスを完了に更新
+                        update_run_status(run_id, 'completed')
+                        logger.info("✅ 全てのデータをデータベースに保存しました")
+                        
+                        # レスポンスにrun_idを追加
+                        response_data["run_id"] = run_id
+                    else:
+                        logger.warning("⚠️  データベースへの保存に失敗しましたが、処理は続行します")
+                        
+                except Exception as db_error:
+                    logger.error(f"❌ データベース保存エラー: {db_error}")
+                    logger.error("データベースへの保存に失敗しましたが、処理結果は返却します")
+                    # データベースエラーが発生しても、解析結果は返却する
+                
+                # ======================================================================
+                
+                print("=" * 80)
+                
                 return response_data
                 
             except httpx.RequestError as exc:
@@ -497,25 +583,144 @@ async def get_result(video_id: str):
                 # 動画ファイルが存在する場合、解析を実行
                 logger.info(f"動画ファイルが見つかりました: {file_path}")
                 
-                # 骨格推定を実行
-                pose_request = {
-                    "video_path": str(file_path),
-                    "confidence_threshold": 0.5
-                }
+                # 完全な解析パイプラインを実行（upload_videoと同じロジック）
+                logger.info("完全な解析パイプラインを開始します")
                 
                 async with httpx.AsyncClient(timeout=300.0) as client:
-                    pose_response = await client.post(
-                        POSE_ESTIMATION_URL,
-                        json=pose_request
-                    )
+                    # Step 1: 骨格推定
+                    logger.info("骨格推定を実行中...")
+                    pose_request = {
+                        "video_path": str(file_path),
+                        "confidence_threshold": 0.5
+                    }
+                    pose_response = await client.post(POSE_ESTIMATION_URL, json=pose_request)
                     pose_response.raise_for_status()
                     pose_data = pose_response.json()
+                    
+                    # Step 2: 特徴量抽出
+                    logger.info("特徴量抽出を実行中...")
+                    feature_request = {
+                        "pose_data": pose_data["pose_data"],
+                        "video_info": pose_data["video_info"]
+                    }
+                    feature_response = await client.post(FEATURE_EXTRACTION_URL, json=feature_request)
+                    feature_response.raise_for_status()
+                    feature_data = feature_response.json()
+                    
+                    # Step 3: Z値分析（新しい統計ベース分析）
+                    logger.info("Z値分析を実行中...")
+                    logger.info(f"📊 pose_data keys: {list(pose_data.keys())}")
+                    logger.info(f"📊 pose_data['pose_data'] length: {len(pose_data.get('pose_data', []))}")
+                    z_score_request = {
+                        "keypoints_data": pose_data["pose_data"],
+                        "video_fps": pose_data["video_info"]["fps"]
+                    }
+                    logger.info(f"📊 Z値分析リクエスト - keypoints_data length: {len(z_score_request['keypoints_data'])}, fps: {z_score_request['video_fps']}")
+                    z_score_response = await client.post(ANALYSIS_URL, json=z_score_request)
+                    z_score_response.raise_for_status()
+                    z_score_data = z_score_response.json()
+                    
+                    # 課題分析データを準備
+                    issue_data = {
+                        "status": "success",
+                        "message": f"フォーム分析完了：{len(z_score_data.get('analysis_summary', {}).get('significant_deviations', []))}つの改善点を検出しました",
+                        "issues": [],
+                        "analysis_details": {
+                            "analyzed_metrics": {},
+                            "total_issues": 0,
+                            "overall_assessment": f"{len(z_score_data.get('analysis_summary', {}).get('significant_deviations', []))}つの改善点が見つかりました",
+                            "analysis_method": "z_score_analysis"
+                        }
+                    }
+                    
+                    # Z値分析結果から課題を抽出
+                    if z_score_data.get("analysis_summary", {}).get("significant_deviations"):
+                        issues = []
+                        for deviation in z_score_data["analysis_summary"]["significant_deviations"]:
+                            event_names = {
+                                'right_strike': '右足接地',
+                                'right_off': '右足離地',
+                                'left_strike': '左足接地',
+                                'left_off': '左足離地'
+                            }
+                            event_name = event_names.get(deviation["event"], deviation["event"])
+                            severity = "高" if deviation["severity"] == "high" else "中"
+                            issue_text = f"{event_name}時の{deviation['angle']}が標準から大きく外れています（Z値: {deviation['z_score']:.2f}, 重要度: {severity}）"
+                            issues.append(issue_text)
+                        
+                        issue_data["issues"] = issues
+                        issue_data["analysis_details"]["total_issues"] = len(issues)
+                    
+                    # Step 4: アドバイス生成
+                    advice_results = None
+                    advice_analysis = None
+                    
+                    try:
+                        logger.info("アドバイス生成サービス（Gemini AI）を呼び出します")
+                        advice_request = {
+                            "video_id": video_id,
+                            "issues": issue_data.get("issues", [])
+                        }
+                        
+                        advice_response = await client.post(ADVICE_GENERATION_URL, json=advice_request, timeout=60.0)
+                        advice_response.raise_for_status()
+                        advice_results = advice_response.json()
+                        logger.info("Gemini AIアドバイス生成完了")
+                        
+                        # 統合アドバイス生成
+                        logger.info("統合アドバイス生成サービスを呼び出します")
+                        high_level_issues = []
+                        if z_score_data and z_score_data.get("analysis_summary", {}).get("significant_deviations"):
+                            for deviation in z_score_data["analysis_summary"]["significant_deviations"]:
+                                if deviation["severity"] == "high":
+                                    high_level_issues.append(f"{deviation['angle']}の{deviation['event']}異常")
+                        
+                        integrated_advice_request = {
+                            "video_id": video_id,
+                            "issues_list": high_level_issues or ["フォーム改善"]
+                        }
+                        
+                        integrated_advice_response = await client.post(
+                            f"{ADVICE_GENERATION_URL.replace('/generate', '/generate-integrated')}", 
+                            json=integrated_advice_request, 
+                            timeout=60.0
+                        )
+                        integrated_advice_response.raise_for_status()
+                        advice_analysis = integrated_advice_response.json()
+                        logger.info("統合アドバイス生成完了")
+                        
+                    except Exception as e:
+                        logger.error(f"アドバイス生成でエラー: {e}")
+                        # アドバイス生成に失敗しても、他のデータは返す
                 
-                return {
+                # 完全な結果を構築
+                result = {
                     "status": "success",
-                    "video_id": video_id,
-                    "pose_analysis": pose_data
+                    "message": "動画アップロード、骨格解析、特徴量計算が完了しました",
+                    "upload_info": {
+                        "file_id": video_id,
+                        "original_filename": file_path.name,
+                        "saved_filename": file_path.name,
+                        "file_size": file_path.stat().st_size,
+                        "content_type": "video/mov",  # 動的に設定可能
+                        "upload_timestamp": datetime.utcnow().isoformat(),
+                        "file_extension": file_path.suffix
+                    },
+                    "pose_analysis": pose_data,
+                    "feature_analysis": feature_data,
+                    "z_score_analysis": z_score_data,
+                    "issue_analysis": issue_data
                 }
+                
+                # アドバイスデータがあれば追加
+                if advice_results:
+                    result["advice_results"] = advice_results
+                    
+                if advice_analysis:
+                    result["advice_analysis"] = advice_analysis
+                
+                logger.info("完全な解析パイプライン完了")
+                return result
         
         # ファイルが見つからない場合
         raise HTTPException(

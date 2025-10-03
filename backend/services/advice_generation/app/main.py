@@ -440,6 +440,50 @@ def generate_advanced_advice(issues_list: List[str]) -> str:
     
     return formatted_advice
 
+def get_fallback_advice_for_issue(issue: str) -> Dict[str, str]:
+    """
+    Gemini API失敗時のフォールバックアドバイスを提供
+    
+    Args:
+        issue: 課題名
+        
+    Returns:
+        アドバイス辞書
+    """
+    fallback_db = {
+        "左下腿角度中": {
+            "issue": "左下腿角度中",
+            "explanation": "左足の下腿（すね）の角度が中程度の偏差を示しています。走行時のバランスや着地パターンに軽微な影響がある可能性があります。",
+            "exercise": "片足立ちバランス練習を左足中心に実施し、体幹を安定させながら正確な着地を意識してください。"
+        },
+        "右下腿角度大": {
+            "issue": "右下腿角度大",
+            "explanation": "右足の下腿（すね）の角度が基準値から大きく偏差しています。オーバーストライドや不効率な着地パターンの原因となり、怪我のリスクが高まる可能性があります。",
+            "exercise": "短い歩幅での高頻度ランニング練習（ピッチアップドリル）を実施し、足の回転を意識した走法を身につけてください。"
+        },
+        "左大腿角度中": {
+            "issue": "左大腿角度中",
+            "explanation": "左足の大腿部の角度が中程度の偏差を示しています。股関節の可動域や推進力の発揮に軽微な影響がある可能性があります。",
+            "exercise": "ランジやスクワットで股関節の可動域を向上させ、大腿四頭筋とハムストリングのバランスを整えてください。"
+        },
+        "左下腿角度大": {
+            "issue": "左下腿角度大",
+            "explanation": "左足の下腿（すね）の角度が基準値から大きく偏差しています。着地時の衝撃が過大になり、シンスプリントなどの怪我のリスクが高まる可能性があります。",
+            "exercise": "カーフレイズとつま先歩きで下腿部の筋力を強化し、正しい着地角度を身につける練習を継続してください。"
+        }
+    }
+    
+    # 課題に対応するフォールバックアドバイスを取得
+    if issue in fallback_db:
+        return fallback_db[issue]
+    
+    # 汎用フォールバック
+    return {
+        "issue": issue,
+        "explanation": f"{issue}に関して改善の余地があります。適切なフォーム調整により、走行効率の向上と怪我予防に効果が期待できます。",
+        "exercise": "基本的なランニングドリルとバランス練習を継続し、段階的にフォーム改善に取り組んでください。"
+    }
+
 def identify_main_finding(issues_list: List[str]) -> str:
     """
     課題リストから根本的な問題を特定する
@@ -511,13 +555,9 @@ async def generate_integrated_advice(issues_list: List[str]) -> str:
                     print(f"   ✅ AI詳細アドバイス生成完了: {issue.strip()}")
                 except Exception as ai_error:
                     print(f"   ⚠️ AI詳細アドバイス生成失敗: {ai_error}, フォールバック使用")
-                    # AIアドバイス生成に失敗した場合はフォールバック
-                    detailed_advice = {
-                        "issue": issue.strip(),
-                        "explanation": "この課題は走行効率に影響を与える可能性があります。",
-                        "exercise": "基本的なフォーム練習を継続してください。"
-                    }
-                    detailed_advices.append(detailed_advice)
+                    # AIアドバイス生成に失敗した場合は詳細なフォールバック
+                    fallback_advice = get_fallback_advice_for_issue(issue.strip())
+                    detailed_advices.append(fallback_advice)
         
         print(f"   ✅ 個別詳細アドバイス生成完了 - {len(detailed_advices)}件")
         
@@ -653,8 +693,43 @@ async def generate_integrated_advice(issues_list: List[str]) -> str:
         
     except Exception as e:
         print(f"   ❌ 統合アドバイス生成エラー: {str(e)}")
-        # フォールバック: プロコーチアドバイスのみ返却
-        return generate_advanced_advice(issues_list)
+        # フォールバック: プロコーチアドバイス + 簡易個別アドバイス
+        try:
+            coach_advice = generate_advanced_advice(issues_list)
+            simple_details = []
+            for issue in issues_list:
+                if issue and issue.strip():
+                    fallback_advice = get_fallback_advice_for_issue(issue.strip())
+                    simple_details.append(f"\n• {fallback_advice['issue']}: {fallback_advice['explanation']}")
+            
+            fallback_text = f"""{coach_advice}
+
+【個別課題の詳細解説】
+AI分析による具体的な改善ポイント
+{''.join(simple_details)}
+
+【総合的な改善のポイント】
+改善は段階的に取り組むことが重要です。まずは全体的なフォーム意識から始めて、個別の課題に順次対処していくことで、より効果的なランニングフォームを身につけることができます。"""
+            
+            return fallback_text
+        except Exception as fallback_error:
+            print(f"   ❌ フォールバックアドバイス生成も失敗: {str(fallback_error)}")
+            # 最終フォールバック
+            return """--- 🏃‍♂️ ランニングフォーム改善アドバイス ---
+
+【📊 現状のフォームについて】
+システムに一時的な問題が発生しましたが、あなたのランニングフォームの向上への取り組みは素晴らしいです。基本的なフォーム意識を継続しましょう。
+
+【🎯 改善のためのアクション】
+正しい姿勢を保ち、自然なリズムでランニングを継続してください。急激な変化よりも段階的な改善を心がけることが重要です。
+
+【💪 推奨エクササイズ】
+練習ドリル: リラックスした姿勢で、自然なリズムを保ちながらランニングを継続してください。
+
+【💡 総合的な改善のポイント】
+改善は段階的に取り組むことが重要です。
+
+まずは全体的なフォーム意識から始めて、個別の課題に順次対処していくことで、より効果的なランニングフォームを身につけることができます。"""
 
 def create_gemini_prompt(issues: List[str]) -> str:
     """Gemini APIに送信するプロンプトを生成"""

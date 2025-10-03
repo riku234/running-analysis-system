@@ -18,6 +18,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 
 # アプリケーションコードをコピー
 COPY app/ ./app/
+COPY db_utils.py .
 
 # ポートを公開
 EXPOSE 8004
