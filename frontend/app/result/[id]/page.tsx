@@ -867,10 +867,10 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* 2カラムレイアウト - 動画と解析結果を横並び */}
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* 左カラム：動画プレイヤー（1/2幅） */}
-          <div>
+        {/* 2カラムレイアウト - 動画と解析結果を横並び（3:1の比率） */}
+        <div className="grid lg:grid-cols-4 gap-6">
+          {/* 左カラム：動画プレイヤー（3/4幅） */}
+          <div className="lg:col-span-3">
             <Card className="shadow-xl h-full flex flex-col">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -937,8 +937,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             {/* 角度推移グラフカードは削除されました */}
           </div>
 
-          {/* 右カラム：解析結果（1/2幅） */}
-          <div className="space-y-6">
+          {/* 右カラム：解析結果（1/4幅） */}
+          <div className="lg:col-span-1 space-y-6">
             {/* 解析結果カード - 開発環境でのみ表示 */}
             {false && (
             <Card className="shadow-lg">
