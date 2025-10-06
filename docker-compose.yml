@@ -1,20 +1,4 @@
 services:
-  # API Gateway (Nginx)
-  api_gateway:
-    build:
-      context: ./backend/api_gateway
-      dockerfile: Dockerfile
-    ports:
-      - "80:80"
-    depends_on:
-      - video_processing
-      - pose_estimation
-      - feature_extraction
-      - analysis
-      - advice_generation
-    networks:
-      - app_network
-
   # Frontend (Next.js)
   frontend:
     build:
@@ -24,10 +8,38 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-    depends_on:
-      - api_gateway
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # API Gateway (Nginx)
+  api_gateway:
+    build:
+      context: ./backend/api_gateway
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      frontend:
+        condition: service_healthy
+      video_processing:
+        condition: service_healthy
+      pose_estimation:
+        condition: service_healthy
+      feature_extraction:
+        condition: service_healthy
+      analysis:
+        condition: service_healthy
+      advice_generation:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: on-failure
 
   # Backend Services
   video_processing:
@@ -44,6 +56,12 @@ services:
       - video_storage:/app/uploads
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   pose_estimation:
     build:
@@ -58,6 +76,12 @@ services:
       - model_cache:/app/models
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   feature_extraction:
     build:
@@ -69,6 +93,12 @@ services:
       - PYTHONPATH=/app
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   analysis:
     build:
@@ -82,6 +112,12 @@ services:
       - PYTHONPATH=/app
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   advice_generation:
     build:
@@ -95,6 +131,12 @@ services:
       - PYTHONPATH=/app
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 # ボリューム定義
 volumes:
