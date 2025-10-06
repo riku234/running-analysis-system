@@ -931,66 +931,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     </p>
                   </div>
                 )}
-                
-                {/* 角度参照図 - アコーディオン形式 */}
-                <div className="mt-6 border rounded-lg bg-white">
-                  <button
-                    onClick={() => setShowAngleReference(!showAngleReference)}
-                    className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors duration-200"
-                  >
-                    <h3 className="text-lg font-semibold text-gray-800">角度測定の基準</h3>
-                    <div className="flex items-center">
-                      <span className="text-sm text-gray-600 mr-2">
-                        {showAngleReference ? '非表示' : '表示'}
-                      </span>
-                      {showAngleReference ? (
-                        <ChevronUp className="h-5 w-5 text-gray-600" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-gray-600" />
-                      )}
-                    </div>
-                  </button>
-                  
-                  {showAngleReference && (
-                    <div className="px-4 pb-4 border-t">
-                      <div className="pt-4">
-                        <div className="flex justify-center">
-                          <img 
-                            src="/angle_reference_diagram.png" 
-                            alt="角度測定の基準図"
-                            className="max-w-full h-auto rounded-lg shadow-sm"
-                            style={{ maxHeight: '400px' }}
-                          />
-                        </div>
-                        <p className="text-sm text-gray-600 mt-3 text-center">
-                          各角度の定義と符号規則を示した図
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                {/* アクションボタン */}
-                <div className="space-y-3 mt-6 pt-4 border-t">
-                  <Button 
-                    onClick={() => window.location.href = '/'}
-                    className="w-full"
-                    size="lg"
-                  >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
-                    もう一度解析する
-                  </Button>
-                  
-                  <Button 
-                    variant="outline"
-                    onClick={() => window.open(videoUrl, '_blank')}
-                    className="w-full"
-                    size="lg"
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    動画をダウンロード
-                  </Button>
-                </div>
               </CardContent>
             </Card>
 
@@ -1417,6 +1357,66 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         </div>
           </div>
                     )}
+                    
+                    {/* 角度参照図 - アコーディオン形式 */}
+                    <div className="mt-6 border rounded-lg bg-white">
+                      <button
+                        onClick={() => setShowAngleReference(!showAngleReference)}
+                        className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors duration-200"
+                      >
+                        <h3 className="text-lg font-semibold text-gray-800">角度測定の基準</h3>
+                        <div className="flex items-center">
+                          <span className="text-sm text-gray-600 mr-2">
+                            {showAngleReference ? '非表示' : '表示'}
+                          </span>
+                          {showAngleReference ? (
+                            <ChevronUp className="h-5 w-5 text-gray-600" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-gray-600" />
+                          )}
+                        </div>
+                      </button>
+                      
+                      {showAngleReference && (
+                        <div className="px-4 pb-4 border-t">
+                          <div className="pt-4">
+                            <div className="flex justify-center">
+                              <img 
+                                src="/angle_reference_diagram.png" 
+                                alt="角度測定の基準図"
+                                className="max-w-full h-auto rounded-lg shadow-sm"
+                                style={{ maxHeight: '400px' }}
+                              />
+                            </div>
+                            <p className="text-sm text-gray-600 mt-3 text-center">
+                              各角度の定義と符号規則を示した図
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* アクションボタン */}
+                    <div className="space-y-3 mt-6 pt-4 border-t">
+                      <Button 
+                        onClick={() => window.location.href = '/'}
+                        className="w-full"
+                        size="lg"
+                      >
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        もう一度解析する
+                      </Button>
+                      
+                      <Button 
+                        variant="outline"
+                        onClick={() => window.open(videoUrl, '_blank')}
+                        className="w-full"
+                        size="lg"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        動画をダウンロード
+                      </Button>
+                    </div>
                     
                     {/* 従来のメトリクス表示（新しいrunning_metricsがない場合） */}
                     {!(result.feature_analysis.features as any)?.running_metrics && (
