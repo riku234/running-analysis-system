@@ -272,6 +272,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   const [zScoreData, setZScoreData] = useState<ZScoreAnalysisResult | null>(null)
   const [zScoreLoading, setZScoreLoading] = useState(false)
   const [showAngleReference, setShowAngleReference] = useState(false)
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false)
   const [adviceData, setAdviceData] = useState<any>(null)
   const [adviceLoading, setAdviceLoading] = useState(false)
   
@@ -1360,12 +1361,13 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                               <img 
                                 src="/angle_reference_diagram.png" 
                                 alt="角度測定の基準図"
-                                className="max-w-full h-auto rounded-lg shadow-sm"
+                                className="max-w-full h-auto rounded-lg shadow-sm cursor-pointer hover:opacity-80 transition-opacity duration-200"
                                 style={{ maxHeight: '400px' }}
+                                onClick={() => setIsImageModalOpen(true)}
                               />
                             </div>
                             <p className="text-sm text-gray-600 mt-3 text-center">
-                              各角度の定義と符号規則を示した図
+                              各角度の定義と符号規則を示した図（クリックで拡大）
                             </p>
                           </div>
                         </div>
@@ -1972,6 +1974,31 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </Card>
         )}
       </div>
+
+      {/* 画像拡大モーダル */}
+      {isImageModalOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
+          onClick={() => setIsImageModalOpen(false)}
+        >
+          <div className="relative max-w-7xl max-h-screen">
+            <button
+              onClick={() => setIsImageModalOpen(false)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <img 
+              src="/angle_reference_diagram.png" 
+              alt="角度測定の基準図（拡大）"
+              className="max-w-full max-h-screen object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 } 
