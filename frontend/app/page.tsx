@@ -770,22 +770,28 @@ export default function HomePage() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      カスタムプロンプト
+                      カスタムプロンプト（個別課題解説用）
                     </label>
+                    <p className="text-sm text-gray-600 mb-2">
+                      💡 デフォルトプロンプトが入力されています。自由に編集してください。
+                    </p>
                     <textarea
                       id="custom-prompt"
-                      rows={8}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                      placeholder="例: あなたは経験豊富なランニングコーチです。フォーム分析の結果を元に、初心者にもわかりやすく具体的な改善アドバイスを提供してください。
+                      rows={12}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none font-mono text-sm"
+                      defaultValue={`あなたは専門コーチです。「{issue}」について、プレーンテキストのみで説明してください。
 
-以下の課題について分析してください: {issues}
+重要：装飾記号は一切使用禁止です。通常の文章のみで回答してください。
 
-アドバイスには以下を含めてください：
-1. 課題の説明（なぜその課題が問題なのか）
-2. 具体的な改善方法
-3. 日常でできる練習方法
+説明: {issue}がランニング効率に与える影響を80文字程度で説明してください。
 
-回答は親しみやすく、励ましの言葉も含めてください。マークダウン記法は使用せず、プレーンテキストで回答してください。"
+エクササイズ: {issue}を改善する具体的な練習方法を60文字程度で提案してください。
+
+形式例：
+説明: 下腿角度が大きいと接地時にブレーキがかかり、推進力が減少してエネルギー効率が悪化します。
+エクササイズ: 壁ドリルで足の引き上げを練習し、重心の真下で着地する感覚を習得しましょう。
+
+このような通常の文章形式で回答してください。ハッシュ、アスタリスク、ハイフンなどの記号は絶対に使わないでください。`}
                     />
                   </div>
 
@@ -836,12 +842,15 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
-                    <p className="text-sm text-green-800">
-                      ✍️ カスタムプロンプト入力時は、この内容が優先的に使用されます
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-sm text-blue-800 font-medium mb-1">
+                      📝 プロンプト設定の適用範囲
                     </p>
-                    <p className="text-xs text-green-600 mt-1">
-                      {"{issues}"}の部分には検出された課題が自動的に挿入されます
+                    <p className="text-xs text-blue-700">
+                      このカスタムプロンプトは「個別課題の詳細解説」の生成にのみ適用されます。
+                    </p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      {"{issue}"}の部分には各課題名（例: 体幹前傾、左下腿角度大）が自動的に挿入されます。
                     </p>
                   </div>
                 </div>

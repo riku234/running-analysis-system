@@ -171,20 +171,30 @@ def get_advice_database():
     }
     return advice_db
 
-async def generate_detailed_advice_for_issue(issue: str, main_finding: str = None) -> dict:
+async def generate_detailed_advice_for_issue(
+    issue: str, 
+    main_finding: str = None,
+    prompt_settings: Dict[str, Any] = None
+) -> dict:
     """
     個別の課題に対してGemini AIを使って詳細なアドバイスを生成する
     
     Args:
         issue: 個別の課題（例: "左下腿角度大"）
         main_finding: 根本的な課題（例: "オーバーストライド"）
+        prompt_settings: カスタムプロンプト設定（任意）
         
     Returns:
         詳細なアドバイス辞書
     """
     try:
-        # main_findingが指定されている場合は、より具体的なプロンプトを作成
-        if main_finding:
+        # プロンプト生成（カスタムプロンプトまたはデフォルト）
+        if prompt_settings and prompt_settings.get('use_custom_prompt', False):
+            # カスタムプロンプトを使用
+            custom_template = prompt_settings.get('custom_prompt', '')
+            prompt = custom_template.replace('{issue}', issue)
+            print(f"   ✍️ カスタムプロンプト使用 ({issue})")
+        elif main_finding:
             prompt = f"""
 あなたは専門コーチです。{main_finding}の原因である「{issue}」について、プレーンテキストのみで説明してください。
 
@@ -242,12 +252,35 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
         print(f"   📡 Gemini API呼び出し中... (model変数: {type(model)})")
         print(f"   📋 プロンプト: {prompt[:100]}...")
         
+        # カスタム設定に応じたモデル選択
+        current_model = model
+        if prompt_settings:
+            try:
+                custom_config = genai.types.GenerationConfig(
+                    temperature=prompt_settings.get('temperature', 0.5),
+                    top_p=prompt_settings.get('top_p', 0.8),
+                    max_output_tokens=prompt_settings.get('max_output_tokens', 1000),
+                )
+                current_model = genai.GenerativeModel(
+                    'gemini-flash-latest',
+                    generation_config=custom_config,
+                    safety_settings=[
+                        {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+                        {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+                        {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+                        {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+                    ]
+                )
+                print(f"   🎛️ カスタムモデル設定適用 (temp={prompt_settings.get('temperature', 0.5)})")
+            except Exception as e:
+                print(f"   ⚠️ カスタムモデル設定エラー、デフォルト使用: {e}")
+        
         # レート制限対応: 複数回リトライ（タイムアウトを考慮して3回に設定）
         max_retries = 3
         response = None
         for attempt in range(max_retries):
             try:
-                response = model.generate_content(prompt)
+                response = current_model.generate_content(prompt)
                 print(f"   📨 Gemini応答受信: {type(response)}")
                 break
             except Exception as api_error:
@@ -574,18 +607,24 @@ def identify_main_finding(issues_list: List[str]) -> str:
     else:
         return "フォーム全般"
 
-async def generate_integrated_advice(issues_list: List[str]) -> str:
+async def generate_integrated_advice(
+    issues_list: List[str],
+    prompt_settings: Dict[str, Any] = None
+) -> str:
     """
     プロコーチアドバイス（データベース）とGemini AI詳細アドバイスを統合する
     
     Args:
         issues_list: Z値判定などによって特定された課題のリスト
+        prompt_settings: カスタムプロンプト設定（個別解説のみに適用）
         
     Returns:
         統合された最終アドバイス文字列
     """
     try:
         print(f"   🔄 統合アドバイス生成開始 - 課題数: {len(issues_list)}")
+        if prompt_settings:
+            print(f"   🎛️  プロンプト設定あり（個別解説に適用）")
         
         # 1. 根本課題（main_finding）を特定
         main_finding = identify_main_finding(issues_list)
@@ -601,8 +640,12 @@ async def generate_integrated_advice(issues_list: List[str]) -> str:
             if issue and issue.strip():
                 print(f"   🤖 AI詳細アドバイス生成中: {issue.strip()}")
                 try:
-                    # Gemini APIを使用してより詳細なアドバイスを生成
-                    detailed_advice = await generate_detailed_advice_for_issue(issue.strip(), main_finding)
+                    # Gemini APIを使用してより詳細なアドバイスを生成（プロンプト設定を渡す）
+                    detailed_advice = await generate_detailed_advice_for_issue(
+                        issue.strip(), 
+                        main_finding,
+                        prompt_settings  # ← プロンプト設定を渡す
+                    )
                     detailed_advices.append(detailed_advice)
                     print(f"   ✅ AI詳細アドバイス生成完了: {issue.strip()}")
                 except Exception as ai_error:
@@ -1201,7 +1244,7 @@ async def generate_integrated_advice_endpoint(request: IntegratedAdviceRequest):
             print(f"   📝 デフォルトプロンプト設定を使用")
         
         print(f"   🧠 統合アドバイス生成中...")
-        integrated_advice = await generate_integrated_advice(valid_issues)
+        integrated_advice = await generate_integrated_advice(valid_issues, prompt_settings)
         
         print(f"   📨 統合アドバイス生成完了 (長さ: {len(integrated_advice)} 文字)")
         print(f"   📄 アドバイス概要: {integrated_advice[:100]}...")
