@@ -345,6 +345,7 @@ export default function HomePage() {
             cadence: result.feature_analysis.features.cadence
           } : null
         },
+        z_score_analysis: result.z_score_analysis,  // Z値分析結果を追加
         issue_analysis: result.issue_analysis, // 課題分析結果も軽量なので保存
         advice_results: result.advice_results, // ★ アドバイス結果を追加
         advice_analysis: result.advice_analysis, // ★ 後方互換性のため
@@ -384,6 +385,8 @@ export default function HomePage() {
             angle_statistics: result.feature_analysis.features.angle_statistics // 角度推移グラフ用データを追加
           } : null
         },
+            z_score_analysis: result.z_score_analysis,  // Z値分析結果を追加
+            advice_results: result.advice_results,  // アドバイス結果を追加
             error: result.error
           }
           localStorage.setItem(`light_analysis_result_${result.upload_info.file_id}`, JSON.stringify(minimalResult))
@@ -395,8 +398,12 @@ export default function HomePage() {
           if (savedData) {
             const parsedSaved = JSON.parse(savedData)
             console.log("✅ localStorage保存後確認:");
+            console.log("✅ 保存されたz_score_analysis:", !!parsedSaved.z_score_analysis);
             console.log("✅ 保存されたadvice_results:", !!parsedSaved.advice_results);
             console.log("✅ 保存されたadvice_analysis:", !!parsedSaved.advice_analysis);
+            if (parsedSaved.z_score_analysis) {
+              console.log("✅ z_score_analysis有効偏差数:", Object.keys(parsedSaved.z_score_analysis.analysis_summary?.significant_deviations || {}).length);
+            }
             if (parsedSaved.advice_results?.integrated_advice) {
               console.log("✅ integrated_advice長:", parsedSaved.advice_results.integrated_advice.length, "文字");
             }
