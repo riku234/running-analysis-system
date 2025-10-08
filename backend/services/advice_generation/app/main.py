@@ -21,7 +21,7 @@ if USE_GEMINI_API:
     # Gemini APIの初期化
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        'gemini-1.5-flash-latest',  # 正しいモデル名
+        'gemini-flash-latest',  # 動作確認済みのモデル名
         generation_config=genai.types.GenerationConfig(
             temperature=0.5,  # 安定性重視（0.7 → 0.5）
             top_p=0.8,       # 多様性のバランス
@@ -623,9 +623,14 @@ async def generate_integrated_advice(issues_list: List[str]) -> str:
 【個別課題の詳細解説】"""
         
         for i, advice in enumerate(detailed_advices, 1):
-            issue_name = advice['issue']
-            explanation = advice['explanation']
-            exercise = advice['exercise']
+            # Noneチェックを追加
+            if not advice or not isinstance(advice, dict):
+                print(f"   ⚠️  アドバイス#{i}がNullまたは無効です。スキップします。")
+                continue
+            
+            issue_name = advice.get('issue', '課題')
+            explanation = advice.get('explanation', '')
+            exercise = advice.get('exercise', '')
             
             # マークダウンを最終的に除去
             def final_clean_markdown(text):
