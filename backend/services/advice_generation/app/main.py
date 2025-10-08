@@ -242,8 +242,8 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
         print(f"   📡 Gemini API呼び出し中... (model変数: {type(model)})")
         print(f"   📋 プロンプト: {prompt[:100]}...")
         
-        # レート制限対応: 複数回リトライ（回数を増やして成功率を向上）
-        max_retries = 5  # 3回 → 5回に増加
+        # レート制限対応: 複数回リトライ（タイムアウトを考慮して3回に設定）
+        max_retries = 3
         response = None
         for attempt in range(max_retries):
             try:
@@ -254,7 +254,7 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
                 error_str = str(api_error)
                 if "429" in error_str or "quota" in error_str.lower():
                     if attempt < max_retries - 1:
-                        wait_time = (attempt + 1) * 15  # 15秒, 30秒, 45秒, 60秒, 75秒の間隔
+                        wait_time = (attempt + 1) * 5  # 5秒, 10秒, 15秒の間隔
                         print(f"   ⏳ レート制限検出、{wait_time}秒待機後にリトライ ({attempt + 1}/{max_retries})")
                         await asyncio.sleep(wait_time)
                         continue
@@ -263,9 +263,9 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
                         response = None
                         break
                 elif "500" in error_str or "InternalServerError" in error_str:
-                    # Gemini API側の一時的なエラー - より長い待機時間
+                    # Gemini API側の一時的なエラー - 短い待機時間
                     if attempt < max_retries - 1:
-                        wait_time = (attempt + 1) * 10  # 10秒, 20秒, 30秒, 40秒, 50秒の間隔
+                        wait_time = (attempt + 1) * 5  # 5秒, 10秒, 15秒の間隔
                         print(f"   ⏳ Gemini API内部エラー、{wait_time}秒待機後にリトライ ({attempt + 1}/{max_retries})")
                         await asyncio.sleep(wait_time)
                         continue

@@ -268,7 +268,7 @@ async def upload_video(
                     integrated_advice_response = await client.post(
                         f"http://advice_generation:8005/generate-integrated",
                         json=integrated_advice_request,
-                        timeout=90.0  # 統合処理のため時間を延長
+                        timeout=180.0  # Gemini APIリトライを考慮して延長
                     )
                     integrated_advice_response.raise_for_status()
                     integrated_advice_data = integrated_advice_response.json()
