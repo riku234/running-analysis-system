@@ -279,6 +279,7 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
                     break
         
         # レスポンスの検証（Noneチェックを追加）
+        advice_text = ""
         if response is None:
             print(f"   ⚠️  Gemini APIからのレスポンスがNullです: {issue}")
             advice_text = f"{issue}について、フォームの改善を意識することで走行効率の向上が期待できます。"
@@ -298,124 +299,119 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
             advice_text = response.text.strip()
             print(f"   📄 Gemini個別解説レスポンス ({issue}): {advice_text[:200]}...")  # デバッグ用
             print(f"   🔍 完全なレスポンス: {repr(advice_text)}")  # 完全なレスポンスをデバッグ
-            
-            # マークダウン記法を徹底的に除去
-            import re
-            cleaned_text = advice_text
-            
-            # ヘッダー記法を除去（##### も含む）
-            cleaned_text = re.sub(r'#{1,6}\s*', '', cleaned_text)
-            
-            # 強調記法を除去
-            cleaned_text = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned_text)  # **太字**
-            cleaned_text = re.sub(r'\*(.*?)\*', r'\1', cleaned_text)      # *イタリック*
-            
-            # 区切り線を除去
-            cleaned_text = re.sub(r'^-{3,}$', '', cleaned_text, flags=re.MULTILINE)
-            cleaned_text = re.sub(r'^_{3,}$', '', cleaned_text, flags=re.MULTILINE)
-            
-            # リスト記法を除去
-            cleaned_text = re.sub(r'^\s*[-*+]\s+', '', cleaned_text, flags=re.MULTILINE)
-            
-            # 番号付きリストを除去
-            cleaned_text = re.sub(r'^\s*\d+\.\s+', '', cleaned_text, flags=re.MULTILINE)
-            
-            # 表記法を除去
-            cleaned_text = re.sub(r'\|', '', cleaned_text)
-            cleaned_text = re.sub(r':---', '', cleaned_text)
-            
-            # 引用記法を除去
-            cleaned_text = re.sub(r'^>\s*', '', cleaned_text, flags=re.MULTILINE)
-            
-            # インラインコードを除去
-            cleaned_text = re.sub(r'`([^`]+)`', r'\1', cleaned_text)
-            
-            # 改行を整理
-            cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
-            cleaned_text = cleaned_text.strip()
-            
-            # レスポンスを解析して構造化
-            lines = advice_text.split('\n')
-            explanation = ""
-            exercise = ""
-            
-            # 改良されたレスポンス解析
-            explanation = ""
-            exercise = ""
-            
-            # 段落ベースでの解析（クリーンなテキストを使用）
-            paragraphs = [p.strip() for p in cleaned_text.split('\n') if p.strip()]
-            
-            # キーワードベースの分類
-            explanation_lines = []
-            exercise_lines = []
-            current_section = "explanation"
-            
-            for paragraph in paragraphs:
-                # セクション判定
-                if any(keyword in paragraph for keyword in ['エクササイズ', '練習', 'ドリル', '運動', 'トレーニング']):
-                    current_section = "exercise"
-                elif any(keyword in paragraph for keyword in ['説明', '影響', '問題', '原因', '効果']):
-                    current_section = "explanation"
-                
-                # セクション別に分類
-                if current_section == "exercise":
-                    exercise_lines.append(paragraph)
-                else:
-                    explanation_lines.append(paragraph)
-            
-            # 結果をまとめる
-            explanation = ' '.join(explanation_lines).strip()
-            exercise = ' '.join(exercise_lines).strip()
-            
-            # クリーンアップ
-            explanation = explanation.replace('説明:', '').replace('説明：', '').strip()
-            exercise = exercise.replace('エクササイズ:', '').replace('エクササイズ：', '').strip()
-            
-            # 最低限の品質保証（cleanedTextを使用）
-            if len(explanation) < 20:  # 説明が短すぎる場合
-                explanation = cleaned_text[:len(cleaned_text)//2] if cleaned_text else "この課題は走行効率に影響を与える可能性があります。"
-            if len(exercise) < 15:  # エクササイズが短すぎる場合
-                exercise = cleaned_text[len(cleaned_text)//2:] if cleaned_text else "基本的なフォーム練習を継続してください。"
-            
-            # 最終的なマークダウン除去（念のため）
-            def clean_markdown_text(text):
-                if not text:
-                    return text
-                # ヘッダー記法を除去
-                text = text.replace('###', '').replace('##', '').replace('#', '')
-                # 強調記法を除去
-                text = text.replace('**', '').replace('*', '')
-                # 区切り線を除去
-                text = text.replace('---', '').replace('___', '')
-                # リスト記法を除去
-                text = text.replace('- ', '').replace('* ', '').replace('+ ', '')
-                # 番号付きリストを除去
-                import re
-                text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)
-                # 表記法を除去
-                text = text.replace('|', '')
-                # 改行を整理
-                text = text.replace('\n\n\n', '\n\n')
-                return text.strip()
-            
-            explanation = clean_markdown_text(explanation)
-            exercise = clean_markdown_text(exercise)
-            
-            print(f"   🎯 最終結果 - 説明: '{explanation[:100]}...' エクササイズ: '{exercise[:100]}...'")
-            
-            return {
-                "issue": issue,
-                "explanation": explanation or "この課題は走行効率に影響を与える可能性があります。",
-                "exercise": exercise or "基本的なフォーム練習を継続してください。"
-            }
         else:
-            # フォールバック
-            return {
-                "issue": issue,
-                "explanation": "この課題は走行効率に影響を与える可能性があります。",
-                "exercise": "基本的なフォーム練習を継続してください。"
-            }
+            advice_text = "フォーム改善のための一般的なアドバイスを心がけましょう。"
+        
+        # advice_textが取得できた場合、マークダウン記法を徹底的に除去してパース
+        import re
+        cleaned_text = advice_text
+        
+        # ヘッダー記法を除去（##### も含む）
+        cleaned_text = re.sub(r'#{1,6}\s*', '', cleaned_text)
+        
+        # 強調記法を除去
+        cleaned_text = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned_text)  # **太字**
+        cleaned_text = re.sub(r'\*(.*?)\*', r'\1', cleaned_text)      # *イタリック*
+        
+        # 区切り線を除去
+        cleaned_text = re.sub(r'^-{3,}$', '', cleaned_text, flags=re.MULTILINE)
+        cleaned_text = re.sub(r'^_{3,}$', '', cleaned_text, flags=re.MULTILINE)
+        
+        # リスト記法を除去
+        cleaned_text = re.sub(r'^\s*[-*+]\s+', '', cleaned_text, flags=re.MULTILINE)
+        
+        # 番号付きリストを除去
+        cleaned_text = re.sub(r'^\s*\d+\.\s+', '', cleaned_text, flags=re.MULTILINE)
+        
+        # 表記法を除去
+        cleaned_text = re.sub(r'\|', '', cleaned_text)
+        cleaned_text = re.sub(r':---', '', cleaned_text)
+        
+        # 引用記法を除去
+        cleaned_text = re.sub(r'^>\s*', '', cleaned_text, flags=re.MULTILINE)
+        
+        # インラインコードを除去
+        cleaned_text = re.sub(r'`([^`]+)`', r'\1', cleaned_text)
+        
+        # 改行を整理
+        cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+        cleaned_text = cleaned_text.strip()
+        
+        # レスポンスを解析して構造化
+        lines = advice_text.split('\n')
+        explanation = ""
+        exercise = ""
+        
+        # 改良されたレスポンス解析
+        explanation = ""
+        exercise = ""
+        
+        # 段落ベースでの解析（クリーンなテキストを使用）
+        paragraphs = [p.strip() for p in cleaned_text.split('\n') if p.strip()]
+        
+        # キーワードベースの分類
+        explanation_lines = []
+        exercise_lines = []
+        current_section = "explanation"
+        
+        for paragraph in paragraphs:
+            # セクション判定
+            if any(keyword in paragraph for keyword in ['エクササイズ', '練習', 'ドリル', '運動', 'トレーニング']):
+                current_section = "exercise"
+            elif any(keyword in paragraph for keyword in ['説明', '影響', '問題', '原因', '効果']):
+                current_section = "explanation"
+            
+            # セクション別に分類
+            if current_section == "exercise":
+                exercise_lines.append(paragraph)
+            else:
+                explanation_lines.append(paragraph)
+        
+        # 結果をまとめる
+        explanation = ' '.join(explanation_lines).strip()
+        exercise = ' '.join(exercise_lines).strip()
+        
+        # クリーンアップ
+        explanation = explanation.replace('説明:', '').replace('説明：', '').strip()
+        exercise = exercise.replace('エクササイズ:', '').replace('エクササイズ：', '').strip()
+        
+        # 最低限の品質保証（cleanedTextを使用）
+        if len(explanation) < 20:  # 説明が短すぎる場合
+            explanation = cleaned_text[:len(cleaned_text)//2] if cleaned_text else "この課題は走行効率に影響を与える可能性があります。"
+        if len(exercise) < 15:  # エクササイズが短すぎる場合
+            exercise = cleaned_text[len(cleaned_text)//2:] if cleaned_text else "基本的なフォーム練習を継続してください。"
+        
+        # 最終的なマークダウン除去（念のため）
+        def clean_markdown_text(text):
+            if not text:
+                return text
+            # ヘッダー記法を除去
+            text = text.replace('###', '').replace('##', '').replace('#', '')
+            # 強調記法を除去
+            text = text.replace('**', '').replace('*', '')
+            # 区切り線を除去
+            text = text.replace('---', '').replace('___', '')
+            # リスト記法を除去
+            text = text.replace('- ', '').replace('* ', '').replace('+ ', '')
+            # 番号付きリストを除去
+            import re
+            text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)
+            # 表記法を除去
+            text = text.replace('|', '')
+            # 改行を整理
+            text = text.replace('\n\n\n', '\n\n')
+            return text.strip()
+        
+        explanation = clean_markdown_text(explanation)
+        exercise = clean_markdown_text(exercise)
+        
+        print(f"   🎯 最終結果 - 説明: '{explanation[:100]}...' エクササイズ: '{exercise[:100]}...'")
+        
+        return {
+            "issue": issue,
+            "explanation": explanation or "この課題は走行効率に影響を与える可能性があります。",
+            "exercise": exercise or "基本的なフォーム練習を継続してください。"
+        }
             
     except Exception as e:
         import traceback
