@@ -21,7 +21,7 @@ if USE_GEMINI_API:
     # Gemini APIの初期化
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        'gemini-1.5-flash',  # より安定したモデル名
+        'gemini-1.5-flash-latest',  # 正しいモデル名
         generation_config=genai.types.GenerationConfig(
             temperature=0.5,  # 安定性重視（0.7 → 0.5）
             top_p=0.8,       # 多様性のバランス
