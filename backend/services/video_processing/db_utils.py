@@ -671,22 +671,13 @@ if __name__ == "__main__":
     print("=" * 60)
 
 
-def save_advice_data(run_id: int, advice_list: list) -> bool:
+def save_integrated_advice(run_id: int, integrated_advice: str) -> bool:
     """
-    アドバイスデータをデータベースのadviceテーブルに保存する関数
+    統合アドバイスをデータベースのadviceテーブルに保存する関数
     
     Args:
         run_id (int): 走行ID
-        advice_list (list): アドバイスのリスト
-            例: [
-                {
-                    "title": "過度な前傾姿勢",
-                    "description": "体幹が前に傾きすぎています...",
-                    "action": "体幹を垂直に保つ意識を...",
-                    "drill": "壁立ちドリル..."
-                },
-                ...
-            ]
+        integrated_advice (str): 統合アドバイステキスト（プロコーチ + AI詳細解説）
     
     Returns:
         bool: 保存成功時はTrue、失敗時はFalse
@@ -698,60 +689,36 @@ def save_advice_data(run_id: int, advice_list: list) -> bool:
         # データベースに接続
         conn = get_db_connection()
         if not conn:
-            print("❌ データベース接続に失敗したため、アドバイスを保存できません")
+            print("❌ データベース接続に失敗したため、統合アドバイスを保存できません")
             return False
         
         cursor = conn.cursor()
         
-        if not advice_list or len(advice_list) == 0:
-            print("⚠️  保存するアドバイスがありません")
-            return True  # データがないのはエラーではない
+        if not integrated_advice or integrated_advice.strip() == "":
+            print("⚠️  保存する統合アドバイスが空です")
+            return False
         
-        print(f"💾 アドバイスデータを保存します...")
+        print(f"💾 統合アドバイスを保存します...")
         print(f"   走行ID: {run_id}")
-        print(f"   保存するアドバイス数: {len(advice_list)}")
+        print(f"   アドバイス長: {len(integrated_advice)} 文字")
         
-        # 各アドバイスをループ処理してINSERT
-        saved_count = 0
-        for advice_item in advice_list:
-            try:
-                # アドバイスの内容を取得
-                issue = advice_item.get("title", "")
-                advice_text = f"{advice_item.get('description', '')}\n\n" \
-                             f"【改善アクション】\n{advice_item.get('action', '')}\n\n" \
-                             f"【推奨ドリル】\n{advice_item.get('drill', '')}"
-                
-                # 優先度を判定（簡易版）
-                priority = "medium"
-                if "過度" in issue or "大きく" in issue:
-                    priority = "high"
-                elif "わずか" in issue or "やや" in issue:
-                    priority = "low"
-                
-                # adviceテーブルにINSERT
-                # priorityは整数値に変換（high=3, medium=2, low=1）
-                priority_int = {"high": 3, "medium": 2, "low": 1}.get(priority, 2)
-                
-                insert_sql = """
-                    INSERT INTO advice (run_id, advice_text, advice_type, priority, created_at)
-                    VALUES (%s, %s, %s, %s, NOW())
-                """
-                
-                cursor.execute(insert_sql, (run_id, advice_text, issue, priority_int))
-                saved_count += 1
-                
-            except Exception as e:
-                print(f"⚠️  アドバイス '{issue[:30]}...' の保存中にエラー: {e}")
-                continue
+        # 統合アドバイスを1レコードとして保存
+        # advice_type = "統合アドバイス", priority = 5 (最高優先度)
+        insert_sql = """
+            INSERT INTO advice (run_id, advice_text, advice_type, priority, created_at)
+            VALUES (%s, %s, %s, %s, NOW())
+        """
+        
+        cursor.execute(insert_sql, (run_id, integrated_advice, "統合アドバイス", 5))
         
         # トランザクションをコミット
         conn.commit()
         
-        print(f"✅ アドバイスデータの保存完了: {saved_count}/{len(advice_list)} 件")
+        print(f"✅ 統合アドバイスの保存完了")
         return True
         
     except Exception as e:
-        print(f"❌ アドバイス保存エラー: {e}")
+        print(f"❌ 統合アドバイス保存エラー: {e}")
         import traceback
         traceback.print_exc()
         

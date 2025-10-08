@@ -237,18 +237,6 @@ interface AnalysisResult {
     status: string
     message: string
     video_id: string
-    advice_list: Array<{
-      issue: string
-      title: string
-      description: string
-      exercise: string
-    }>
-    summary: {
-      total_issues: number
-      total_advice: number
-      generation_timestamp: string
-    }
-    advanced_advice?: string
     integrated_advice?: string
     high_level_issues?: string[]
   }
@@ -256,18 +244,6 @@ interface AnalysisResult {
     status: string
     message: string
     video_id: string
-    advice_list: Array<{
-      issue: string
-      title: string
-      description: string
-      exercise: string
-    }>
-    summary: {
-      total_issues: number
-      total_advice: number
-      generation_timestamp: string
-    }
-    advanced_advice?: string
     integrated_advice?: string
     high_level_issues?: string[]
   }
@@ -1826,51 +1802,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           </Card>
         )}
 
-          {/* Z値分析によるAIアドバイスセクション - 改善版 - 開発環境でのみ表示 */}
-          {false && adviceData && (
-            <Card className="shadow-lg mt-6 border-l-4 border-emerald-500">
-              <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50">
-                <CardTitle className="flex items-center text-emerald-800 text-lg">
-                  🎯 個別課題の詳細解説
-                </CardTitle>
-                <CardDescription className="text-emerald-700">
-                  AI分析による具体的な改善ポイント
-                </CardDescription>
-              </CardHeader>
-           <CardContent className="p-6">
-             {adviceData.advice_list && adviceData.advice_list.length > 0 ? (
-               <div className="space-y-6">
-                 {/* アドバイスカードのグリッド */}
-                 <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
-                   {adviceData.advice_list.slice(0, 4).map((advice: any, index: number) => (
-                     <AdviceCard key={index} advice={advice} index={index} />
-                   ))}
-                 </div>
-                 
-                 {/* 総合的な改善のポイント */}
-                 <div className="mt-8 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
-                   <h5 className="font-semibold text-blue-900 text-base mb-3 flex items-center">
-                     💡 <span className="ml-2">総合的な改善のポイント</span>
-                   </h5>
-                   <div className="text-blue-800 text-sm leading-relaxed space-y-2">
-                     <p>改善は段階的に取り組むことが重要です。</p>
-                     <p>まずは全体的なフォーム意識から始めて、個別の課題に順次対処していくことで、より効果的なランニングフォームを身につけることができます。</p>
-                   </div>
-                 </div>
-               </div>
-             ) : (
-               <div className="text-center py-12">
-                 <div className="text-gray-400 mb-3">
-                   🔍
-                 </div>
-                 <p className="text-gray-500 text-sm">
-                   分析結果からアドバイスを生成中です...
-                 </p>
-               </div>
-             )}
-           </CardContent>
-            </Card>
-          )}
 
           {/* ローディング中の表示 - 改善版 */}
           {adviceLoading && (
@@ -1895,16 +1826,14 @@ export default function ResultPage({ params }: { params: { id: string } }) {
 
           {/* 統合アドバイスセクション */}
           {(() => {
-            // 統合アドバイスを優先し、なければ高レベルアドバイスを表示
+            // 統合アドバイスを表示
             const integratedAdvice = result?.advice_results?.integrated_advice || result?.advice_analysis?.integrated_advice;
-            const advancedAdvice = result?.advice_results?.advanced_advice || result?.advice_analysis?.advanced_advice;
-            const finalAdvice = integratedAdvice || advancedAdvice;
+            const finalAdvice = integratedAdvice;
             const highLevelIssues = result?.advice_results?.high_level_issues || result?.advice_analysis?.high_level_issues || [];
             
             // 一時的な本番環境デバッグ情報（問題解決後に削除）
             console.log('🎯 統合アドバイス表示デバッグ（本番環境）:');
             console.log('  integratedAdvice:', integratedAdvice ? `"${integratedAdvice.substring(0, 100)}..."` : '❌ なし');
-            console.log('  advancedAdvice:', advancedAdvice ? `"${advancedAdvice.substring(0, 100)}..."` : '❌ なし');
             console.log('  finalAdvice:', finalAdvice ? `"${finalAdvice.substring(0, 100)}..."` : '❌ なし');
             console.log('  result.advice_results:', result?.advice_results ? '✅ あり' : '❌ なし');
             console.log('  result.advice_analysis:', result?.advice_analysis ? '✅ あり' : '❌ なし');

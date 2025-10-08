@@ -23,7 +23,7 @@ from db_utils import (
     save_events_data,
     save_analysis_results,
     update_run_status,
-    save_advice_data
+    save_integrated_advice
 )
 
 # ロギングの設定
@@ -38,7 +38,6 @@ UPLOAD_DIRECTORY.mkdir(exist_ok=True)
 POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
 FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
 ANALYSIS_URL = "http://analysis:8004/analyze-z-score"
-ADVICE_GENERATION_URL = "http://advice_generation:8005/generate"
 
 app = FastAPI(
     title="Video Processing Service",
@@ -230,28 +229,9 @@ async def upload_video(
                     issue_data["issues"] = issues
                     issue_data["analysis_details"]["total_issues"] = len(issues)
                 
-                # Step 4: アドバイス生成（従来のGemini AI + 新しい高レベルアドバイス）
+                # Step 4: 統合アドバイス生成
                 try:
-                    logger.info("アドバイス生成サービス（Gemini AI）を呼び出します")
-                    advice_request = {
-                        "video_id": unique_id,
-                        "issues": issue_data.get("issues", [])
-                    }
-                    
-                    # カスタムプロンプト設定を追加
-                    if parsed_prompt_settings:
-                        advice_request["prompt_settings"] = parsed_prompt_settings
-                    
-                    advice_response = await client.post(
-                        ADVICE_GENERATION_URL,
-                        json=advice_request,
-                        timeout=60.0
-                    )
-                    advice_response.raise_for_status()
-                    advice_data = advice_response.json()
-                    logger.info("Gemini AIアドバイス生成完了")
-                    
-                    # 統合アドバイス生成を追加
+                    # 統合アドバイス生成
                     logger.info("統合アドバイス生成サービスを呼び出します")
                     
                     # Z値分析結果から課題を抽出（統合アドバイス用）
@@ -293,27 +273,28 @@ async def upload_video(
                     logger.info(f"統合アドバイスデータ: {integrated_advice_data}")
                     logger.info(f"抽出された課題: {high_level_issues}")
                     
-                    # アドバイスデータに統合アドバイスを追加
-                    advice_data["integrated_advice"] = integrated_advice_data.get("integrated_advice", "")
-                    advice_data["advanced_advice"] = integrated_advice_data.get("integrated_advice", "")  # 後方互換性
-                    advice_data["high_level_issues"] = high_level_issues
+                    # アドバイスデータを作成（統合アドバイスのみ）
+                    advice_data = {
+                        "status": "success",
+                        "message": "統合アドバイスを生成しました",
+                        "video_id": unique_id,
+                        "integrated_advice": integrated_advice_data.get("integrated_advice", ""),
+                        "advanced_advice": integrated_advice_data.get("integrated_advice", ""),  # 後方互換性
+                        "high_level_issues": high_level_issues
+                    }
                     
                     # デバッグログ: 最終的なadvice_dataの確認
-                    logger.info(f"最終advice_dataに統合アドバイス追加: {bool(advice_data.get('integrated_advice'))}")
+                    logger.info(f"統合アドバイス追加完了: {bool(advice_data.get('integrated_advice'))}")
                     
                 except Exception as e:
-                    logger.warning(f"アドバイス生成でエラーが発生しましたが、処理を続行します: {e}")
+                    logger.warning(f"統合アドバイス生成でエラーが発生しましたが、処理を続行します: {e}")
                     # アドバイス生成に失敗した場合は空の結果をセット
                     advice_data = {
                         "status": "error",
-                        "message": "アドバイス生成に失敗しました",
+                        "message": "統合アドバイス生成に失敗しました",
                         "video_id": unique_id,
-                        "advice_list": [],
-                        "summary": {
-                            "total_issues": 0,
-                            "total_advice": 0,
-                            "generation_timestamp": ""
-                        }
+                        "integrated_advice": "",
+                        "high_level_issues": []
                     }
                 
                 # Step 5: 成功レスポンスの返却
@@ -418,13 +399,13 @@ async def upload_video(
                             if success:
                                 logger.info(f"✅ 解析結果を保存しました")
                         
-                        # 6. アドバイスデータの保存
+                        # 6. 統合アドバイスの保存
                         if advice_data and advice_data.get("status") == "success":
-                            advice_list = advice_data.get("advice_list", [])
-                            if advice_list:
-                                success = save_advice_data(run_id, advice_list)
+                            integrated_advice = advice_data.get("integrated_advice", "")
+                            if integrated_advice:
+                                success = save_integrated_advice(run_id, integrated_advice)
                                 if success:
-                                    logger.info(f"✅ アドバイスデータを保存しました")
+                                    logger.info(f"✅ 統合アドバイスを保存しました")
                         
                         # 7. ステータスを完了に更新
                         update_run_status(run_id, 'completed')
