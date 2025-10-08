@@ -261,6 +261,7 @@ interface AnalysisResult {
       overall_assessment: string
     }
   }
+  z_score_analysis?: ZScoreAnalysisResult
   error?: string
 }
 
@@ -595,8 +596,15 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           setResult(completeResult)
           setLoading(false)
           
-          // angle_statisticsが存在する場合、比較を実行
-          if (completeResult.feature_analysis?.features?.angle_statistics) {
+          // Z値データの処理
+          if (completeResult.z_score_analysis) {
+            // すでにZ値分析データがある場合はそれを使用
+            console.log('✅ z_score_analysis データが存在します（即座に表示）')
+            setZScoreData(completeResult.z_score_analysis)
+            setZScoreLoading(false)
+          } else if (completeResult.feature_analysis?.features?.angle_statistics) {
+            // Z値データがない場合のみAPI呼び出し
+            console.log('⚠️ z_score_analysis データなし、API呼び出しを実行')
             console.log('📊 angle_statistics発見、比較処理開始...')
             
             // avgをmeanに変換
