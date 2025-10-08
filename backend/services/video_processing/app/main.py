@@ -22,7 +22,8 @@ from db_utils import (
     save_keypoints_data,
     save_events_data,
     save_analysis_results,
-    update_run_status
+    update_run_status,
+    save_advice_data
 )
 
 # ロギングの設定
@@ -417,7 +418,15 @@ async def upload_video(
                             if success:
                                 logger.info(f"✅ 解析結果を保存しました")
                         
-                        # 6. ステータスを完了に更新
+                        # 6. アドバイスデータの保存
+                        if advice_data and advice_data.get("status") == "success":
+                            advice_list = advice_data.get("advice_list", [])
+                            if advice_list:
+                                success = save_advice_data(run_id, advice_list)
+                                if success:
+                                    logger.info(f"✅ アドバイスデータを保存しました")
+                        
+                        # 7. ステータスを完了に更新
                         update_run_status(run_id, 'completed')
                         logger.info("✅ 全てのデータをデータベースに保存しました")
                         
