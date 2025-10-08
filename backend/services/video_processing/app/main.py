@@ -71,6 +71,7 @@ async def health_check():
 @app.post("/upload")
 async def upload_video(
     file: UploadFile = File(...),
+    user_id: str = Form("default_user"),
     prompt_settings: Optional[str] = Form(None)
 ):
     """
@@ -78,12 +79,27 @@ async def upload_video(
     
     Args:
         file: アップロードされた動画ファイル
+        user_id: ユーザーID（デフォルト: default_user）
         prompt_settings: カスタムプロンプト設定（JSON文字列、任意）
         
     Returns:
         解析結果またはエラー情報
     """
     try:
+        # ユーザーIDの検証
+        valid_users = [
+            "vf_yaji", "vf_ono", "vf_hirokawa",
+            "x_ae", "x_masuda", "x_komatsu", "x_suzuki", "x_konno",
+            "guest1", "guest2", "guest3", "guest4", "guest5",
+            "default_user"
+        ]
+        
+        if user_id not in valid_users:
+            logger.warning(f"⚠️ 無効なuser_id: {user_id}, default_userを使用")
+            user_id = "default_user"
+        else:
+            logger.info(f"👤 ユーザー: {user_id}")
+        
         # ファイル形式の検証
         allowed_extensions = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
         file_extension = Path(file.filename).suffix.lower()
@@ -351,11 +367,9 @@ async def upload_video(
                 if ENABLE_DB_SAVE:
                     try:
                         logger.info("💾 データベースへの保存を開始します...")
+                        logger.info(f"   ユーザーID: {user_id}")
                         
-                        # 1. ユーザーIDの設定（デフォルトユーザー）
-                        user_id = "default_user"  # 実際のユーザー認証機能があれば、そこから取得
-                        
-                        # 2. 走行記録の作成
+                        # 1. 走行記録の作成
                         video_info = pose_data.get("video_info", {})
                         run_id = create_run_record(
                             video_id=unique_id,

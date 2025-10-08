@@ -11,6 +11,24 @@ export default function HomePage() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isDragOver, setIsDragOver] = useState(false)
   const [activePromptTab, setActivePromptTab] = useState<'preset' | 'custom'>('preset')
+  const [selectedUser, setSelectedUser] = useState<string>('vf_yaji') // ユーザー選択
+  
+  // ユーザーリスト
+  const users = [
+    { id: 'vf_yaji', name: 'VF矢治' },
+    { id: 'vf_ono', name: 'VF大野' },
+    { id: 'vf_hirokawa', name: 'VF広川' },
+    { id: 'x_ae', name: 'X阿江' },
+    { id: 'x_masuda', name: 'X増田' },
+    { id: 'x_komatsu', name: 'X小松' },
+    { id: 'x_suzuki', name: 'X鈴木' },
+    { id: 'x_konno', name: 'X近野' },
+    { id: 'guest1', name: 'ゲスト1' },
+    { id: 'guest2', name: 'ゲスト2' },
+    { id: 'guest3', name: 'ゲスト3' },
+    { id: 'guest4', name: 'ゲスト4' },
+    { id: 'guest5', name: 'ゲスト5' },
+  ]
   
   // プロンプト設定の取得
   const getPromptSettings = () => {
@@ -129,6 +147,7 @@ export default function HomePage() {
       // FormDataオブジェクトを作成
       const formData = new FormData()
       formData.append('file', selectedFile)
+      formData.append('user_id', selectedUser) // ユーザーIDを追加
       
       // プロンプト設定を取得して送信
       try {
@@ -520,6 +539,25 @@ export default function HomePage() {
                 <p className="text-gray-600">
                   数分で詳細な解析結果とアドバイスをお届けします
                 </p>
+              </div>
+
+              {/* ユーザー選択 */}
+              <div className="mb-6">
+                <label htmlFor="user-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  ユーザー選択
+                </label>
+                <select
+                  id="user-select"
+                  value={selectedUser}
+                  onChange={(e) => setSelectedUser(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white text-gray-900"
+                >
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* アップロードエリア */}
