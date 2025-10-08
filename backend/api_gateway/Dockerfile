@@ -22,6 +22,9 @@ RUN mkdir -p /usr/share/nginx/html && \
 # Nginx設定ファイルをコピー
 COPY nginx.conf /etc/nginx/nginx.conf
 
+# Basic認証用のパスワードファイルをコピー
+COPY .htpasswd /etc/nginx/.htpasswd
+
 # ポートを公開
 EXPOSE 80
 
