@@ -577,8 +577,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           if (process.env.NODE_ENV === 'development') {
             console.log('📋 localStorage データ構造デバッグ:');
             console.log('  lightResult keys:', Object.keys(lightResult));
+            console.log('  lightResult.z_score_analysis:', lightResult.z_score_analysis ? 'あり' : 'なし');
             console.log('  lightResult.advice_results:', lightResult.advice_results ? 'あり' : 'なし');
             console.log('  lightResult.advice_analysis:', lightResult.advice_analysis ? 'あり' : 'なし');
+            if (lightResult.z_score_analysis) {
+              console.log('  z_score_analysis keys:', Object.keys(lightResult.z_score_analysis));
+            }
             console.log('  全データ:', lightResult);
           }
           

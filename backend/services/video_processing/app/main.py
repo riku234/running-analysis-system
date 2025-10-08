@@ -309,6 +309,7 @@ async def upload_video(
                     "upload_info": upload_data,
                     "pose_analysis": pose_data,
                     "feature_analysis": feature_data,
+                    "z_score_analysis": z_score_data,  # Z値分析結果を追加
                     "issue_analysis": issue_data,
                     "advice_results": advice_data  # 必ずadvice_resultsキーを含める
                 }
