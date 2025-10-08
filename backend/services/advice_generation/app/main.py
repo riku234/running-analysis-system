@@ -250,7 +250,8 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
                 print(f"   📨 Gemini応答受信: {type(response)}")
                 break
             except Exception as api_error:
-                if "429" in str(api_error) or "quota" in str(api_error).lower():
+                error_str = str(api_error)
+                if "429" in error_str or "quota" in error_str.lower():
                     if attempt < max_retries - 1:
                         wait_time = (attempt + 1) * 10  # 10秒, 20秒, 30秒の間隔
                         print(f"   ⏳ レート制限検出、{wait_time}秒待機後にリトライ ({attempt + 1}/{max_retries})")
@@ -258,6 +259,16 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
                         continue
                     else:
                         print(f"   ❌ 最大リトライ回数に達しました。フォールバックを使用します。")
+                        raise api_error
+                elif "500" in error_str or "InternalServerError" in error_str:
+                    # Gemini API側の一時的なエラー
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 5  # 5秒, 10秒, 15秒の間隔
+                        print(f"   ⏳ Gemini API内部エラー、{wait_time}秒待機後にリトライ ({attempt + 1}/{max_retries})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"   ❌ Gemini API内部エラーが継続しています。デフォルトアドバイスを使用します。")
                         raise api_error
                 else:
                     raise api_error
