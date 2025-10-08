@@ -729,12 +729,15 @@ def save_advice_data(run_id: int, advice_list: list) -> bool:
                     priority = "low"
                 
                 # adviceテーブルにINSERT
+                # priorityは整数値に変換（high=3, medium=2, low=1）
+                priority_int = {"high": 3, "medium": 2, "low": 1}.get(priority, 2)
+                
                 insert_sql = """
-                    INSERT INTO advice (run_id, issue, advice_text, priority, created_at)
+                    INSERT INTO advice (run_id, advice_text, advice_type, priority, created_at)
                     VALUES (%s, %s, %s, %s, NOW())
                 """
                 
-                cursor.execute(insert_sql, (run_id, issue, advice_text, priority))
+                cursor.execute(insert_sql, (run_id, advice_text, issue, priority_int))
                 saved_count += 1
                 
             except Exception as e:
