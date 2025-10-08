@@ -262,7 +262,20 @@ async def generate_detailed_advice_for_issue(issue: str, main_finding: str = Non
                 else:
                     raise api_error
         
-        if response and hasattr(response, 'text') and response.text:
+        # レスポンスの検証
+        if response and response.candidates:
+            candidate = response.candidates[0]
+            if candidate.finish_reason == 2:  # SAFETY
+                print(f"   ⚠️  安全性フィルターによりブロックされました: {issue}")
+                advice_text = "フォーム改善のための一般的なアドバイスを心がけましょう。"
+            elif hasattr(response, 'text') and response.text:
+                advice_text = response.text.strip()
+                print(f"   📄 Gemini個別解説レスポンス ({issue}): {advice_text[:200]}...")  # デバッグ用
+                print(f"   🔍 完全なレスポンス: {repr(advice_text)}")  # 完全なレスポンスをデバッグ
+            else:
+                print(f"   ⚠️  レスポンステキストが空です: {issue}")
+                advice_text = "フォーム改善のための一般的なアドバイスを心がけましょう。"
+        elif response and hasattr(response, 'text') and response.text:
             advice_text = response.text.strip()
             print(f"   📄 Gemini個別解説レスポンス ({issue}): {advice_text[:200]}...")  # デバッグ用
             print(f"   🔍 完全なレスポンス: {repr(advice_text)}")  # 完全なレスポンスをデバッグ
@@ -909,7 +922,21 @@ async def generate_advice(request: AdviceRequest):
                 else:
                     raise api_error
         
-        if not response or not hasattr(response, 'text') or not response.text:
+        # レスポンスの検証
+        if not response:
+            ai_response = ""
+        elif response.candidates:
+            candidate = response.candidates[0]
+            if candidate.finish_reason == 2:  # SAFETY
+                print(f"   ⚠️  統合アドバイスが安全性フィルターによりブロックされました")
+                ai_response = "今回の分析結果を参考に、基本的なフォーム改善を心がけましょう。"
+            elif hasattr(response, 'text') and response.text:
+                ai_response = response.text.strip()
+            else:
+                ai_response = ""
+        elif hasattr(response, 'text') and response.text:
+            ai_response = response.text.strip()
+        else:
             ai_response = ""
         
         print(f"   📨 Gemini応答受信 (長さ: {len(ai_response)} 文字)")
