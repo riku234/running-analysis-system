@@ -49,9 +49,10 @@ docker-compose build video_processing analysis advice_generation
 
 echo ""
 echo "================================================"
-echo "🚀 サービスの再起動"
+echo "🚀 サービスの再起動（本番環境設定）"
 echo "================================================"
-docker-compose up -d
+# 本番環境ではdocker-compose.prod.ymlを使用してENABLE_DB_SAVE=trueに設定
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 echo ""
 echo "⏳ サービスの起動を待機中..."

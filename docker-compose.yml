@@ -52,6 +52,7 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
+      - ENABLE_DB_SAVE=false  # ローカル環境ではDB保存を無効化
     volumes:
       - video_storage:/app/uploads
     networks:

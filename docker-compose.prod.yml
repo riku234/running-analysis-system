@@ -1,0 +1,10 @@
+# EC2本番環境用のdocker-compose設定（オーバーライド）
+# 使用方法: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  video_processing:
+    environment:
+      - ENABLE_DB_SAVE=true  # 本番環境ではDB保存を有効化
+

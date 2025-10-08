@@ -39,6 +39,11 @@ POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
 FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
 ANALYSIS_URL = "http://analysis:8004/analyze-z-score"
 
+# データベース保存の有効/無効を制御
+# 環境変数 ENABLE_DB_SAVE が "true" の場合のみデータベースに保存
+ENABLE_DB_SAVE = os.getenv("ENABLE_DB_SAVE", "false").lower() == "true"
+logger.info(f"📊 データベース保存: {'有効' if ENABLE_DB_SAVE else '無効'}")
+
 app = FastAPI(
     title="Video Processing Service",
     description="動画のアップロード、フォーマット変換、フレーム抽出を担当するサービス",
@@ -342,84 +347,87 @@ async def upload_video(
                 # ======================================================================
                 # データベースへの保存処理
                 # ======================================================================
-                try:
-                    logger.info("💾 データベースへの保存を開始します...")
-                    
-                    # 1. ユーザーIDの設定（デフォルトユーザー）
-                    user_id = "default_user"  # 実際のユーザー認証機能があれば、そこから取得
-                    
-                    # 2. 走行記録の作成
-                    video_info = pose_data.get("video_info", {})
-                    run_id = create_run_record(
-                        video_id=unique_id,
-                        user_id=user_id,
-                        video_path=str(file_path),
-                        original_filename=file.filename,
-                        video_fps=video_info.get("fps"),
-                        video_duration=video_info.get("duration"),
-                        total_frames=video_info.get("total_frames")
-                    )
-                    
-                    if run_id:
-                        logger.info(f"✅ 走行記録を作成しました: run_id={run_id}")
+                if ENABLE_DB_SAVE:
+                    try:
+                        logger.info("💾 データベースへの保存を開始します...")
                         
-                        # 3. キーポイントデータの保存
-                        pose_data_list = pose_data.get("pose_data", [])
-                        if pose_data_list:
-                            success = save_keypoints_data(run_id, pose_data_list)
-                            if success:
-                                logger.info(f"✅ キーポイントデータを保存しました")
+                        # 1. ユーザーIDの設定（デフォルトユーザー）
+                        user_id = "default_user"  # 実際のユーザー認証機能があれば、そこから取得
                         
-                        # 4. イベントデータの保存（もし存在すれば）
-                        # z_score_dataからevents_detectedを取得
-                        events = z_score_data.get("events_detected", [])
-                        if events:
-                            success = save_events_data(run_id, events)
-                            if success:
-                                logger.info(f"✅ イベントデータを保存しました")
+                        # 2. 走行記録の作成
+                        video_info = pose_data.get("video_info", {})
+                        run_id = create_run_record(
+                            video_id=unique_id,
+                            user_id=user_id,
+                            video_path=str(file_path),
+                            original_filename=file.filename,
+                            video_fps=video_info.get("fps"),
+                            video_duration=video_info.get("duration"),
+                            total_frames=video_info.get("total_frames")
+                        )
                         
-                        # 5. 解析結果の保存
-                        # Z値スコアを抽出
-                        results_to_save = {}
-                        z_scores = z_score_data.get("z_scores", {})
-                        for event_type, scores in z_scores.items():
-                            for angle_name, z_value in scores.items():
-                                metric_name = f"Z値_{event_type}_{angle_name}"
-                                results_to_save[metric_name] = z_value
-                        
-                        # イベント角度も保存
-                        event_angles = z_score_data.get("event_angles", {})
-                        for event_type, angles in event_angles.items():
-                            for angle_name, angle_value in angles.items():
-                                metric_name = f"角度_{event_type}_{angle_name}"
-                                results_to_save[metric_name] = angle_value
-                        
-                        if results_to_save:
-                            success = save_analysis_results(run_id, results_to_save)
-                            if success:
-                                logger.info(f"✅ 解析結果を保存しました")
-                        
-                        # 6. 統合アドバイスの保存
-                        if advice_data and advice_data.get("status") == "success":
-                            integrated_advice = advice_data.get("integrated_advice", "")
-                            if integrated_advice:
-                                success = save_integrated_advice(run_id, integrated_advice)
+                        if run_id:
+                            logger.info(f"✅ 走行記録を作成しました: run_id={run_id}")
+                            
+                            # 3. キーポイントデータの保存
+                            pose_data_list = pose_data.get("pose_data", [])
+                            if pose_data_list:
+                                success = save_keypoints_data(run_id, pose_data_list)
                                 if success:
-                                    logger.info(f"✅ 統合アドバイスを保存しました")
-                        
-                        # 7. ステータスを完了に更新
-                        update_run_status(run_id, 'completed')
-                        logger.info("✅ 全てのデータをデータベースに保存しました")
-                        
-                        # レスポンスにrun_idを追加
-                        response_data["run_id"] = run_id
-                    else:
-                        logger.warning("⚠️  データベースへの保存に失敗しましたが、処理は続行します")
-                        
-                except Exception as db_error:
-                    logger.error(f"❌ データベース保存エラー: {db_error}")
-                    logger.error("データベースへの保存に失敗しましたが、処理結果は返却します")
-                    # データベースエラーが発生しても、解析結果は返却する
+                                    logger.info(f"✅ キーポイントデータを保存しました")
+                            
+                            # 4. イベントデータの保存（もし存在すれば）
+                            # z_score_dataからevents_detectedを取得
+                            events = z_score_data.get("events_detected", [])
+                            if events:
+                                success = save_events_data(run_id, events)
+                                if success:
+                                    logger.info(f"✅ イベントデータを保存しました")
+                            
+                            # 5. 解析結果の保存
+                            # Z値スコアを抽出
+                            results_to_save = {}
+                            z_scores = z_score_data.get("z_scores", {})
+                            for event_type, scores in z_scores.items():
+                                for angle_name, z_value in scores.items():
+                                    metric_name = f"Z値_{event_type}_{angle_name}"
+                                    results_to_save[metric_name] = z_value
+                            
+                            # イベント角度も保存
+                            event_angles = z_score_data.get("event_angles", {})
+                            for event_type, angles in event_angles.items():
+                                for angle_name, angle_value in angles.items():
+                                    metric_name = f"角度_{event_type}_{angle_name}"
+                                    results_to_save[metric_name] = angle_value
+                            
+                            if results_to_save:
+                                success = save_analysis_results(run_id, results_to_save)
+                                if success:
+                                    logger.info(f"✅ 解析結果を保存しました")
+                            
+                            # 6. 統合アドバイスの保存
+                            if advice_data and advice_data.get("status") == "success":
+                                integrated_advice = advice_data.get("integrated_advice", "")
+                                if integrated_advice:
+                                    success = save_integrated_advice(run_id, integrated_advice)
+                                    if success:
+                                        logger.info(f"✅ 統合アドバイスを保存しました")
+                            
+                            # 7. ステータスを完了に更新
+                            update_run_status(run_id, 'completed')
+                            logger.info("✅ 全てのデータをデータベースに保存しました")
+                            
+                            # レスポンスにrun_idを追加
+                            response_data["run_id"] = run_id
+                        else:
+                            logger.warning("⚠️  データベースへの保存に失敗しましたが、処理は続行します")
+                            
+                    except Exception as db_error:
+                        logger.error(f"❌ データベース保存エラー: {db_error}")
+                        logger.error("データベースへの保存に失敗しましたが、処理結果は返却します")
+                        # データベースエラーが発生しても、解析結果は返却する
+                else:
+                    logger.info("⏭️  データベース保存はスキップされました（ENABLE_DB_SAVE=false）")
                 
                 # ======================================================================
                 

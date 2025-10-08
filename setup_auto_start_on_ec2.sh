@@ -25,7 +25,7 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/home/ec2-user/running-analysis-system
-ExecStart=/usr/local/bin/docker-compose up -d
+ExecStart=/usr/local/bin/docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ExecStop=/usr/local/bin/docker-compose down
 TimeoutStartSec=0
 
