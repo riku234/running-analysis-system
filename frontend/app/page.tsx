@@ -10,7 +10,6 @@ export default function HomePage() {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isDragOver, setIsDragOver] = useState(false)
-  const [activePromptTab, setActivePromptTab] = useState<'preset' | 'custom'>('preset')
   const [selectedUser, setSelectedUser] = useState<string>('vf_yaji') // ユーザー選択
   
   // ユーザーリスト
@@ -34,50 +33,24 @@ export default function HomePage() {
   const getPromptSettings = () => {
     console.log('🔧 getPromptSettings 関数開始')
     
-    // 手書きプロンプトが入力されているかチェック
+    // カスタムプロンプトを取得
     const customPromptElement = document.getElementById('custom-prompt') as HTMLTextAreaElement
-    console.log('🔧 customPromptElement:', customPromptElement)
     const customPrompt = customPromptElement?.value?.trim()
-    console.log('🔧 customPrompt:', customPrompt)
-    console.log('🔧 customPrompt長:', customPrompt?.length || 0)
     
-    if (customPrompt) {
-      console.log('✅ カスタムプロンプトが入力されています')
-      // 手書きプロンプトが入力されている場合は、それを優先
-      const temperature = parseFloat((document.getElementById('temperature') as HTMLInputElement)?.value || '0.7')
-      const topP = parseFloat((document.getElementById('top-p') as HTMLInputElement)?.value || '0.8')
-      const maxTokens = parseInt((document.getElementById('max-tokens') as HTMLInputElement)?.value || '1000')
-      
-      const customSettings = {
-        custom_prompt: customPrompt,
-        use_custom_prompt: true,
-        temperature: temperature,
-        top_p: topP,
-        max_output_tokens: maxTokens
-      }
-      console.log('🔧 カスタム設定:', customSettings)
-      return customSettings
-    } else {
-      console.log('📝 プリセット設定を使用')
-      // 選択式設定を使用
-      const coachingStyle = (document.getElementById('coaching-style') as HTMLSelectElement)?.value || 'professional'
-      const detailLevel = (document.getElementById('detail-level') as HTMLSelectElement)?.value || 'detailed'
-      const includeExercises = (document.getElementById('include-exercises') as HTMLInputElement)?.checked ?? true
-      const useScientificTerms = (document.getElementById('use-scientific-terms') as HTMLInputElement)?.checked ?? false
-      
-      const presetSettings = {
-        coaching_style: coachingStyle,
-        advice_detail_level: detailLevel,
-        include_exercises: includeExercises,
-        use_scientific_terms: useScientificTerms,
-        use_custom_prompt: false,
-        temperature: 0.7,
-        top_p: 0.8,
-        max_output_tokens: 1000
-      }
-      console.log('🔧 プリセット設定:', presetSettings)
-      return presetSettings
+    const temperature = parseFloat((document.getElementById('temperature') as HTMLInputElement)?.value || '0.5')
+    const topP = parseFloat((document.getElementById('top-p') as HTMLInputElement)?.value || '0.8')
+    const maxTokens = parseInt((document.getElementById('max-tokens') as HTMLInputElement)?.value || '1000')
+    
+    // カスタムプロンプトが入力されている場合は使用、なければデフォルト
+    const settings = {
+      custom_prompt: customPrompt || undefined,
+      use_custom_prompt: !!customPrompt,
+      temperature: temperature,
+      top_p: topP,
+      max_output_tokens: maxTokens
     }
+    console.log('🔧 プロンプト設定:', settings)
+    return settings
   }
   
   // Zustandストアのアクション
@@ -673,113 +646,20 @@ export default function HomePage() {
                   </p>
                 </div>
 
-              {/* タブ切り替え */}
-              <div className="flex border-b border-gray-200 mb-6">
-                <button
-                  type="button"
-                  onClick={() => setActivePromptTab('preset')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                    activePromptTab === 'preset'
-                      ? 'border-blue-500 text-blue-600 bg-blue-50'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  ⚙️ プリセット設定
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePromptTab('custom')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                    activePromptTab === 'custom'
-                      ? 'border-blue-500 text-blue-600 bg-blue-50'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  ✍️ カスタムプロンプト
-                </button>
-              </div>
-
-              {/* プリセット設定タブ */}
-              {activePromptTab === 'preset' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      コーチングスタイル
-                    </label>
-                    <select
-                      id="coaching-style"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      defaultValue="professional"
-                    >
-                      <option value="professional">👔 プロフェッショナル - 客観的で専門的なアドバイス</option>
-                      <option value="friendly">😊 フレンドリー - 親しみやすく親切なアドバイス</option>
-                      <option value="motivational">💪 モチベーショナル - 励ましと応援重視</option>
-                      <option value="technical">🔬 テクニカル - 科学的で詳細なアドバイス</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      詳細レベル
-                    </label>
-                    <select
-                      id="detail-level"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      defaultValue="detailed"
-                    >
-                      <option value="basic">📝 基本 - 要点のみ簡潔に</option>
-                      <option value="detailed">📚 詳細 - 理由と方法を含む</option>
-                      <option value="expert">🎓 専門家レベル - 深い分析と解説</option>
-                    </select>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="include-exercises"
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          defaultChecked
-                        />
-                        <span className="text-sm text-gray-700">エクササイズ提案を含める</span>
-                      </label>
-                    </div>
-                    <div>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="use-scientific-terms"
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">専門用語を使用</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <p className="text-sm text-blue-800">
-                      💡 プリセット設定が動画アップロード時に適用されます
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* カスタムプロンプトタブ */}
-              {activePromptTab === 'custom' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      カスタムプロンプト（個別課題解説用）
-                    </label>
-                    <p className="text-sm text-gray-600 mb-2">
-                      💡 デフォルトプロンプトが入力されています。自由に編集してください。
-                    </p>
-                    <textarea
-                      id="custom-prompt"
-                      rows={12}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none font-mono text-sm"
-                      defaultValue={`あなたは専門コーチです。「{issue}」について、プレーンテキストのみで説明してください。
+              {/* プロンプト設定 */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    カスタムプロンプト（個別課題解説用）
+                  </label>
+                  <p className="text-sm text-gray-600 mb-2">
+                    💡 デフォルトプロンプトが入力されています。必要に応じて編集してください。空欄にするとデフォルトが使用されます。
+                  </p>
+                  <textarea
+                    id="custom-prompt"
+                    rows={10}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none font-mono text-sm"
+                    defaultValue={`あなたは専門コーチです。「{issue}」について、プレーンテキストのみで説明してください。
 
 重要：装飾記号は一切使用禁止です。通常の文章のみで回答してください。
 
@@ -792,69 +672,68 @@ export default function HomePage() {
 エクササイズ: 壁ドリルで足の引き上げを練習し、重心の真下で着地する感覚を習得しましょう。
 
 このような通常の文章形式で回答してください。ハッシュ、アスタリスク、ハイフンなどの記号は絶対に使わないでください。`}
+                  />
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Temperature (創造性)
+                    </label>
+                    <input
+                      type="range"
+                      id="temperature"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      defaultValue="0.5"
+                      className="w-full"
+                    />
+                    <span className="text-xs text-gray-500">0.0 (保守的) - 1.0 (創造的)</span>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Top P (多様性)
+                    </label>
+                    <input
+                      type="range"
+                      id="top-p"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      defaultValue="0.8"
+                      className="w-full"
+                    />
+                    <span className="text-xs text-gray-500">0.0 (一貫性) - 1.0 (多様性)</span>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      最大トークン数
+                    </label>
+                    <input
+                      type="number"
+                      id="max-tokens"
+                      min="100"
+                      max="2000"
+                      step="100"
+                      defaultValue="1000"
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                     />
                   </div>
-
-                  <div className="grid md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Temperature (創造性)
-                      </label>
-                      <input
-                        type="range"
-                        id="temperature"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        defaultValue="0.7"
-                        className="w-full"
-                      />
-                      <span className="text-xs text-gray-500">0.0 (保守的) - 1.0 (創造的)</span>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Top P (多様性)
-                      </label>
-                      <input
-                        type="range"
-                        id="top-p"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        defaultValue="0.8"
-                        className="w-full"
-                      />
-                      <span className="text-xs text-gray-500">0.0 (狭い) - 1.0 (広い)</span>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        最大トークン数
-                      </label>
-                      <input
-                        type="number"
-                        id="max-tokens"
-                        min="100"
-                        max="2000"
-                        step="100"
-                        defaultValue="1000"
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <p className="text-sm text-blue-800 font-medium mb-1">
-                      📝 プロンプト設定の適用範囲
-                    </p>
-                    <p className="text-xs text-blue-700">
-                      このカスタムプロンプトは「個別課題の詳細解説」の生成にのみ適用されます。
-                    </p>
-                    <p className="text-xs text-blue-600 mt-1">
-                      {"{issue}"}の部分には各課題名（例: 体幹前傾、左下腿角度大）が自動的に挿入されます。
-                    </p>
-                  </div>
                 </div>
-              )}
+
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-800 font-medium mb-1">
+                    📝 プロンプト設定の適用範囲
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    カスタムプロンプトを入力すると「個別課題の詳細解説」の生成に適用されます。空欄の場合はデフォルトプロンプトが使用されます。
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    {"{issue}"}の部分には各課題名（例: 体幹前傾、左下腿角度大）が自動的に挿入されます。
+                  </p>
+                </div>
+              </div>
               </div>
             </div>
           </div>
