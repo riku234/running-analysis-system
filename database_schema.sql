@@ -85,6 +85,22 @@ CREATE TABLE IF NOT EXISTS advice (
     FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
 );
 
+-- 7. 角度時系列データテーブル（各フレームの関節角度）
+CREATE TABLE IF NOT EXISTS frame_angles (
+    id SERIAL PRIMARY KEY,
+    run_id INTEGER NOT NULL,
+    frame_number INTEGER NOT NULL,
+    timestamp FLOAT,
+    trunk_angle FLOAT,
+    left_thigh_angle FLOAT,
+    right_thigh_angle FLOAT,
+    left_lower_leg_angle FLOAT,
+    right_lower_leg_angle FLOAT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE,
+    UNIQUE (run_id, frame_number)
+);
+
 -- インデックスの作成
 CREATE INDEX IF NOT EXISTS idx_runs_user_id ON runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_runs_video_id ON runs(video_id);
@@ -94,4 +110,6 @@ CREATE INDEX IF NOT EXISTS idx_keypoints_frame ON keypoints(run_id, frame_number
 CREATE INDEX IF NOT EXISTS idx_analysis_results_run_id ON analysis_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_advice_run_id ON advice(run_id);
+CREATE INDEX IF NOT EXISTS idx_frame_angles_run_id ON frame_angles(run_id);
+CREATE INDEX IF NOT EXISTS idx_frame_angles_frame ON frame_angles(run_id, frame_number);
 

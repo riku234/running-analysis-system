@@ -735,3 +735,122 @@ def save_integrated_advice(run_id: int, integrated_advice: str) -> bool:
         if conn:
             conn.close()
 
+
+def save_frame_angles_data(run_id: int, angle_data: list) -> bool:
+    """
+    各フレームの関節角度データをデータベースに一括保存する関数
+    
+    Args:
+        run_id (int): 走行ID
+        angle_data (list): 全フレームの角度データ
+            例: [
+                {
+                    "frame_number": 0,
+                    "timestamp": 0.0,
+                    "trunk_angle": 15.2,
+                    "left_thigh_angle": 12.5,
+                    "right_thigh_angle": -10.3,
+                    "left_lower_leg_angle": 45.3,
+                    "right_lower_leg_angle": -50.1
+                },
+                ...
+            ]
+    
+    Returns:
+        bool: 保存成功時はTrue、失敗時はFalse
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        # データベースに接続
+        conn = get_db_connection()
+        if not conn:
+            print("❌ データベース接続に失敗したため、角度データを保存できません")
+            return False
+        
+        cursor = conn.cursor()
+        
+        if not angle_data:
+            print("⚠️  保存する角度データが空です")
+            return False
+        
+        print(f"💾 角度時系列データを保存します...")
+        print(f"   走行ID: {run_id}")
+        print(f"   フレーム数: {len(angle_data)}")
+        
+        # 一括挿入用のデータリストを作成
+        insert_data = []
+        for frame_data in angle_data:
+            frame_number = frame_data.get("frame_number", 0)
+            timestamp = frame_data.get("timestamp")
+            trunk_angle = frame_data.get("trunk_angle")
+            left_thigh_angle = frame_data.get("left_thigh_angle")
+            right_thigh_angle = frame_data.get("right_thigh_angle")
+            left_lower_leg_angle = frame_data.get("left_lower_leg_angle")
+            right_lower_leg_angle = frame_data.get("right_lower_leg_angle")
+            
+            insert_data.append((
+                run_id,
+                frame_number,
+                timestamp,
+                trunk_angle,
+                left_thigh_angle,
+                right_thigh_angle,
+                left_lower_leg_angle,
+                right_lower_leg_angle
+            ))
+        
+        # 一括挿入
+        insert_sql = """
+            INSERT INTO frame_angles (
+                run_id, frame_number, timestamp,
+                trunk_angle, left_thigh_angle, right_thigh_angle,
+                left_lower_leg_angle, right_lower_leg_angle
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (run_id, frame_number) DO UPDATE SET
+                timestamp = EXCLUDED.timestamp,
+                trunk_angle = EXCLUDED.trunk_angle,
+                left_thigh_angle = EXCLUDED.left_thigh_angle,
+                right_thigh_angle = EXCLUDED.right_thigh_angle,
+                left_lower_leg_angle = EXCLUDED.left_lower_leg_angle,
+                right_lower_leg_angle = EXCLUDED.right_lower_leg_angle
+        """
+        
+        # バッチサイズで分割して挿入（メモリ効率化）
+        batch_size = 500
+        total_inserted = 0
+        
+        for i in range(0, len(insert_data), batch_size):
+            batch = insert_data[i:i + batch_size]
+            cursor.executemany(insert_sql, batch)
+            total_inserted += len(batch)
+            
+            if (i // batch_size + 1) % 5 == 0:
+                print(f"   進行状況: {total_inserted}/{len(insert_data)} フレーム")
+        
+        # トランザクションをコミット
+        conn.commit()
+        
+        print(f"✅ {total_inserted} フレームの角度データを保存しました")
+        return True
+        
+    except Exception as e:
+        print(f"❌ 角度データ保存エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # エラーが発生した場合はロールバック
+        if conn:
+            conn.rollback()
+        
+        return False
+        
+    finally:
+        # リソースのクリーンアップ
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+

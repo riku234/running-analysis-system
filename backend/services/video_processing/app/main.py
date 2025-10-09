@@ -23,7 +23,8 @@ from db_utils import (
     save_events_data,
     save_analysis_results,
     update_run_status,
-    save_integrated_advice
+    save_integrated_advice,
+    save_frame_angles_data
 )
 
 # ロギングの設定
@@ -391,7 +392,15 @@ async def upload_video(
                                 if success:
                                     logger.info(f"✅ キーポイントデータを保存しました")
                             
-                            # 4. イベントデータの保存（もし存在すれば）
+                            # 4. 角度時系列データの保存
+                            # feature_dataからangle_dataを取得
+                            angle_data = feature_data.get("angle_data", [])
+                            if angle_data:
+                                success = save_frame_angles_data(run_id, angle_data)
+                                if success:
+                                    logger.info(f"✅ 角度時系列データを保存しました")
+                            
+                            # 5. イベントデータの保存（もし存在すれば）
                             # z_score_dataからevents_detectedを取得
                             events = z_score_data.get("events_detected", [])
                             if events:
@@ -399,7 +408,7 @@ async def upload_video(
                                 if success:
                                     logger.info(f"✅ イベントデータを保存しました")
                             
-                            # 5. 解析結果の保存
+                            # 6. 解析結果の保存
                             # Z値スコアを抽出
                             results_to_save = {}
                             z_scores = z_score_data.get("z_scores", {})
@@ -420,7 +429,7 @@ async def upload_video(
                                 if success:
                                     logger.info(f"✅ 解析結果を保存しました")
                             
-                            # 6. 統合アドバイスの保存
+                            # 7. 統合アドバイスの保存
                             if advice_data and advice_data.get("status") == "success":
                                 integrated_advice = advice_data.get("integrated_advice", "")
                                 if integrated_advice:
