@@ -174,6 +174,58 @@ async def clear_cache(run_id: int):
     else:
         return {"status": "not_found", "message": "キャッシュが見つかりませんでした"}
 
+@app.get("/download/{video_id}")
+async def download_video(video_id: str):
+    """
+    OpenAIから動画をダウンロードして返す
+    
+    Args:
+        video_id: OpenAI video ID
+    
+    Returns:
+        動画ファイル (MP4)
+    """
+    from fastapi.responses import StreamingResponse
+    
+    try:
+        logger.info(f"📥 動画ダウンロードリクエスト: {video_id}")
+        
+        # Sora-2クライアントを初期化
+        sora_client = SoraVideoClient()
+        
+        # 動画コンテンツをダウンロード（ストリーム）
+        content_stream = sora_client.client.videos.download_content(video_id)
+        
+        # HttpxBinaryResponseContentから全てのバイトを読み込む
+        if hasattr(content_stream, 'read'):
+            content_bytes = content_stream.read()
+        elif hasattr(content_stream, '__iter__'):
+            content_bytes = b''.join(content_stream)
+        else:
+            # 直接バイト列の場合
+            content_bytes = bytes(content_stream)
+        
+        logger.info(f"✅ 動画ダウンロード成功: {len(content_bytes)} bytes")
+        
+        # BytesIOラッパーで返す
+        from io import BytesIO
+        return StreamingResponse(
+            BytesIO(content_bytes),
+            media_type="video/mp4",
+            headers={
+                "Content-Disposition": f"inline; filename=training_video_{video_id}.mp4"
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"❌ 動画ダウンロードエラー: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"動画ダウンロードエラー: {str(e)}"
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8006)

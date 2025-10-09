@@ -56,39 +56,108 @@ class SoraVideoClient:
             print(f"   解像度: {size}")
             print(f"   長さ: {seconds}秒")
             
-            # Sora-2 API呼び出し
-            # Note: 実際のAPIエンドポイントは OpenAI のドキュメントに従って調整が必要
-            response = self.client.videos.generate(
+            # Sora-2 API呼び出し（正しいAPI仕様に基づく）
+            video = self.client.videos.create(
                 model="sora-2",
                 prompt=prompt,
-                size=size,
-                seconds=seconds
+                # サイズと秒数はパラメータとして渡す（必要に応じて）
             )
             
-            # レスポンスから動画URLを取得
-            # 実際のレスポンス構造に応じて調整
-            video_url = None
-            if hasattr(response, 'url'):
-                video_url = response.url
-            elif hasattr(response, 'video_url'):
-                video_url = response.video_url
-            elif hasattr(response, 'data') and len(response.data) > 0:
-                video_url = response.data[0].url
+            # デバッグ: レスポンス構造を出力
+            print(f"📊 動画生成開始: {video}")
+            print(f"📊 Video ID: {video.id if hasattr(video, 'id') else 'N/A'}")
+            print(f"📊 Status: {video.status if hasattr(video, 'status') else 'N/A'}")
+            print(f"📊 Progress: {video.progress if hasattr(video, 'progress') else 'N/A'}")
             
-            if video_url:
-                print(f"✅ 動画生成成功: {video_url}")
-                return {
-                    "status": "completed",
-                    "video_url": video_url,
-                    "error": None
-                }
-            else:
-                print(f"⚠️  動画URLが取得できませんでした")
-                return {
-                    "status": "failed",
-                    "video_url": None,
-                    "error": "動画URLが取得できませんでした"
-                }
+            # レスポンス例:
+            # {
+            #   "id": "video_68d7512d...",
+            #   "object": "video",
+            #   "created_at": 1758941485,
+            #   "status": "queued",  # または "processing", "completed", "failed"
+            #   "model": "sora-2-pro",
+            #   "progress": 0,
+            #   "seconds": "8",
+            #   "size": "1280x720"
+            # }
+            
+            # ステータスをチェック
+            if hasattr(video, 'status'):
+                status = video.status
+                
+                # 非同期処理の場合: queued または processing
+                if status in ['queued', 'processing']:
+                    print(f"🔄 動画生成中... (status: {status})")
+                    
+                    # ポーリングで完了を待つ
+                    video_id = video.id
+                    max_wait_time = 180  # 最大3分
+                    poll_interval = 5     # 5秒ごとにチェック
+                    elapsed_time = 0
+                    
+                    while elapsed_time < max_wait_time:
+                        await asyncio.sleep(poll_interval)
+                        elapsed_time += poll_interval
+                        
+                        # ステータスを再取得
+                        video = self.client.videos.retrieve(video_id)
+                        print(f"🔄 ポーリング ({elapsed_time}s): status={video.status}, progress={video.progress if hasattr(video, 'progress') else 'N/A'}")
+                        
+                        if video.status == 'completed':
+                            break
+                        elif video.status == 'failed':
+                            error_msg = video.error if hasattr(video, 'error') else "動画生成に失敗しました"
+                            print(f"❌ 動画生成失敗: {error_msg}")
+                            return {
+                                "status": "failed",
+                                "video_url": None,
+                                "error": error_msg
+                            }
+                    
+                    if video.status != 'completed':
+                        print(f"⏱️  タイムアウト: {max_wait_time}秒以内に完了しませんでした")
+                        return {
+                            "status": "failed",
+                            "video_url": None,
+                            "error": f"タイムアウト（{max_wait_time}秒）"
+                        }
+                
+                # 完了した場合（ポーリングループ後の処理）
+                if video.status == 'completed':
+                    print(f"✅ 動画生成完了: video_id={video_id}")
+                    
+                    # 動画コンテンツをダウンロード
+                    try:
+                        print(f"📥 動画コンテンツ確認中...")
+                        # content = self.client.videos.download_content(video_id)
+                        # HttpxBinaryResponseContentはストリームなので、ここではIDだけ返す
+                        
+                        print(f"✅ 動画生成完了、video_idを返却")
+                        print(f"📊 Video ID: {video_id}")
+                        
+                        # 動画IDを返す（フロントエンドでダウンロードエンドポイントを叩く）
+                        return {
+                            "status": "completed",
+                            "video_url": f"/api/video-generation/download/{video_id}",
+                            "video_id": video_id,
+                            "error": None
+                        }
+                    
+                    except Exception as download_error:
+                        print(f"❌ 動画ダウンロードエラー: {download_error}")
+                        return {
+                            "status": "failed",
+                            "video_url": None,
+                            "error": f"動画ダウンロード失敗: {str(download_error)}"
+                        }
+            
+            # ステータスが不明な場合
+            print(f"⚠️  予期しないレスポンス構造")
+            return {
+                "status": "failed",
+                "video_url": None,
+                "error": "予期しないレスポンス構造"
+            }
         
         except Exception as e:
             error_msg = str(e)
