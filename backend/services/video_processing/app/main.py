@@ -395,10 +395,13 @@ async def upload_video(
                             # 4. 角度時系列データの保存
                             # feature_dataからangle_dataを取得
                             angle_data = feature_data.get("angle_data", [])
+                            logger.info(f"🔍 angle_data取得: {len(angle_data)}フレーム")
                             if angle_data:
                                 success = save_frame_angles_data(run_id, angle_data)
                                 if success:
                                     logger.info(f"✅ 角度時系列データを保存しました")
+                            else:
+                                logger.warning(f"⚠️  angle_dataが空です。feature_dataのキー: {list(feature_data.keys())}")
                             
                             # 5. イベントデータの保存（もし存在すれば）
                             # z_score_dataからevents_detectedを取得
