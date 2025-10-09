@@ -1950,7 +1950,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                         <div className="space-y-3">
                           <video 
                             controls 
-                            className="w-full rounded-lg shadow-md"
+                            className="w-full max-w-2xl mx-auto rounded-lg shadow-md"
+                            style={{ maxHeight: '400px' }}
                             src={trainingVideoUrl}
                           >
                             お使いのブラウザは動画タグをサポートしていません。
