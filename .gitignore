@@ -90,4 +90,4 @@ models/*.task
 
 # MacOS
 .AppleDouble
-.LSOverride 
+.LSOverride deploy_to_ec2.sh
