@@ -151,6 +151,7 @@ services:
     environment:
       - PYTHONPATH=/app
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VIDEO_GENERATION_PASSWORD=${VIDEO_GENERATION_PASSWORD}
     networks:
       - app_network
     depends_on:

@@ -2,11 +2,14 @@
 Video Generation Service - FastAPI Application
 トレーニング動画を生成するサービス
 """
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import asyncio
+import os
 from typing import Dict
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 from .models import (
     VideoGenerationRequest,
@@ -18,6 +21,14 @@ from .sora_client import SoraVideoClient
 # ロギングの設定
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# パスワード設定
+VIDEO_GENERATION_PASSWORD = os.getenv("VIDEO_GENERATION_PASSWORD", "")
+
+# ブルートフォース対策: IPアドレスごとの試行回数を記録
+failed_attempts = defaultdict(lambda: {"count": 0, "last_attempt": None})
+MAX_ATTEMPTS = 5
+LOCKOUT_DURATION = timedelta(minutes=15)
 
 app = FastAPI(
     title="Video Generation Service",
@@ -36,6 +47,51 @@ app.add_middleware(
 
 # 動画生成結果を一時的に保存（実運用ではRedisやDBを使用）
 video_cache: Dict[int, dict] = {}
+
+def verify_password(password: str, client_ip: str) -> tuple[bool, str]:
+    """
+    パスワードを検証する
+    
+    Args:
+        password: 入力されたパスワード
+        client_ip: クライアントのIPアドレス
+    
+    Returns:
+        (検証結果, エラーメッセージ)
+    """
+    # ロックアウトチェック
+    if client_ip in failed_attempts:
+        attempt_info = failed_attempts[client_ip]
+        if attempt_info["count"] >= MAX_ATTEMPTS:
+            if attempt_info["last_attempt"]:
+                time_since_last = datetime.now() - attempt_info["last_attempt"]
+                if time_since_last < LOCKOUT_DURATION:
+                    remaining = LOCKOUT_DURATION - time_since_last
+                    return False, f"試行回数が上限に達しました。{int(remaining.total_seconds() / 60)}分後に再試行してください。"
+                else:
+                    # ロックアウト期間が過ぎたのでリセット
+                    failed_attempts[client_ip] = {"count": 0, "last_attempt": None}
+    
+    # パスワードチェック
+    if not VIDEO_GENERATION_PASSWORD:
+        logger.warning("⚠️  VIDEO_GENERATION_PASSWORD が設定されていません")
+        return False, "動画生成機能は現在利用できません"
+    
+    if password == VIDEO_GENERATION_PASSWORD:
+        # 成功したので試行回数をリセット
+        if client_ip in failed_attempts:
+            del failed_attempts[client_ip]
+        return True, ""
+    else:
+        # 失敗を記録
+        failed_attempts[client_ip]["count"] += 1
+        failed_attempts[client_ip]["last_attempt"] = datetime.now()
+        remaining_attempts = MAX_ATTEMPTS - failed_attempts[client_ip]["count"]
+        
+        if remaining_attempts > 0:
+            return False, f"パスワードが正しくありません（残り{remaining_attempts}回）"
+        else:
+            return False, f"試行回数が上限に達しました。{int(LOCKOUT_DURATION.total_seconds() / 60)}分後に再試行してください。"
 
 @app.on_event("startup")
 async def startup_event():
@@ -65,14 +121,16 @@ async def health_check():
 @app.post("/generate", response_model=VideoGenerationResponse)
 async def generate_video(
     request: VideoGenerationRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    req: Request
 ):
     """
     トレーニング動画を生成する
     
     Args:
-        request: 動画生成リクエスト（run_id, drill_text）
+        request: 動画生成リクエスト（run_id, drill_text, password）
         background_tasks: バックグラウンドタスク
+        req: FastAPI Request オブジェクト（IPアドレス取得用）
     
     Returns:
         VideoGenerationResponse: 動画生成結果
@@ -84,6 +142,19 @@ async def generate_video(
         logger.info(f"   ドリルテキスト: {request.drill_text[:100]}...")
         logger.info(f"   解像度: {request.size}")
         logger.info(f"   長さ: {request.seconds}秒")
+        
+        # パスワード検証
+        client_ip = req.client.host
+        is_valid, error_message = verify_password(request.password, client_ip)
+        
+        if not is_valid:
+            logger.warning(f"❌ パスワード検証失敗: {client_ip} - {error_message}")
+            raise HTTPException(
+                status_code=401,
+                detail=error_message
+            )
+        
+        logger.info(f"✅ パスワード検証成功: {client_ip}")
         
         # Sora-2クライアントを初期化
         sora_client = SoraVideoClient()

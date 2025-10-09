@@ -10,6 +10,7 @@ class VideoGenerationRequest(BaseModel):
     drill_text: str
     size: Optional[str] = "1280x720"
     seconds: Optional[str] = "4"
+    password: str  # 動画生成パスワード
 
 class VideoGenerationResponse(BaseModel):
     """動画生成レスポンス"""

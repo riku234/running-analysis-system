@@ -32,12 +32,24 @@ echo "================================================"
 # .envファイルを作成
 cat > .env << 'EOF'
 # RDSデータベースへの接続情報
-DB_HOST=running-analysis-db.cluster-cbqqcwic00jv.ap-southeast-2.rds.amazonaws.com
+DB_HOST=running-analysis-db-single.cbqqcwic00jv.ap-southeast-2.rds.amazonaws.com
 DB_PORT=5432
-DB_NAME=running-analysis-db
+DB_NAME=postgres
 DB_USER=postgres
 DB_PASSWORD=vfmdev_01
+
+# Gemini API設定
+GEMINI_API_KEY=******
+
+# OpenAI API設定 (Sora-2)
+OPENAI_API_KEY=******
+
+# 動画生成パスワード
+VIDEO_GENERATION_PASSWORD=xebio-generate
 EOF
+
+# 実際のAPIキーを環境変数から設定（EC2上で手動設定が必要）
+echo "⚠️  注意: .envファイルのAPIキーは手動で設定してください"
 
 echo "✅ .envファイルを作成しました"
 
@@ -45,7 +57,7 @@ echo ""
 echo "================================================"
 echo "🏗️  Dockerコンテナの再ビルド"
 echo "================================================"
-docker-compose build video_processing analysis advice_generation
+docker-compose build video_processing analysis advice_generation video_generation frontend api_gateway
 
 echo ""
 echo "================================================"

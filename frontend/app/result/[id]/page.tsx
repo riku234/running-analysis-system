@@ -282,6 +282,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   const [videoGenerating, setVideoGenerating] = useState(false)
   const [videoError, setVideoError] = useState<string | null>(null)
   
+  // パスワード認証用の状態
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [videoPassword, setVideoPassword] = useState("")
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [pendingDrillText, setPendingDrillText] = useState<string | null>(null)
+  
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
 
@@ -346,21 +352,54 @@ export default function ResultPage({ params }: { params: { id: string } }) {
     }
   }
 
-  // トレーニング動画を生成
-  const generateTrainingVideo = async (drillText: string) => {
+  // パスワードモーダルを開く
+  const handleGenerateVideoClick = (drillText: string) => {
+    setPendingDrillText(drillText)
+    setShowPasswordModal(true)
+    setPasswordError(null)
+    setVideoPassword("")
+  }
+
+  // パスワード送信ハンドラー
+  const handlePasswordSubmit = async () => {
+    if (!videoPassword.trim()) {
+      setPasswordError("パスワードを入力してください")
+      return
+    }
+    
+    if (!pendingDrillText) {
+      setPasswordError("エラーが発生しました")
+      return
+    }
+    
+    // モーダルを閉じて動画生成を実行
+    setShowPasswordModal(false)
+    setPasswordError(null)
+    
+    // 動画生成を実行（パスワード付き）
+    await generateTrainingVideoWithPassword(pendingDrillText, videoPassword)
+    
+    // パスワードをクリア
+    setVideoPassword("")
+    setPendingDrillText(null)
+  }
+
+  // トレーニング動画を生成（パスワード付き）
+  const generateTrainingVideoWithPassword = async (drillText: string, password: string) => {
     if (videoGenerating) return
     
     setVideoGenerating(true)
     setVideoError(null)
     
     try {
-      console.log('🎬 トレーニング動画生成開始:', drillText.substring(0, 100))
+      console.log('🎬 トレーニング動画生成開始（パスワード認証付き）')
       
       const requestData = {
         run_id: parseInt(params.id) || 999,
         drill_text: drillText,
         size: "1280x720",
-        seconds: "4"
+        seconds: "4",
+        password: password
       }
       
       const response = await fetch('/api/video-generation/generate', {
@@ -370,6 +409,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         },
         body: JSON.stringify(requestData)
       })
+      
+      if (response.status === 401) {
+        // パスワード認証失敗
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'パスワードが正しくありません')
+      }
       
       if (!response.ok) {
         throw new Error(`動画生成API呼び出しエラー: ${response.status}`)
@@ -1973,7 +2018,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                             onClick={() => {
                               const drillSection = finalAdvice.match(/【💪 おすすめの補強ドリル】[\s\S]*?(?=【|$)/)?.[0]
                               if (drillSection) {
-                                generateTrainingVideo(drillSection)
+                                handleGenerateVideoClick(drillSection)
                               }
                             }}
                             variant="outline"
@@ -1993,9 +2038,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                             onClick={() => {
                               const drillSection = finalAdvice.match(/【💪 おすすめの補強ドリル】[\s\S]*?(?=【|$)/)?.[0]
                               if (drillSection) {
-                                generateTrainingVideo(drillSection)
+                                handleGenerateVideoClick(drillSection)
                               } else {
-                                generateTrainingVideo(finalAdvice.substring(0, 200))
+                                handleGenerateVideoClick(finalAdvice.substring(0, 200))
                               }
                             }}
                             className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
@@ -2129,6 +2174,75 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               className="max-w-full max-h-screen object-contain rounded-lg"
               onClick={(e) => e.stopPropagation()}
             />
+          </div>
+        </div>
+      )}
+
+      {/* パスワード入力モーダル */}
+      {showPasswordModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => {
+            setShowPasswordModal(false)
+            setPasswordError(null)
+            setVideoPassword("")
+            setPendingDrillText(null)
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold mb-4 text-gray-800">
+              🔒 動画生成の認証
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              動画生成機能を利用するにはパスワードが必要です
+            </p>
+            
+            <input
+              type="password"
+              value={videoPassword}
+              onChange={(e) => {
+                setVideoPassword(e.target.value)
+                setPasswordError(null)
+              }}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handlePasswordSubmit()
+                }
+              }}
+              placeholder="パスワードを入力"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 mb-2"
+              autoFocus
+            />
+            
+            {passwordError && (
+              <p className="text-sm text-red-600 mb-4">
+                ⚠️ {passwordError}
+              </p>
+            )}
+            
+            <div className="flex gap-3">
+              <Button
+                onClick={handlePasswordSubmit}
+                className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+              >
+                確認
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowPasswordModal(false)
+                  setPasswordError(null)
+                  setVideoPassword("")
+                  setPendingDrillText(null)
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                キャンセル
+              </Button>
+            </div>
           </div>
         </div>
       )}
