@@ -277,6 +277,11 @@ export default function ResultPage({ params }: { params: { id: string } }) {
   const [adviceData, setAdviceData] = useState<any>(null)
   const [adviceLoading, setAdviceLoading] = useState(false)
   
+  // 動画生成用の状態
+  const [trainingVideoUrl, setTrainingVideoUrl] = useState<string | null>(null)
+  const [videoGenerating, setVideoGenerating] = useState(false)
+  const [videoError, setVideoError] = useState<string | null>(null)
+  
   // Zustandストアからpose_dataを取得
   const { poseData, videoInfo, uploadInfo } = useResultStore()
 
@@ -338,6 +343,52 @@ export default function ResultPage({ params }: { params: { id: string } }) {
       })
     } finally {
       setZScoreLoading(false)
+    }
+  }
+
+  // トレーニング動画を生成
+  const generateTrainingVideo = async (drillText: string) => {
+    if (videoGenerating) return
+    
+    setVideoGenerating(true)
+    setVideoError(null)
+    
+    try {
+      console.log('🎬 トレーニング動画生成開始:', drillText.substring(0, 100))
+      
+      const requestData = {
+        run_id: parseInt(params.id) || 999,
+        drill_text: drillText,
+        size: "1280x720",
+        seconds: "4"
+      }
+      
+      const response = await fetch('/api/video-generation/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+      })
+      
+      if (!response.ok) {
+        throw new Error(`動画生成API呼び出しエラー: ${response.status}`)
+      }
+      
+      const videoResult = await response.json()
+      console.log('🎬 動画生成結果:', videoResult)
+      
+      if (videoResult.status === 'success' && videoResult.video_url) {
+        setTrainingVideoUrl(videoResult.video_url)
+        console.log('✅ 動画URL取得成功:', videoResult.video_url)
+      } else {
+        throw new Error(videoResult.error || '動画生成に失敗しました')
+      }
+    } catch (error) {
+      console.error('❌ 動画生成エラー:', error)
+      setVideoError(`動画生成に失敗しました: ${error}`)
+    } finally {
+      setVideoGenerating(false)
     }
   }
 
@@ -1887,7 +1938,76 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                       <pre className="whitespace-pre-wrap text-gray-800 leading-relaxed">
                         {finalAdvice}
                       </pre>
-        </div>
+                    </div>
+                    
+                    {/* トレーニング動画セクション */}
+                    <div className="mt-6 border-t pt-6">
+                      <h3 className="font-semibold text-lg mb-3 flex items-center text-purple-800">
+                        💪 トレーニング動画
+                      </h3>
+                      
+                      {trainingVideoUrl ? (
+                        <div className="space-y-3">
+                          <video 
+                            controls 
+                            className="w-full rounded-lg shadow-md"
+                            src={trainingVideoUrl}
+                          >
+                            お使いのブラウザは動画タグをサポートしていません。
+                          </video>
+                          <p className="text-sm text-gray-600 text-center">
+                            ✅ AIが生成したトレーニング動画（4秒）
+                          </p>
+                        </div>
+                      ) : videoGenerating ? (
+                        <div className="flex flex-col items-center justify-center p-8 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-2 border-dashed border-purple-300">
+                          <Loader2 className="w-12 h-12 animate-spin text-purple-600 mb-3" />
+                          <span className="text-purple-700 font-medium">動画を生成中...</span>
+                          <span className="text-sm text-purple-600 mt-2">約60〜70秒かかります</span>
+                        </div>
+                      ) : videoError ? (
+                        <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+                          <p className="text-red-700 text-sm">{videoError}</p>
+                          <Button
+                            onClick={() => {
+                              const drillSection = finalAdvice.match(/【💪 おすすめの補強ドリル】[\s\S]*?(?=【|$)/)?.[0]
+                              if (drillSection) {
+                                generateTrainingVideo(drillSection)
+                              }
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="mt-3"
+                          >
+                            再試行
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="text-center p-6 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-2 border-dashed border-purple-300">
+                          <PlayCircle className="w-12 h-12 mx-auto mb-3 text-purple-600" />
+                          <p className="text-purple-700 font-medium mb-3">
+                            おすすめの補強ドリルの動画を生成できます
+                          </p>
+                          <Button
+                            onClick={() => {
+                              const drillSection = finalAdvice.match(/【💪 おすすめの補強ドリル】[\s\S]*?(?=【|$)/)?.[0]
+                              if (drillSection) {
+                                generateTrainingVideo(drillSection)
+                              } else {
+                                generateTrainingVideo(finalAdvice.substring(0, 200))
+                              }
+                            }}
+                            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                          >
+                            <PlayCircle className="w-4 h-4 mr-2" />
+                            トレーニング動画を生成
+                          </Button>
+                          <p className="text-xs text-purple-600 mt-2">
+                            ※ 生成には約60〜70秒かかります
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               );
