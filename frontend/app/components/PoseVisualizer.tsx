@@ -442,6 +442,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [currentFrame, setCurrentFrame] = useState(0)
+  const [isGrayscale, setIsGrayscale] = useState(false) // グレースケール状態
   const [currentAbsoluteAngles, setCurrentAbsoluteAngles] = useState<AbsoluteAngles>({
     // 既存角度
     trunk_angle: null,
@@ -613,6 +614,29 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
   
   return (
     <div className={`${className}`}>
+      {/* グレースケールトグルボタン */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm text-gray-600">
+          キーポイントを目立たせるには、グレースケール表示がおすすめです
+        </div>
+        <button
+          onClick={() => setIsGrayscale(!isGrayscale)}
+          className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors duration-200"
+        >
+          {isGrayscale ? (
+            <>
+              <span className="text-gray-600">⚫</span>
+              <span className="text-sm font-medium">グレースケール</span>
+            </>
+          ) : (
+            <>
+              <span className="text-blue-600">🎨</span>
+              <span className="text-sm font-medium">カラー</span>
+            </>
+          )}
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* 動画エリア */}
         <div className="lg:col-span-2">
@@ -621,7 +645,11 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
               ref={videoRef}
               src={videoUrl}
               controls
-              className="w-full rounded-lg shadow-lg"
+              className={`w-full rounded-lg shadow-lg ${isGrayscale ? 'grayscale-video' : ''}`}
+              style={{
+                filter: isGrayscale ? 'grayscale(100%)' : 'none',
+                transition: 'filter 0.3s ease'
+              }}
               onLoadedMetadata={handleVideoResize}
               preload="metadata"
             >
