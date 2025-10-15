@@ -50,28 +50,52 @@
 
 ## 🚀 クイックスタート
 
+### 📖 詳細なセットアップガイド
+
+**複数人で開発を行う場合、またはCursorを使用する場合は、以下の詳細ガイドを参照してください：**
+
+👉 **[開発環境セットアップガイド（DEVELOPMENT_SETUP_GUIDE.md）](./DEVELOPMENT_SETUP_GUIDE.md)**
+
+このガイドには以下が含まれます：
+- 必要なツールの詳細（Cursor、Docker、Git）
+- ステップバイステップのセットアップ手順
+- `.env`ファイルの作成方法
+- トラブルシューティング
+- よくある質問（FAQ）
+- 開発フローとGit運用
+
+---
+
 ### 前提条件
 
 - Docker & Docker Compose
 - Git
+- Cursor（推奨エディタ）または VS Code
 
-### インストールと起動
+### 簡易セットアップ
 
 1. **リポジトリのクローン**
 ```bash
-git clone <repository-url>
-cd ランニング解析
+git clone https://github.com/riku234/running-analysis-system.git
+cd running-analysis-system
 ```
 
-2. **全サービスの起動**
+2. **環境変数ファイルの作成**
 ```bash
-docker-compose up --build
+# .envファイルを作成（詳細はDEVELOPMENT_SETUP_GUIDE.mdを参照）
+touch .env
+# .envファイルに必要な環境変数を記述
 ```
 
-3. **アクセス**
-- フロントエンド: http://localhost:3000
+3. **全サービスの起動**
+```bash
+docker-compose up -d
+```
+
+4. **アクセス**
+- フロントエンド: http://localhost
 - API Gateway: http://localhost:80
-- 各マイクロサービス: http://localhost:8001-8005
+- 各マイクロサービス: http://localhost:8001-8006
 
 ### 初回起動時の注意
 
@@ -79,6 +103,8 @@ docker-compose up --build
 - Dockerイメージのビルド
 - AI models (YOLO, MediaPipe) のダウンロード
 - 依存関係のインストール
+
+**⚠️ 重要**: `.env`ファイルの設定が必須です。詳細は[セットアップガイド](./DEVELOPMENT_SETUP_GUIDE.md#環境変数の設定)を参照してください。
 
 ## 📊 使用方法
 
