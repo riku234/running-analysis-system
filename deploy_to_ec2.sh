@@ -10,9 +10,10 @@ echo "EC2へのデプロイとテーブル作成"
 echo "================================================"
 echo ""
 
-# 1. ファイルをEC2にコピー
+# 1. ファイルをEC2にコピー（.envファイルも含める）
 echo "📤 ファイルをEC2にアップロード中..."
-scp -i "$KEY_FILE" database_schema.sql create_tables.py ${EC2_USER}@${EC2_HOST}:~/running-analysis-system/
+scp -i "$KEY_FILE" database_schema.sql create_tables.py .env ${EC2_USER}@${EC2_HOST}:~/running-analysis-system/
+echo "✅ .envファイルを含むすべてのファイルをアップロードしました"
 
 # 2. EC2上でGitプルと設定
 ssh -i "$KEY_FILE" ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
@@ -26,32 +27,9 @@ git pull origin main
 
 echo ""
 echo "================================================"
-echo "🔧 .envファイルの作成"
+echo "🔧 .envファイルの確認"
 echo "================================================"
-
-# .envファイルを作成
-cat > .env << 'EOF'
-# RDSデータベースへの接続情報
-DB_HOST=running-analysis-db-single.cbqqcwic00jv.ap-southeast-2.rds.amazonaws.com
-DB_PORT=5432
-DB_NAME=postgres
-DB_USER=postgres
-DB_PASSWORD=vfmdev_01
-
-# Gemini API設定
-GEMINI_API_KEY=******
-
-# OpenAI API設定 (Sora-2)
-OPENAI_API_KEY=******
-
-# 動画生成パスワード
-VIDEO_GENERATION_PASSWORD=xebio-generate
-EOF
-
-# 実際のAPIキーを環境変数から設定（EC2上で手動設定が必要）
-echo "⚠️  注意: .envファイルのAPIキーは手動で設定してください"
-
-echo "✅ .envファイルを作成しました"
+echo "✅ ローカルの.envファイルがアップロード済みです"
 
 echo ""
 echo "================================================"
@@ -64,11 +42,16 @@ echo "================================================"
 echo "🚀 サービスの再起動（本番環境設定）"
 echo "================================================"
 # 本番環境ではdocker-compose.prod.ymlを使用してENABLE_DB_SAVE=trueに設定
+# advice_generationとvideo_generationは環境変数を確実に反映するため強制再作成
+echo "📌 APIキー反映のため、advice_generationとvideo_generationを強制再作成します"
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate advice_generation video_generation
+
+echo "📌 その他のサービスを起動します"
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 echo ""
 echo "⏳ サービスの起動を待機中..."
-sleep 10
+sleep 15
 
 echo ""
 echo "================================================"
