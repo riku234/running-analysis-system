@@ -17,6 +17,7 @@ export default function HomePage() {
     { id: 'vf_yaji', name: 'VF矢治' },
     { id: 'vf_ono', name: 'VF大野' },
     { id: 'vf_hirokawa', name: 'VF広川' },
+    { id: 'vf_fukui', name: 'VF福井' },
     { id: 'x_ae', name: 'X阿江' },
     { id: 'x_masuda', name: 'X増田' },
     { id: 'x_komatsu', name: 'X小松' },
