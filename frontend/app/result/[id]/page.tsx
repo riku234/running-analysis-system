@@ -484,7 +484,11 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         {/* 詳細説明部分 */}
         <div className="flex-1 mb-4">
           <div className="text-gray-700 text-sm leading-relaxed space-y-2">
-            {formatAdviceText(advice.description || '詳細な分析結果をもとに改善提案を準備中です。').split('\n').map((line, i) => (
+            {formatAdviceText(
+              advice.description ||      // 古いキー名（後方互換性）
+              advice.explanation ||       // 新しいキー名（修正後対応）
+              '詳細な分析結果をもとに改善提案を準備中です。'
+            ).split('\n').map((line, i) => (
               <p key={i} className="mb-1">{line}</p>
             ))}
           </div>

@@ -236,17 +236,15 @@ async def generate_detailed_advice_for_issue(
             if issue in advice_db:
                 default_advice = advice_db[issue]
                 return {
-                    "title": issue,
-                    "description": default_advice.get("description", ""),
-                    "action": default_advice.get("action", ""),
-                    "drill": default_advice.get("drill", "")
+                    "issue": issue,
+                    "explanation": default_advice.get("description", ""),
+                    "exercise": default_advice.get("action", "")
                 }
             else:
                 return {
-                    "title": issue,
-                    "description": f"{issue}について検出されました。",
-                    "action": "効率的なランニングフォームを意識してください。",
-                    "drill": "定期的な練習で改善していきましょう。"
+                    "issue": issue,
+                    "explanation": f"{issue}について検出されました。",
+                    "exercise": "効率的なランニングフォームを意識してください。定期的な練習で改善していきましょう。"
                 }
         
         print(f"   📡 Gemini API呼び出し中... (model変数: {type(model)})")

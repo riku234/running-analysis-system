@@ -1,81 +1,55 @@
 #!/bin/bash
 
-# EC2接続情報
-KEY_FILE="/Users/onoriku/Downloads/Runners Insight Key.pem"
-EC2_USER="ec2-user"
-EC2_HOST="54.206.3.155"
-
-echo "================================================"
-echo "EC2へのデプロイとテーブル作成"
-echo "================================================"
+echo "🚀 EC2デプロイ開始..."
 echo ""
 
-# 1. ファイルをEC2にコピー（.envファイルも含める）
-echo "📤 ファイルをEC2にアップロード中..."
-scp -i "$KEY_FILE" database_schema.sql create_tables.py .env ${EC2_USER}@${EC2_HOST}:~/running-analysis-system/
-echo "✅ .envファイルを含むすべてのファイルをアップロードしました"
-
-# 2. EC2上でGitプルと設定
-ssh -i "$KEY_FILE" ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
-cd ~/running-analysis-system
-
-echo ""
-echo "================================================"
-echo "📥 最新のコードを取得"
-echo "================================================"
-git pull origin main
-
-echo ""
-echo "================================================"
-echo "🔧 .envファイルの確認"
-echo "================================================"
-echo "✅ ローカルの.envファイルがアップロード済みです"
-
-echo ""
-echo "================================================"
-echo "🏗️  Dockerコンテナの再ビルド"
-echo "================================================"
-docker-compose build video_processing analysis advice_generation video_generation frontend api_gateway
-
-echo ""
-echo "================================================"
-echo "🚀 サービスの再起動（本番環境設定）"
-echo "================================================"
-# 本番環境ではdocker-compose.prod.ymlを使用してENABLE_DB_SAVE=trueに設定
-# advice_generationとvideo_generationは環境変数を確実に反映するため強制再作成
-echo "📌 APIキー反映のため、advice_generationとvideo_generationを強制再作成します"
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate advice_generation video_generation
-
-echo "📌 その他のサービスを起動します"
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-echo ""
-echo "⏳ サービスの起動を待機中..."
-sleep 15
-
-echo ""
-echo "================================================"
-echo "📊 データベーステーブルの作成"
-echo "================================================"
-
-# テーブル作成スクリプトを実行
-docker-compose run --rm \
-  -v $(pwd)/create_tables.py:/app/create_tables.py \
-  -v $(pwd)/database_schema.sql:/app/database_schema.sql \
-  video_processing python3 /app/create_tables.py
-
-echo ""
-echo "================================================"
-echo "✅ デプロイ完了!"
-echo "================================================"
-echo ""
-echo "アプリケーションURL: http://54.206.3.155"
+# 現在のブランチとステータス確認
+echo "📊 現在のGit状態:"
+git status --porcelain
 echo ""
 
-ENDSSH
+# 変更をコミット
+if git status --porcelain | grep -q .; then
+    echo "💾 変更をコミット..."
+    git add .
+    git commit -m "Fix: 個別課題の詳細解説表示問題を修正
+    
+- generate_detailed_advice_for_issue 関数のキー名統一
+- バックエンド: description → explanation, action → exercise  
+- フロントエンド: 後方互換性確保 (description || explanation)
+- 統合アドバイス生成の動作確認済み"
+    
+    if [ $? -ne 0 ]; then
+        echo "❌ コミットに失敗しました"
+        exit 1
+    fi
+else
+    echo "✅ 変更なし - コミット不要"
+fi
+
+# GitHubにプッシュ
+echo "📤 GitHubにプッシュ..."
+git push origin main
+
+if [ $? -ne 0 ]; then
+    echo "❌ GitHubへのプッシュに失敗しました"
+    exit 1
+fi
 
 echo ""
-echo "================================================"
-echo "🎉 全ての作業が完了しました！"
-echo "================================================"
+echo "✅ デプロイ準備完了！"
+echo ""
+echo "🔧 EC2での実行手順:"
+echo "1. ssh -i ~/.ssh/running-analysis-ec2 ec2-user@54.206.3.155"
+echo "2. cd ~/running-analysis-system"
+echo "3. git pull origin main"
+echo "4. docker-compose down"
+echo "5. docker-compose build"
+echo "6. docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate"
+echo "7. docker-compose restart api_gateway"
+echo ""
 
+echo "📋 確認コマンド:"
+echo "- docker-compose ps"
+echo "- docker-compose logs advice_generation --tail 20"
+echo "- curl http://localhost:8005/"

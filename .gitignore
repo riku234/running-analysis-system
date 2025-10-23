@@ -91,3 +91,4 @@ models/*.task
 # MacOS
 .AppleDouble
 .LSOverride deploy_to_ec2.sh
+verification/outputs/*.csv
