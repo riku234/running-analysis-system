@@ -137,6 +137,7 @@ def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -
 def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: float, foot_side: str) -> List[Tuple[int, str]]:
     """
     Y座標から接地（極小値）と離地（極大値）を統合検出
+    Y=0などの異常値を自動的に除外して処理
     
     Args:
         y_coords: 足首のY座標リスト
@@ -150,23 +151,46 @@ def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: floa
         return []
     
     y_array = np.array(y_coords)
-    print(f"   📊 {foot_side}足 Y座標範囲: {np.min(y_array):.3f} - {np.max(y_array):.3f}")
+    print(f"   📊 {foot_side}足 Y座標範囲（全体）: {np.min(y_array):.3f} - {np.max(y_array):.3f}")
     
-    # 1. ガウシアンフィルタによる平滑化
+    # ===== 新機能：有効データのみを抽出 =====
+    # Y=0などの異常値を除外（ランナー画面外のフレームを除外）
+    valid_threshold = 0.1  # Y座標が0.1以上を有効とみなす
+    valid_indices = np.where(y_array > valid_threshold)[0]
+    valid_y = y_array[valid_indices]
+    
+    if len(valid_y) < 10:
+        print(f"   ❌ 有効データ不足: {len(valid_y)}個 / {len(y_array)}個")
+        print(f"   💡 ランナーが画面内にいる時間が短すぎます（最低10フレーム必要）")
+        return []
+    
+    excluded_count = len(y_array) - len(valid_y)
+    if excluded_count > 0:
+        print(f"   🔍 データ除外: {excluded_count}個のY≤{valid_threshold}フレームを除外")
+        print(f"   ✅ 有効データ: {len(valid_y)}個（約{len(valid_y)/video_fps:.1f}秒）")
+        print(f"   📊 有効Y座標範囲: {np.min(valid_y):.3f} - {np.max(valid_y):.3f}")
+        print(f"   📊 有効範囲: Frame {valid_indices[0]} - {valid_indices[-1]}")
+    
+    # 有効データが短すぎる場合は警告
+    if len(valid_y) < 30:  # 1秒未満
+        print(f"   ⚠️  有効データが短い: {len(valid_y)/video_fps:.1f}秒（推奨: 3秒以上）")
+    # ===== ここまで新機能 =====
+    
+    # 1. ガウシアンフィルタによる平滑化（有効データのみ）
     try:
         from scipy import ndimage
         sigma = max(1.0, video_fps * 0.03)  # 0.03秒相当
-        smoothed_y = ndimage.gaussian_filter1d(y_array, sigma=sigma)
+        smoothed_y = ndimage.gaussian_filter1d(valid_y, sigma=sigma)
     except ImportError:
         # scipyがない場合は移動平均
         window_size = max(3, int(video_fps * 0.1))
-        if len(y_array) < window_size:
+        if len(valid_y) < window_size:
             return []
-        smoothed_y = np.convolve(y_array, np.ones(window_size)/window_size, mode='same')
+        smoothed_y = np.convolve(valid_y, np.ones(window_size)/window_size, mode='same')
     
     print(f"   🔧 {foot_side}足 平滑化後Y座標範囲: {np.min(smoothed_y):.3f} - {np.max(smoothed_y):.3f}")
     
-    # 2. scipy.signal.find_peaksを使用した極値検出
+    # 2. scipy.signal.find_peaksを使用した極値検出（有効データのみ）
     try:
         from scipy.signal import find_peaks
         
@@ -175,6 +199,8 @@ def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: floa
         inverted_y = -smoothed_y
         min_distance = max(3, int(video_fps * 0.15))  # 最小間隔0.15秒（より短く）
         height_threshold = np.percentile(inverted_y, 50)  # 上位50%の極値（より寛容）
+        
+        print(f"   🔍 height_threshold（接地）: {height_threshold:.4f}")
         
         strike_peaks, strike_properties = find_peaks(
             inverted_y,
@@ -200,17 +226,21 @@ def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: floa
         off_peaks = []
     
     # 3. イベントリストを作成・ソート
+    # ===== 修正：検出されたインデックスを元のフレーム番号に変換 =====
     events = []
     
     # 接地イベントを追加
-    for frame in strike_peaks:
-        events.append((int(frame), 'strike'))
-        print(f"   🦶 {foot_side}足接地: フレーム{frame}, Y={smoothed_y[frame]:.3f}")
+    for peak_idx in strike_peaks:
+        original_frame = valid_indices[peak_idx]  # 元のフレーム番号に戻す
+        events.append((int(original_frame), 'strike'))
+        print(f"   🦶 {foot_side}足接地: フレーム{original_frame}, Y={y_array[original_frame]:.3f}")
     
     # 離地イベントを追加
-    for frame in off_peaks:
-        events.append((int(frame), 'off'))
-        print(f"   🚁 {foot_side}足離地: フレーム{frame}, Y={smoothed_y[frame]:.3f}")
+    for peak_idx in off_peaks:
+        original_frame = valid_indices[peak_idx]  # 元のフレーム番号に戻す
+        events.append((int(original_frame), 'off'))
+        print(f"   🚁 {foot_side}足離地: フレーム{original_frame}, Y={y_array[original_frame]:.3f}")
+    # ===== ここまで修正 =====
     
     # 4. フレーム番号でソート
     events.sort(key=lambda x: x[0])
