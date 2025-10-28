@@ -41,6 +41,7 @@ interface PoseVisualizerProps {
   videoUrl: string
   poseData: PoseAnalysisData
   className?: string
+  problematicAngles?: string[]  // Z-scoreで問題のある角度名のリスト（例: ["trunk_angle", "left_thigh_angle"]）
 }
 
 // MediaPipeランドマークのインデックス定義
@@ -98,6 +99,69 @@ const POSE_CONNECTIONS = [
   [23, 25], [25, 27], [27, 29], [27, 31], // 左脚
   [24, 26], [26, 28], [28, 30], [28, 32], // 右脚
 ]
+
+// 角度名から骨格線（ランドマークペア）へのマッピング
+const ANGLE_TO_SKELETON_CONNECTIONS: { [key: string]: [number, number][] } = {
+  // 英語名
+  'trunk_angle': [
+    [11, 23],  // 左肩 - 左腰
+    [12, 24],  // 右肩 - 右腰
+  ],
+  'left_thigh_angle': [
+    [23, 25],  // 左腰 - 左膝
+  ],
+  'right_thigh_angle': [
+    [24, 26],  // 右腰 - 右膝
+  ],
+  'left_lower_leg_angle': [
+    [25, 27],  // 左膝 - 左足首
+  ],
+  'right_lower_leg_angle': [
+    [26, 28],  // 右膝 - 右足首
+  ],
+  'left_upper_arm_angle': [
+    [11, 13],  // 左肩 - 左肘
+  ],
+  'right_upper_arm_angle': [
+    [12, 14],  // 右肩 - 右肘
+  ],
+  'left_forearm_angle': [
+    [13, 15],  // 左肘 - 左手首
+  ],
+  'right_forearm_angle': [
+    [14, 16],  // 右肘 - 右手首
+  ],
+  
+  // 日本語名（バックエンドから返される形式）
+  '体幹角度': [
+    [11, 23],  // 左肩 - 左腰
+    [12, 24],  // 右肩 - 右腰
+  ],
+  '左大腿角度': [
+    [23, 25],  // 左腰 - 左膝
+  ],
+  '右大腿角度': [
+    [24, 26],  // 右腰 - 右膝
+  ],
+  '左下腿角度': [
+    [25, 27],  // 左膝 - 左足首
+  ],
+  '右下腿角度': [
+    [26, 28],  // 右膝 - 右足首
+  ],
+  '左上腕角度': [
+    [11, 13],  // 左肩 - 左肘
+  ],
+  '右上腕角度': [
+    [12, 14],  // 右肩 - 右肘
+  ],
+  '左前腕角度': [
+    [13, 15],  // 左肘 - 左手首
+  ],
+  '右前腕角度': [
+    [14, 16],  // 右肘 - 右手首
+  ],
+}
 
 // 関節角度計算関数
 const calculateAngle = (p1: KeyPoint, p2: KeyPoint, p3: KeyPoint): number | null => {
@@ -438,7 +502,7 @@ const extractAbsoluteAnglesFromFrame = (keypoints: KeyPoint[]): AbsoluteAngles =
   return angles
 }
 
-export default function PoseVisualizer({ videoUrl, poseData, className = '' }: PoseVisualizerProps) {
+export default function PoseVisualizer({ videoUrl, poseData, className = '', problematicAngles = [] }: PoseVisualizerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [currentFrame, setCurrentFrame] = useState(0)
@@ -472,6 +536,26 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
   
   // キーポイントを描画
   const drawKeypoints = (ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number) => {
+    // 問題のある骨格線のセットを作成
+    const problematicConnections = new Set<string>()
+    
+    problematicAngles.forEach(angleName => {
+      const connections = ANGLE_TO_SKELETON_CONNECTIONS[angleName]
+      if (connections) {
+        connections.forEach(([start, end]) => {
+          // 両方向のキーを追加（順序に関係なく一致させる）
+          problematicConnections.add(`${start}-${end}`)
+          problematicConnections.add(`${end}-${start}`)
+        })
+      }
+    })
+    
+    // デバッグログ（問題部位がある場合のみ）
+    if (problematicAngles.length > 0) {
+      console.log('🔴 問題のある角度:', problematicAngles)
+      console.log('🔴 赤く表示する骨格線:', Array.from(problematicConnections))
+    }
+    
     ctx.fillStyle = '#ff0000'
     ctx.strokeStyle = '#00ff00'
     ctx.lineWidth = 2
@@ -496,9 +580,6 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
     })
     
     // 骨格の線を描画
-    ctx.strokeStyle = '#00ff00'
-    ctx.lineWidth = 2
-    
     POSE_CONNECTIONS.forEach(([startIdx, endIdx]) => {
       const startPoint = keypoints[startIdx]
       const endPoint = keypoints[endIdx]
@@ -509,6 +590,14 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '' }: P
         const startY = startPoint.y * videoHeight
         const endX = endPoint.x * videoWidth
         const endY = endPoint.y * videoHeight
+        
+        // この接続が問題部位かどうか確認
+        const connectionKey = `${startIdx}-${endIdx}`
+        const isProblematic = problematicConnections.has(connectionKey)
+        
+        // 問題部位は赤く太く、それ以外は緑
+        ctx.strokeStyle = isProblematic ? '#ff0000' : '#00ff00'
+        ctx.lineWidth = isProblematic ? 4 : 2
         
         ctx.beginPath()
         ctx.moveTo(startX, startY)

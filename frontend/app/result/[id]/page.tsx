@@ -1004,10 +1004,23 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     
                     console.log("🔍 PoseVisualizerに渡すデータ:", poseAnalysisData)
                     
+                    // Z-scoreで問題のある角度リストを作成
+                    const problematicAngles: string[] = []
+                    if (zScoreData?.analysis_summary?.significant_deviations) {
+                      zScoreData.analysis_summary.significant_deviations.forEach(issue => {
+                        if (!problematicAngles.includes(issue.angle)) {
+                          problematicAngles.push(issue.angle)
+                        }
+                      })
+                    }
+                    
+                    console.log("🔴 問題のある角度リスト:", problematicAngles)
+                    
                     return (
                       <PoseVisualizer 
                         videoUrl={videoUrl}
                         poseData={poseAnalysisData}
+                        problematicAngles={problematicAngles}
                       />
                     )
                   })()
