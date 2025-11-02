@@ -117,9 +117,22 @@ docker compose exec video_processing python3 your_script.py
 docker compose exec video_processing python3 db_utils.py
 ```
 
+## 💡 最新の機能改善
+
+### 角度推移分析グラフの改善（2025年11月2日）
+
+角度推移分析グラフが改善され、骨格認識された期間のみを表示するようになりました。
+
+**改善内容:**
+- ✅ グラフのX軸が有効データ範囲に自動調整
+- ✅ null値（骨格認識失敗）を除外して視認性を向上
+- ✅ データの密度が上がり、より見やすく
+
+詳細は [ANGLE_GRAPH_IMPROVEMENT_REPORT.md](./ANGLE_GRAPH_IMPROVEMENT_REPORT.md) を参照してください。
+
 ---
 
-**最終更新**: 2025年10月15日
+**最終更新**: 2025年11月2日
 
 
 

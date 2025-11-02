@@ -246,6 +246,23 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
     })
   }, [poseData, videoInfo.fps])
 
+  // 体幹角度用のフィルタリングデータ（null値を除外）
+  const trunkAngleData = useMemo(() => 
+    angleData.filter(d => d.trunk !== null),
+    [angleData]
+  )
+
+  // 下肢角度用のフィルタリングデータ（少なくとも1つの角度が有効なデータのみ）
+  const legAngleData = useMemo(() => 
+    angleData.filter(d => 
+      d.leftThigh !== null || 
+      d.rightThigh !== null || 
+      d.leftLowerLeg !== null || 
+      d.rightLowerLeg !== null
+    ),
+    [angleData]
+  )
+
   // 統計計算
   const statistics = useMemo(() => {
     const validTrunkAngles = angleData.filter(d => d.trunk !== null).map(d => d.trunk!)
@@ -320,7 +337,7 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
               </span>
             </div>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={angleData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <LineChart data={trunkAngleData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis 
                   dataKey="time" 
@@ -360,7 +377,8 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
             </ResponsiveContainer>
             <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
               <strong>符号規則:</strong> 前傾=負値, 後傾=正値 | 
-              <strong>範囲:</strong> {statistics.trunk.min.toFixed(1)}° ～ {statistics.trunk.max.toFixed(1)}°
+              <strong>範囲:</strong> {statistics.trunk.min.toFixed(1)}° ～ {statistics.trunk.max.toFixed(1)}° | 
+              <strong>表示:</strong> 骨格認識された期間のみ
             </div>
           </div>
 
@@ -372,7 +390,7 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
             </div>
 
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={angleData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <LineChart data={legAngleData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis 
                   dataKey="time" 
@@ -456,7 +474,8 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
             <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
               <strong>符号規則:</strong> 膝/足首が後方=正値, 前方=負値 | 
               <strong>平均:</strong> 左大腿{statistics.leg.leftThighMean.toFixed(1)}°, 右大腿{statistics.leg.rightThighMean.toFixed(1)}°, 
-              左下腿{statistics.leg.leftLowerLegMean.toFixed(1)}°, 右下腿{statistics.leg.rightLowerLegMean.toFixed(1)}°
+              左下腿{statistics.leg.leftLowerLegMean.toFixed(1)}°, 右下腿{statistics.leg.rightLowerLegMean.toFixed(1)}° | 
+              <strong>表示:</strong> 骨格認識された期間のみ
             </div>
             
             {/* チェックボックス群 - 符号規則の下に移動 */}
@@ -505,9 +524,9 @@ export default function AngleGraphsCard({ poseData, videoInfo }: AngleGraphsCard
           </div>
           <div className="bg-orange-50 p-3 rounded-lg text-center">
             <div className="text-lg font-bold text-orange-700">
-              {angleData.filter(d => d.trunk !== null).length}
+              {trunkAngleData.length}
             </div>
-            <div className="text-xs text-orange-600">有効データ</div>
+            <div className="text-xs text-orange-600">体幹有効データ</div>
           </div>
         </div>
       </CardContent>
