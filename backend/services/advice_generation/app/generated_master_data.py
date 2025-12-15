@@ -32,7 +32,7 @@ ADVICE_MASTER_DATA = {
             "severity": "high"
         },
         "content": {
-            "name": "突っ込みフォーム",
+            "name": "突っ込み（前傾過多）",
             "observation": "上半身が前に倒れすぎており、足の回転が追いついていません。",
             "cause": "股関節からの前傾ではなく、腰から上が折れ曲がっている状態です。",
             "action": "頭のてっぺんを空から吊るされている意識を持ち、背筋を伸ばしたまま前傾しましょう。",
@@ -80,7 +80,7 @@ ADVICE_MASTER_DATA = {
             }
         }
     },
-    "ISSUE_THIGH_ANGLE_BACKWARD": {
+    "ISSUE_THIGH_ANGLE_LOW": {
         "rule": {
             "target_event": None,
             "target_metric": "thigh_angle_z",
