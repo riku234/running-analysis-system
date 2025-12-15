@@ -10,6 +10,12 @@ from typing import List, Dict, Any
 import google.generativeai as genai
 from dotenv import load_dotenv
 
+# expert_engineのインポート（相対インポートと絶対インポートの両方を試行）
+try:
+    from .expert_engine import generate_integrated_advice as generate_rule_based_advice
+except ImportError:
+    from expert_engine import generate_integrated_advice as generate_rule_based_advice
+
 # 環境変数の読み込み
 load_dotenv()
 
@@ -76,7 +82,8 @@ class AdvancedAdviceResponse(BaseModel):
 
 class IntegratedAdviceRequest(BaseModel):
     video_id: str
-    issues_list: List[str]  # Z値判定などによって特定された課題のリスト
+    issues_list: List[str] = []  # Z値判定などによって特定された課題のリスト（後方互換性のため）
+    z_scores: Dict[str, Dict[str, float]] = None  # Z値データ（{event_type: {angle_name: z_score}} 形式）- 優先的に使用
     prompt_settings: Dict[str, Any] = None  # カスタムプロンプト設定（任意）
 
 class IntegratedAdviceResponse(BaseModel):
@@ -84,6 +91,18 @@ class IntegratedAdviceResponse(BaseModel):
     message: str
     video_id: str
     integrated_advice: str  # プロコーチ＋AI統合アドバイス文字列
+
+class RuleBasedAdviceRequest(BaseModel):
+    video_id: str
+    z_scores: Dict[str, Dict[str, float]]  # Z値データ（{event_type: {angle_name: z_score}} 形式）
+    prompt_settings: Dict[str, Any] = None  # カスタムプロンプト設定（任意）
+
+class RuleBasedAdviceResponse(BaseModel):
+    status: str
+    message: str
+    video_id: str
+    ai_advice: Dict[str, Any]  # Gemini生成アドバイス
+    raw_issues: List[Dict[str, Any]]  # 検出された課題の詳細
 
 def get_advice_database():
     """課題の組み合わせと構造化されたアドバイスのデータベース"""
@@ -1212,8 +1231,11 @@ async def generate_integrated_advice_endpoint(request: IntegratedAdviceRequest):
     """
     プロコーチアドバイス（データベース）とGemini AI詳細アドバイスを統合する
     
+    Z値データ（z_scores）が提供された場合は、ルールベース診断を使用します。
+    issues_listのみが提供された場合は、従来の方式を使用します（後方互換性）。
+    
     Args:
-        request: 動画IDと課題リスト
+        request: 動画ID、Z値データ（優先）、または課題リスト
         
     Returns:
         プロコーチ＋AI統合アドバイス
@@ -1222,42 +1244,98 @@ async def generate_integrated_advice_endpoint(request: IntegratedAdviceRequest):
         print("=" * 80)
         print("🎯 [INTEGRATED ADVICE SERVICE] 統合アドバイスリクエスト受信")
         print(f"   📹 動画ID: {request.video_id}")
-        print(f"   📝 課題数: {len(request.issues_list)}")
         
-        valid_issues = [issue.strip() for issue in request.issues_list if issue and issue.strip()]
+        # Z値データが提供されている場合は、ルールベース診断を使用
+        if request.z_scores:
+            print(f"   📊 Z値データ受信: {len(request.z_scores)} イベント")
+            for event_type, event_scores in request.z_scores.items():
+                print(f"      {event_type}: {len(event_scores)} 角度")
+            
+            # Gemini APIモデルの確認
+            if not USE_GEMINI_API or model is None:
+                print("   ⚠️  Gemini APIキー未設定 - フォールバックを使用")
+                fallback_advice = generate_advanced_advice([])
+                return IntegratedAdviceResponse(
+                    status="success",
+                    message="Gemini APIキーが設定されていないため、基本的なアドバイスを提供しています",
+                    video_id=request.video_id,
+                    integrated_advice=fallback_advice
+                )
+            
+            print(f"   🧠 ルールベース診断 + Gemini生成を実行中...")
+            
+            # expert_engineのgenerate_integrated_adviceを使用
+            # 既にインポートされている場合はそれを使用、なければ新規インポート
+            try:
+                # 既にインポートされているgenerate_rule_based_adviceを使用
+                result = await generate_rule_based_advice(request.z_scores, model)
+            except NameError:
+                # インポートされていない場合は新規インポート
+                from .expert_engine import generate_integrated_advice
+                result = await generate_integrated_advice(request.z_scores, model)
+            
+            # 結果を統合アドバイス形式に変換
+            ai_advice = result.get("ai_advice", {})
+            integrated_advice_text = ""
+            if ai_advice:
+                integrated_advice_text = f"{ai_advice.get('title', 'フォーム改善アドバイス')}\n\n"
+                integrated_advice_text += f"{ai_advice.get('message', '')}\n\n"
+                if ai_advice.get('key_points'):
+                    integrated_advice_text += "【主なポイント】\n"
+                    for point in ai_advice.get('key_points', []):
+                        integrated_advice_text += f"- {point}\n"
+            
+            print(f"   📨 ルールベースアドバイス生成完了 (長さ: {len(integrated_advice_text)} 文字)")
+            print(f"   📄 アドバイス概要: {integrated_advice_text[:100]}...")
+            print("=" * 80)
+            
+            return IntegratedAdviceResponse(
+                status="success",
+                message=f"ルールベース診断＋AI統合アドバイスを生成しました",
+                video_id=request.video_id,
+                integrated_advice=integrated_advice_text
+            )
         
-        print(f"   ✅ 有効な課題数: {len(valid_issues)}")
-        for i, issue in enumerate(valid_issues, 1):
-            print(f"      {i}. {issue}")
-        
-        # プロンプト設定の確認
-        prompt_settings = request.prompt_settings
-        if prompt_settings:
-            print(f"   🎯 カスタムプロンプト設定受信:")
-            print(f"      コーチングスタイル: {prompt_settings.get('coaching_style', 'デフォルト')}")
-            print(f"      詳細レベル: {prompt_settings.get('advice_detail_level', 'デフォルト')}")
-            print(f"      エクササイズ含める: {prompt_settings.get('include_exercises', True)}")
-            print(f"      専門用語使用: {prompt_settings.get('use_scientific_terms', False)}")
+        # 従来の方式（issues_listを使用）- 後方互換性
         else:
-            print(f"   📝 デフォルトプロンプト設定を使用")
-        
-        print(f"   🧠 統合アドバイス生成中...")
-        integrated_advice = await generate_integrated_advice(valid_issues, prompt_settings)
-        
-        print(f"   📨 統合アドバイス生成完了 (長さ: {len(integrated_advice)} 文字)")
-        print(f"   📄 アドバイス概要: {integrated_advice[:100]}...")
-        print("=" * 80)
-        
-        return IntegratedAdviceResponse(
-            status="success",
-            message=f"プロコーチ＋AI統合アドバイスを生成しました",
-            video_id=request.video_id,
-            integrated_advice=integrated_advice
-        )
+            print(f"   📝 課題数: {len(request.issues_list)}")
+            
+            valid_issues = [issue.strip() for issue in request.issues_list if issue and issue.strip()]
+            
+            print(f"   ✅ 有効な課題数: {len(valid_issues)}")
+            for i, issue in enumerate(valid_issues, 1):
+                print(f"      {i}. {issue}")
+            
+            # プロンプト設定の確認
+            prompt_settings = request.prompt_settings
+            if prompt_settings:
+                print(f"   🎯 カスタムプロンプト設定受信:")
+                print(f"      コーチングスタイル: {prompt_settings.get('coaching_style', 'デフォルト')}")
+                print(f"      詳細レベル: {prompt_settings.get('advice_detail_level', 'デフォルト')}")
+                print(f"      エクササイズ含める: {prompt_settings.get('include_exercises', True)}")
+                print(f"      専門用語使用: {prompt_settings.get('use_scientific_terms', False)}")
+            else:
+                print(f"   📝 デフォルトプロンプト設定を使用")
+            
+            print(f"   🧠 統合アドバイス生成中...")
+            integrated_advice = await generate_integrated_advice(valid_issues, prompt_settings)
+            
+            print(f"   📨 統合アドバイス生成完了 (長さ: {len(integrated_advice)} 文字)")
+            print(f"   📄 アドバイス概要: {integrated_advice[:100]}...")
+            print("=" * 80)
+            
+            return IntegratedAdviceResponse(
+                status="success",
+                message=f"プロコーチ＋AI統合アドバイスを生成しました",
+                video_id=request.video_id,
+                integrated_advice=integrated_advice
+            )
         
     except Exception as e:
         print(f"❌ [INTEGRATED ADVICE SERVICE] エラー発生: {str(e)}")
         print(f"   📍 エラー詳細: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
         
         try:
             fallback_advice = generate_advanced_advice([])
@@ -1273,6 +1351,69 @@ async def generate_integrated_advice_endpoint(request: IntegratedAdviceRequest):
                 status_code=500, 
                 detail=f"統合アドバイス生成中にエラーが発生しました: {str(e)}"
             )
+
+@app.post("/generate-rule-based", response_model=RuleBasedAdviceResponse)
+async def generate_rule_based_advice_endpoint(request: RuleBasedAdviceRequest):
+    """
+    ルールベース診断 + Gemini生成のハイブリッド方式でアドバイスを生成
+    
+    Args:
+        request: 動画IDとZ値データ
+    
+    Returns:
+        ルールベース診断結果とGemini生成アドバイス
+    """
+    try:
+        print("=" * 80)
+        print("🎯 [RULE-BASED ADVICE SERVICE] ルールベースアドバイスリクエスト受信")
+        print(f"   📹 動画ID: {request.video_id}")
+        print(f"   📊 Z値データ: {len(request.z_scores)} イベント")
+        
+        # Z値データの詳細をログ出力
+        for event_type, event_scores in request.z_scores.items():
+            print(f"      {event_type}: {len(event_scores)} 角度")
+            for angle_name, z_score in event_scores.items():
+                print(f"         {angle_name}: {z_score:.2f}")
+        
+        # Gemini APIモデルの確認
+        if not USE_GEMINI_API or model is None:
+            print("   ⚠️  Gemini APIキー未設定 - ルールベース診断のみを返却")
+            return RuleBasedAdviceResponse(
+                status="error",
+                message="Gemini APIキーが設定されていません",
+                video_id=request.video_id,
+                ai_advice={},
+                raw_issues=[]
+            )
+        
+        print(f"   🧠 ルールベース診断 + Gemini生成を実行中...")
+        
+        # ルールベース診断 + Gemini生成
+        result = await generate_rule_based_advice(request.z_scores, model)
+        
+        print(f"   ✅ ルールベースアドバイス生成完了")
+        print(f"   📄 検出課題数: {len(result.get('raw_issues', []))}")
+        print(f"   📄 AIアドバイス: {result.get('ai_advice', {}).get('title', 'N/A')}")
+        print("=" * 80)
+        
+        return RuleBasedAdviceResponse(
+            status=result.get("status", "success"),
+            message="ルールベース診断 + Gemini生成アドバイスを生成しました",
+            video_id=request.video_id,
+            ai_advice=result.get("ai_advice", {}),
+            raw_issues=result.get("raw_issues", [])
+        )
+        
+    except Exception as e:
+        print(f"❌ [RULE-BASED ADVICE SERVICE] エラー発生: {str(e)}")
+        print(f"   📍 エラー詳細: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        
+        raise HTTPException(
+            status_code=500, 
+            detail=f"ルールベースアドバイス生成中にエラーが発生しました: {str(e)}"
+        )
 
 if __name__ == "__main__":
     print("🚀 Gemini-Powered Advice Generation Service を起動中...")

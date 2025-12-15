@@ -164,11 +164,35 @@ services:
       retries: 5
       start_period: 30s
 
+  # PostgreSQL Database (ローカル開発環境用)
+  db:
+    image: postgres:15-alpine
+    container_name: running-analysis-system-db-1
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=app
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 # ボリューム定義
 volumes:
   video_storage:
     driver: local
   model_cache:
+    driver: local
+  postgres_data:
     driver: local
 
 # ネットワーク定義

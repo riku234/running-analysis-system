@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { 
   Activity, 
   Clock, 
@@ -19,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import PoseVisualizer from '@/app/components/PoseVisualizer'
 import AngleGraphsCard from '@/app/components/AngleGraphsCard'
+import AnalysisResultLite from '@/app/components/AnalysisResultLite'
 import { useResultStore } from '@/lib/store'
 
 // より現実的なランニングサイクルのダミーデータを生成
@@ -266,6 +268,9 @@ interface AnalysisResult {
 }
 
 export default function ResultPage({ params }: { params: { id: string } }) {
+  const searchParams = useSearchParams()
+  const analysisMode = searchParams.get('mode') || 'lite' // デフォルトはlite
+  
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [debugInfo, setDebugInfo] = useState<any>(null)
@@ -594,6 +599,28 @@ export default function ResultPage({ params }: { params: { id: string } }) {
       console.log('✅ AIアドバイス生成成功:', adviceResult)
       setAdviceData(adviceResult)
       
+      // resultにも反映
+      setResult(prevResult => {
+        if (!prevResult) return prevResult
+        
+        // adviceResultをadvice_analysis形式に変換
+        const adviceAnalysis = {
+          status: adviceResult.status || 'success',
+          message: adviceResult.message || 'アドバイスを生成しました',
+          video_id: params.id,
+          integrated_advice: adviceResult.integrated_advice || adviceResult.advice?.message || '',
+          high_level_issues: adviceResult.high_level_issues || adviceResult.advice?.key_points || [],
+          ai_advice: adviceResult.advice || adviceResult.ai_advice,
+          raw_issues: adviceResult.raw_issues || []
+        }
+        
+        return {
+          ...prevResult,
+          advice_analysis: adviceAnalysis,
+          advice_results: adviceAnalysis // 後方互換性のため
+        }
+      })
+      
     } catch (error) {
       console.error('❌ AIアドバイス生成エラー:', error)
     } finally {
@@ -696,6 +723,43 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             }
           }
           
+          // APIから最新のアドバイスデータを取得（localStorageにない場合のため）
+          try {
+            const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
+            if (apiResponse.ok) {
+              const apiData = await apiResponse.json()
+              console.log('📊 APIから取得したデータ:', {
+                has_z_score_analysis: !!apiData.z_score_analysis,
+                has_advice_analysis: !!apiData.advice_analysis,
+                has_advice_results: !!apiData.advice_results
+              })
+              
+              // Z値分析データを反映
+              if (apiData.z_score_analysis) {
+                console.log('✅ APIからZ値分析データを取得して反映')
+                completeResult.z_score_analysis = apiData.z_score_analysis
+                setZScoreData(apiData.z_score_analysis)
+              }
+              
+              // アドバイスデータを反映
+              if (apiData.advice_analysis || apiData.advice_results) {
+                console.log('✅ APIから最新のアドバイスデータを取得して反映')
+                console.log('📊 取得したアドバイスデータ:', {
+                  advice_analysis: !!apiData.advice_analysis,
+                  advice_results: !!apiData.advice_results,
+                  integrated_advice: apiData.advice_analysis?.integrated_advice?.substring(0, 100) || 'なし'
+                })
+                completeResult.advice_analysis = apiData.advice_analysis || completeResult.advice_analysis
+                completeResult.advice_results = apiData.advice_results || completeResult.advice_results
+              } else {
+                console.log('⚠️ APIレスポンスにアドバイスデータが含まれていません')
+              }
+            } else {
+              console.log('⚠️ API呼び出し失敗:', apiResponse.status)
+            }
+          } catch (error) {
+            console.log('⚠️ アドバイスデータ取得エラー（無視して続行）:', error)
+          }
           
           setResult(completeResult)
           setLoading(false)
@@ -734,50 +798,70 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         // まずZ値分析を実行してから結果を表示
         console.log('🔄 ページ読み込み時にZ値分析を実行')
         
-        // Z値分析を実行（API経由で直接pose_dataを取得）
-        const executeZScoreAnalysis = async () => {
-          console.log('🔄 API経由でpose_dataを直接取得します')
-          
-          try {
-            const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
-            if (apiResponse.ok) {
-              const apiData = await apiResponse.json()
-              
-              if (apiData.pose_analysis?.pose_data && apiData.pose_analysis.pose_data.length > 0) {
-                const actualPoseData = apiData.pose_analysis.pose_data
-                const actualVideoFps = apiData.pose_analysis.video_info?.fps || 30.0
-                
-                console.log('✅ API経由で実データを取得:', { 
-                  frames: actualPoseData.length, 
-                  fps: actualVideoFps 
-                })
-                console.log('🎯 実データでZ値分析を実行:', { 
-                  frames: actualPoseData.length, 
-                  fps: actualVideoFps 
-                })
-                
-                await fetchZScoreAnalysis(actualPoseData, actualVideoFps)
-              } else {
-                console.log('⚠️ APIからも実データを取得できず、ダミーデータでZ値分析を実行')
-                const dummyPoseData = generateRunningCycleDummyData()
-                await fetchZScoreAnalysis(dummyPoseData, 30.0)
-              }
-            } else {
-              console.log('⚠️ API呼び出し失敗、ダミーデータでZ値分析を実行')
-              const dummyPoseData = generateRunningCycleDummyData()
-              await fetchZScoreAnalysis(dummyPoseData, 30.0)
+        // APIからデータを取得（localStorageにない場合）
+        try {
+          const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
+          if (apiResponse.ok) {
+            const apiData = await apiResponse.json()
+            console.log('📊 APIから取得したデータ:', {
+              has_z_score_analysis: !!apiData.z_score_analysis,
+              has_advice_analysis: !!apiData.advice_analysis,
+              has_advice_results: !!apiData.advice_results,
+              has_pose_analysis: !!apiData.pose_analysis
+            })
+            
+            // 完全なresultを構築
+            const apiResult: AnalysisResult = {
+              status: apiData.status || 'success',
+              message: apiData.message || '解析完了',
+              upload_info: apiData.upload_info || {
+                file_id: params.id,
+                original_filename: 'unknown',
+                saved_filename: 'unknown',
+                file_size: 0,
+                content_type: 'video/mp4',
+                upload_timestamp: new Date().toISOString(),
+                file_extension: '.mp4'
+              },
+              pose_analysis: apiData.pose_analysis,
+              feature_analysis: apiData.feature_analysis,
+              z_score_analysis: apiData.z_score_analysis,
+              issue_analysis: apiData.issue_analysis,
+              advice_analysis: apiData.advice_analysis,
+              advice_results: apiData.advice_results
             }
-          } catch (apiError) {
-            console.log('⚠️ API呼び出しエラー、ダミーデータでZ値分析を実行:', apiError)
-            const dummyPoseData = generateRunningCycleDummyData()
-            await fetchZScoreAnalysis(dummyPoseData, 30.0)
+            
+            // resultとzScoreDataを設定
+            setResult(apiResult)
+            if (apiData.z_score_analysis) {
+              console.log('✅ APIからZ値分析データを取得して反映')
+              setZScoreData(apiData.z_score_analysis)
+            }
+            setLoading(false)
+            
+            // Z値分析データがない場合、pose_dataからZ値分析を実行
+            if (!apiData.z_score_analysis && apiData.pose_analysis?.pose_data && apiData.pose_analysis.pose_data.length > 0) {
+              const actualPoseData = apiData.pose_analysis.pose_data
+              const actualVideoFps = apiData.pose_analysis.video_info?.fps || 30.0
+              
+              console.log('🎯 pose_dataからZ値分析を実行:', { 
+                frames: actualPoseData.length, 
+                fps: actualVideoFps 
+              })
+              
+              await fetchZScoreAnalysis(actualPoseData, actualVideoFps)
+            }
+            
+            return // APIからデータを取得できた場合はここで終了
+          } else {
+            console.log('⚠️ API呼び出し失敗:', apiResponse.status)
           }
+        } catch (apiError) {
+          console.log('⚠️ API呼び出しエラー:', apiError)
         }
         
-        // Z値分析を実行してからダミーデータを表示
-        executeZScoreAnalysis().then(() => {
-          console.log('✅ Z値分析完了、ダミーデータ表示を開始')
-        })
+        // APIからデータを取得できなかった場合、ダミーデータを表示
+        console.log('⚠️ APIからデータを取得できず、ダミーデータを表示')
 
         // ダミーデータで動作確認（実データの構造を模擬）
     setTimeout(() => {
@@ -929,18 +1013,60 @@ export default function ResultPage({ params }: { params: { id: string } }) {
 
   const videoUrl = `/api/video/stream/${params.id}?t=${Date.now()}`
 
+  // モードに応じて表示を分岐（データ取得完了後）
+  if (analysisMode === 'lite') {
+    return (
+      <div className="min-h-screen bg-gradient-running">
+        <div className="container mx-auto p-6 space-y-6">
+          {/* ヘッダー */}
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-3xl font-bold text-blue-600">解析結果 (Lite Mode)</h1>
+              <p className="text-muted-foreground">
+                {result?.upload_info?.original_filename || '解析中...'}
+              </p>
+            </div>
+            <Button 
+              variant="outline" 
+              onClick={() => window.location.href = `/result/${params.id}?mode=pro`}
+            >
+              Pro Modeに切り替え
+            </Button>
+          </div>
+
+          {/* Lite Mode UI */}
+          <AnalysisResultLite 
+            zScoreData={
+              zScoreData?.z_scores || 
+              result?.z_score_analysis?.z_scores || 
+              null
+            }
+            adviceData={result?.advice_analysis || result?.advice_results || null}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // Pro Mode（既存のUI）
   return (
     <div className="min-h-screen bg-gradient-running">
       <div className="container mx-auto p-6 space-y-6">
-      {/* ヘッダー */}
+        {/* ヘッダー */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-blue-600">解析結果</h1>
+            <h1 className="text-3xl font-bold text-blue-600">解析結果 (Pro Mode)</h1>
             <p className="text-muted-foreground">
               {result.upload_info.original_filename}
             </p>
           </div>
           <div className="flex items-center space-x-3">
+            <Button 
+              variant="outline" 
+              onClick={() => window.location.href = `/result/${params.id}?mode=lite`}
+            >
+              Lite Modeに切り替え
+            </Button>
             <div className={`px-3 py-1 rounded-full text-sm font-medium ${
               result.status === 'success' 
                 ? 'bg-green-100 text-green-800' 
@@ -951,7 +1077,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             {false && result.pose_analysis && (
               <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
                 検出率: {(result.pose_analysis.summary.detection_rate * 100).toFixed(1)}%
-        </div>
+              </div>
             )}
           </div>
         </div>

@@ -39,6 +39,7 @@ UPLOAD_DIRECTORY.mkdir(exist_ok=True)
 POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
 FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
 ANALYSIS_URL = "http://analysis:8004/analyze-z-score"
+ADVICE_GENERATION_URL = "http://advice_generation:8005"
 
 # データベース保存の有効/無効を制御
 # 環境変数 ENABLE_DB_SAVE が "true" の場合のみデータベースに保存
@@ -251,62 +252,77 @@ async def upload_video(
                     issue_data["issues"] = issues
                     issue_data["analysis_details"]["total_issues"] = len(issues)
                 
-                # Step 4: 統合アドバイス生成
+                # Step 4: ルールベースアドバイス生成（DB駆動型）
                 try:
-                    # 統合アドバイス生成
-                    logger.info("統合アドバイス生成サービスを呼び出します")
+                    # ルールベースアドバイス生成
+                    logger.info("ルールベースアドバイス生成サービスを呼び出します")
                     
-                    # Z値分析結果から課題を抽出（統合アドバイス用）
-                    high_level_issues = []
-                    if z_score_data and z_score_data.get("analysis_summary", {}).get("significant_deviations"):
-                        for deviation in z_score_data["analysis_summary"]["significant_deviations"]:
-                            # 角度名を簡略化（例: "右大腿角度" -> "右大腿角度大"）
-                            angle_mapping = {
-                                "右大腿角度": "右大腿角度大",
-                                "左大腿角度": "左大腿角度大", 
-                                "右下腿角度": "右下腿角度大",
-                                "左下腿角度": "左下腿角度大",
-                                "体幹角度": "体幹後傾" if deviation["z_score"] < 0 else "体幹前傾"
-                            }
-                            
-                            mapped_issue = angle_mapping.get(deviation["angle"], deviation["angle"])
-                            if mapped_issue not in high_level_issues:
-                                high_level_issues.append(mapped_issue)
+                    # Z値分析結果からz_scoresを抽出
+                    z_scores_data = z_score_data.get("z_scores", {}) if z_score_data else {}
                     
-                    integrated_advice_request = {
-                        "video_id": unique_id,
-                        "issues_list": high_level_issues
-                    }
-                    
-                    # カスタムプロンプト設定を統合アドバイスにも追加
-                    if parsed_prompt_settings:
-                        integrated_advice_request["prompt_settings"] = parsed_prompt_settings
-                    
-                    integrated_advice_response = await client.post(
-                        f"http://advice_generation:8005/generate-integrated",
-                        json=integrated_advice_request,
-                        timeout=180.0  # Gemini APIリトライを考慮して延長
-                    )
-                    integrated_advice_response.raise_for_status()
-                    integrated_advice_data = integrated_advice_response.json()
-                    logger.info("統合アドバイス生成完了")
-                    
-                    # デバッグログ: 統合アドバイスデータの内容確認
-                    logger.info(f"統合アドバイスデータ: {integrated_advice_data}")
-                    logger.info(f"抽出された課題: {high_level_issues}")
-                    
-                    # アドバイスデータを作成（統合アドバイスのみ）
-                    advice_data = {
-                        "status": "success",
-                        "message": "統合アドバイスを生成しました",
-                        "video_id": unique_id,
-                        "integrated_advice": integrated_advice_data.get("integrated_advice", ""),
-                        "advanced_advice": integrated_advice_data.get("integrated_advice", ""),  # 後方互換性
-                        "high_level_issues": high_level_issues
-                    }
-                    
-                    # デバッグログ: 最終的なadvice_dataの確認
-                    logger.info(f"統合アドバイス追加完了: {bool(advice_data.get('integrated_advice'))}")
+                    if not z_scores_data:
+                        logger.warning("Z値データが空のため、アドバイス生成をスキップします")
+                        advice_data = {
+                            "status": "error",
+                            "message": "Z値データが不足しているため、アドバイス生成をスキップしました",
+                            "video_id": unique_id,
+                            "integrated_advice": "",
+                            "high_level_issues": []
+                        }
+                    else:
+                        # ルールベースアドバイス生成リクエスト
+                        rule_based_advice_request = {
+                            "video_id": unique_id,
+                            "z_scores": z_scores_data
+                        }
+                        
+                        logger.info(f"Z値データ送信: {len(z_scores_data)} イベント")
+                        for event_type, event_scores in z_scores_data.items():
+                            logger.info(f"  {event_type}: {len(event_scores)} 角度")
+                        
+                        rule_based_advice_response = await client.post(
+                            f"{ADVICE_GENERATION_URL}/generate-rule-based",
+                            json=rule_based_advice_request,
+                            timeout=180.0  # Gemini APIリトライを考慮して延長
+                        )
+                        rule_based_advice_response.raise_for_status()
+                        rule_based_advice_data = rule_based_advice_response.json()
+                        logger.info("ルールベースアドバイス生成完了")
+                        
+                        # デバッグログ: ルールベースアドバイスデータの内容確認
+                        logger.info(f"ルールベースアドバイスデータ: {rule_based_advice_data}")
+                        logger.info(f"検出課題数: {len(rule_based_advice_data.get('raw_issues', []))}")
+                        
+                        # アドバイスデータを作成（新しい形式に対応）
+                        ai_advice = rule_based_advice_data.get("ai_advice", {})
+                        raw_issues = rule_based_advice_data.get("raw_issues", [])
+                        
+                        # 後方互換性のため、integrated_advice形式も生成
+                        integrated_advice_text = ""
+                        if ai_advice:
+                            integrated_advice_text = f"{ai_advice.get('title', 'フォーム改善アドバイス')}\n\n"
+                            integrated_advice_text += f"{ai_advice.get('message', '')}\n\n"
+                            if ai_advice.get('key_points'):
+                                integrated_advice_text += "【主なポイント】\n"
+                                for point in ai_advice.get('key_points', []):
+                                    integrated_advice_text += f"- {point}\n"
+                        
+                        # 課題リストを抽出（後方互換性のため）
+                        high_level_issues = [issue.get("name", "") for issue in raw_issues if issue.get("name")]
+                        
+                        advice_data = {
+                            "status": "success",
+                            "message": "ルールベースアドバイスを生成しました",
+                            "video_id": unique_id,
+                            "integrated_advice": integrated_advice_text,
+                            "advanced_advice": integrated_advice_text,  # 後方互換性
+                            "high_level_issues": high_level_issues,
+                            "ai_advice": ai_advice,  # 新しい形式
+                            "raw_issues": raw_issues  # 新しい形式
+                        }
+                        
+                        # デバッグログ: 最終的なadvice_dataの確認
+                        logger.info(f"ルールベースアドバイス追加完了: {bool(advice_data.get('integrated_advice'))}")
                     
                 except Exception as e:
                     logger.warning(f"統合アドバイス生成でエラーが発生しましたが、処理を続行します: {e}")
@@ -679,43 +695,69 @@ async def get_result(video_id: str):
                         issue_data["issues"] = issues
                         issue_data["analysis_details"]["total_issues"] = len(issues)
                     
-                    # Step 4: アドバイス生成
+                    # Step 4: ルールベースアドバイス生成（DB駆動型）
                     advice_results = None
                     advice_analysis = None
                     
                     try:
-                        logger.info("アドバイス生成サービス（Gemini AI）を呼び出します")
-                        advice_request = {
-                            "video_id": video_id,
-                            "issues": issue_data.get("issues", [])
-                        }
+                        # ルールベースアドバイス生成（DB駆動型）
+                        logger.info("ルールベースアドバイス生成サービスを呼び出します")
                         
-                        advice_response = await client.post(ADVICE_GENERATION_URL, json=advice_request, timeout=60.0)
-                        advice_response.raise_for_status()
-                        advice_results = advice_response.json()
-                        logger.info("Gemini AIアドバイス生成完了")
+                        # Z値分析結果からz_scoresを抽出
+                        z_scores_data = z_score_data.get("z_scores", {}) if z_score_data else {}
                         
-                        # 統合アドバイス生成
-                        logger.info("統合アドバイス生成サービスを呼び出します")
-                        high_level_issues = []
-                        if z_score_data and z_score_data.get("analysis_summary", {}).get("significant_deviations"):
-                            for deviation in z_score_data["analysis_summary"]["significant_deviations"]:
-                                if deviation["severity"] == "high":
-                                    high_level_issues.append(f"{deviation['angle']}の{deviation['event']}異常")
-                        
-                        integrated_advice_request = {
-                            "video_id": video_id,
-                            "issues_list": high_level_issues or ["フォーム改善"]
-                        }
-                        
-                        integrated_advice_response = await client.post(
-                            f"{ADVICE_GENERATION_URL.replace('/generate', '/generate-integrated')}", 
-                            json=integrated_advice_request, 
-                            timeout=60.0
-                        )
-                        integrated_advice_response.raise_for_status()
-                        advice_analysis = integrated_advice_response.json()
-                        logger.info("統合アドバイス生成完了")
+                        if not z_scores_data:
+                            logger.warning("Z値データが空のため、アドバイス生成をスキップします")
+                            advice_analysis = {
+                                "status": "error",
+                                "message": "Z値データが不足しているため、アドバイス生成をスキップしました",
+                                "video_id": video_id,
+                                "integrated_advice": "",
+                                "high_level_issues": []
+                            }
+                        else:
+                            # ルールベースアドバイス生成リクエスト
+                            rule_based_advice_request = {
+                                "video_id": video_id,
+                                "z_scores": z_scores_data
+                            }
+                            
+                            logger.info(f"Z値データ送信: {len(z_scores_data)} イベント")
+                            
+                            rule_based_advice_response = await client.post(
+                                f"{ADVICE_GENERATION_URL}/generate-rule-based", 
+                                json=rule_based_advice_request, 
+                                timeout=180.0
+                            )
+                            rule_based_advice_response.raise_for_status()
+                            rule_based_advice_data = rule_based_advice_response.json()
+                            
+                            # 後方互換性のため、integrated_advice形式も生成
+                            ai_advice = rule_based_advice_data.get("ai_advice", {})
+                            raw_issues = rule_based_advice_data.get("raw_issues", [])
+                            
+                            integrated_advice_text = ""
+                            if ai_advice:
+                                integrated_advice_text = f"{ai_advice.get('title', 'フォーム改善アドバイス')}\n\n"
+                                integrated_advice_text += f"{ai_advice.get('message', '')}\n\n"
+                                if ai_advice.get('key_points'):
+                                    integrated_advice_text += "【主なポイント】\n"
+                                    for point in ai_advice.get('key_points', []):
+                                        integrated_advice_text += f"- {point}\n"
+                            
+                            high_level_issues = [issue.get("name", "") for issue in raw_issues if issue.get("name")]
+                            
+                            advice_analysis = {
+                                "status": "success",
+                                "message": "ルールベースアドバイスを生成しました",
+                                "video_id": video_id,
+                                "integrated_advice": integrated_advice_text,
+                                "high_level_issues": high_level_issues,
+                                "ai_advice": ai_advice,
+                                "raw_issues": raw_issues
+                            }
+                            
+                            logger.info("ルールベースアドバイス生成完了")
                         
                     except Exception as e:
                         logger.error(f"アドバイス生成でエラー: {e}")

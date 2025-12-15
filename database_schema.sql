@@ -101,6 +101,42 @@ CREATE TABLE IF NOT EXISTS frame_angles (
     UNIQUE (run_id, frame_number)
 );
 
+-- 8. 診断ルールテーブル（ルールベース診断用）
+CREATE TABLE IF NOT EXISTS diagnosis_rules (
+    id SERIAL PRIMARY KEY,
+    rule_code VARCHAR(100) UNIQUE NOT NULL,
+    rule_name VARCHAR(255) NOT NULL,
+    target_event VARCHAR(50),
+    -- 'right_strike', 'right_off', 'left_strike', 'left_off', NULL (全イベント)
+    target_metric VARCHAR(100) NOT NULL,
+    -- '体幹角度', '左大腿角度', '右大腿角度', '左下腿角度', '右下腿角度'
+    operator VARCHAR(10) NOT NULL,
+    -- 'lt', 'gt', 'lte', 'gte', 'eq'
+    threshold FLOAT NOT NULL,
+    severity VARCHAR(20) NOT NULL,
+    -- 'high', 'medium', 'low'
+    priority INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 9. 専門家アドバイステーブル（ルールベース診断用）
+CREATE TABLE IF NOT EXISTS expert_advice (
+    id SERIAL PRIMARY KEY,
+    rule_code VARCHAR(100) NOT NULL,
+    issue_name VARCHAR(255) NOT NULL,
+    observation TEXT,
+    cause TEXT,
+    action TEXT,
+    drill_name VARCHAR(255),
+    drill_url VARCHAR(500),
+    additional_notes TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    FOREIGN KEY (rule_code) REFERENCES diagnosis_rules(rule_code) ON DELETE CASCADE
+);
+
 -- インデックスの作成
 CREATE INDEX IF NOT EXISTS idx_runs_user_id ON runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_runs_video_id ON runs(video_id);
@@ -112,4 +148,8 @@ CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_advice_run_id ON advice(run_id);
 CREATE INDEX IF NOT EXISTS idx_frame_angles_run_id ON frame_angles(run_id);
 CREATE INDEX IF NOT EXISTS idx_frame_angles_frame ON frame_angles(run_id, frame_number);
+CREATE INDEX IF NOT EXISTS idx_diagnosis_rules_code ON diagnosis_rules(rule_code);
+CREATE INDEX IF NOT EXISTS idx_diagnosis_rules_metric ON diagnosis_rules(target_metric);
+CREATE INDEX IF NOT EXISTS idx_diagnosis_rules_event ON diagnosis_rules(target_event);
+CREATE INDEX IF NOT EXISTS idx_expert_advice_rule_code ON expert_advice(rule_code);
 

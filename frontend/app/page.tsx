@@ -11,6 +11,7 @@ export default function HomePage() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isDragOver, setIsDragOver] = useState(false)
   const [selectedUser, setSelectedUser] = useState<string>('vf_yaji') // ユーザー選択
+  const [analysisMode, setAnalysisMode] = useState<'lite' | 'pro'>('lite') // 解析モード選択
   
   // ユーザーリスト
   const users = [
@@ -431,9 +432,9 @@ export default function HomePage() {
         })
       }
       
-      // 結果ページへリダイレクト
+      // 結果ページへリダイレクト（解析モードをクエリパラメータとして追加）
       setTimeout(() => {
-        window.location.href = `/result/${result.upload_info.file_id}`
+        window.location.href = `/result/${result.upload_info.file_id}?mode=${analysisMode}`
       }, 1500)
 
     } catch (error) {
@@ -532,6 +533,67 @@ export default function HomePage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* 解析モード選択 */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  解析モード
+                </label>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Lite Mode */}
+                  <button
+                    type="button"
+                    onClick={() => setAnalysisMode('lite')}
+                    className={`
+                      relative p-6 rounded-xl border-2 transition-all duration-200 text-left
+                      ${analysisMode === 'lite'
+                        ? 'border-blue-500 bg-blue-50 shadow-md'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                      }
+                    `}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-lg font-semibold text-gray-900">Lite Mode</span>
+                      {analysisMode === 'lite' && (
+                        <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                          <CheckCircle className="h-4 w-4 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 mb-1">ビギナー向け</p>
+                    <p className="text-xs text-gray-500">直感的なUI</p>
+                    {analysisMode === 'lite' && (
+                      <div className="absolute top-2 right-2">
+                        <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">デフォルト</span>
+                      </div>
+                    )}
+                  </button>
+
+                  {/* Pro Mode */}
+                  <button
+                    type="button"
+                    onClick={() => setAnalysisMode('pro')}
+                    className={`
+                      relative p-6 rounded-xl border-2 transition-all duration-200 text-left
+                      ${analysisMode === 'pro'
+                        ? 'border-indigo-500 bg-indigo-50 shadow-md'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                      }
+                    `}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-lg font-semibold text-gray-900">Pro Mode</span>
+                      {analysisMode === 'pro' && (
+                        <div className="w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center">
+                          <CheckCircle className="h-4 w-4 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 mb-1">エキスパート向け</p>
+                    <p className="text-xs text-gray-500">詳細グラフ表示UI</p>
+                  </button>
+                </div>
               </div>
 
               {/* アップロードエリア */}
