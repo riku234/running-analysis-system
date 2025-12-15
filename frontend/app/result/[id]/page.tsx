@@ -241,6 +241,16 @@ interface AnalysisResult {
     video_id: string
     integrated_advice?: string
     high_level_issues?: string[]
+    ai_advice?: {
+      title?: string
+      message?: string
+      key_points?: string[]
+    }
+    raw_issues?: {
+      name: string
+      severity?: string
+      angle?: string
+    }[]
   }
   advice_results?: {
     status: string
@@ -248,6 +258,16 @@ interface AnalysisResult {
     video_id: string
     integrated_advice?: string
     high_level_issues?: string[]
+    ai_advice?: {
+      title?: string
+      message?: string
+      key_points?: string[]
+    }
+    raw_issues?: {
+      name: string
+      severity?: string
+      angle?: string
+    }[]
   }
   issue_analysis?: {
     status: string
