@@ -27,7 +27,7 @@ if USE_GEMINI_API:
     # Gemini APIの初期化
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        'gemini-flash-latest',  # 動作確認済みのモデル名
+        'gemini-2.5-flash-lite',  # Flash-Liteモデル（無料プランで1日1,000リクエストまで）
         generation_config=genai.types.GenerationConfig(
             temperature=0.5,  # 安定性重視（0.7 → 0.5）
             top_p=0.8,       # 多様性のバランス
