@@ -228,15 +228,41 @@ async def generate_integrated_advice(
 """
     
     try:
-        # Gemini API呼び出し（非同期処理）
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: gemini_model.generate_content(system_prompt)
-        )
+        # Gemini API呼び出し（非同期処理、リトライロジック付き）
+        max_retries = 3
+        response = None
+        text = None
         
-        text = response.text
-        print(f"📄 Gemini生レスポンス (長さ: {len(text)} 文字): {text[:300]}...")
+        for attempt in range(max_retries):
+            try:
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: gemini_model.generate_content(system_prompt)
+                )
+                
+                text = response.text
+                print(f"📄 Gemini生レスポンス (長さ: {len(text)} 文字): {text[:300]}...")
+                break  # 成功したらループを抜ける
+                
+            except Exception as api_error:
+                error_str = str(api_error)
+                print(f"⚠️  Gemini API呼び出しエラー (試行 {attempt + 1}/{max_retries}): {error_str[:200]}")
+                
+                # 429エラー（クォータ超過）の場合はリトライしない
+                if "429" in error_str or "quota" in error_str.lower() or "ResourceExhausted" in error_str:
+                    print(f"❌ クォータ制限に達しました。フォールバックアドバイスを使用します。")
+                    raise api_error  # 例外を再発生させて、フォールバック処理に進む
+                
+                # その他のエラーの場合はリトライ
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 2秒, 4秒, 6秒の間隔
+                    print(f"⏳ {wait_time}秒待機後にリトライします...")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    print(f"❌ 最大リトライ回数に達しました。フォールバックアドバイスを使用します。")
+                    raise api_error  # 例外を再発生させて、フォールバック処理に進む
         
         # JSON抽出（より柔軟に）
         # 1. マークダウンコードブロックを削除
