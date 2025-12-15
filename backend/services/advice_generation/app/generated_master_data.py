@@ -80,22 +80,22 @@ ADVICE_MASTER_DATA = {
             }
         }
     },
-    "ISSUE_THIGH_ANGLE_HIGH": {
+    "ISSUE_THIGH_ANGLE_BACKWARD": {
         "rule": {
             "target_event": None,
             "target_metric": "thigh_angle_z",
-            "operator": "gt",
-            "threshold": 2.0,
+            "operator": "lt",
+            "threshold": -2.0,
             "severity": "medium"
         },
         "content": {
-            "name": "もも上げ不足",
-            "observation": "ももが上がらず、歩幅が狭くなっています。",
-            "cause": "股関節の可動域が狭く、ももを上げる力が不足しています。",
-            "action": "股関節を意識して、ももを高く上げる練習をしましょう。",
+            "name": "足の還り（遅れ）",
+            "observation": "蹴り出した足が後ろに流れ、次の一歩が出るのが遅れています。",
+            "cause": "腸腰筋（足を引き上げる筋肉）がうまく使えておらず、足だけで走っています。",
+            "action": "踵をお尻に素早く引きつける「折りたたみ」の動作を意識しましょう。",
             "drill": {
-                "name": "もも上げドリル",
-                "url": "https://youtube.com/example_high_knees"
+                "name": "踵タッチ（バットキック）",
+                "url": "https://youtube.com/example_heel_touch"
             }
         }
     }
