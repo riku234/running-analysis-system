@@ -299,17 +299,22 @@ async def generate_integrated_advice(
     except json.JSONDecodeError as e:
         print(f"⚠️  JSON解析エラー: {e}")
         print(f"📄 問題のあるレスポンス: {text[:500] if 'text' in locals() else 'N/A'}...")
-        # フォールバック: 専門家の見解から直接アドバイスを生成
+        # フォールバック: 専門家の見解から直接アドバイスを生成（読みやすい形式）
         issue_names = [i.issue_name for i in diagnosed_issues]
-        issue_observations = [i.expert_content.get('observation', '') for i in diagnosed_issues]
-        issue_actions = [i.expert_content.get('action', '') for i in diagnosed_issues]
         
-        # 専門家の見解を統合したメッセージを生成
-        message_parts = [f"専門家の分析により、{len(diagnosed_issues)}つの改善点が見つかりました。"]
+        # 専門家の見解を統合したメッセージを生成（読みやすい形式）
+        message_parts = []
         for idx, issue in enumerate(diagnosed_issues, 1):
-            message_parts.append(f"\n【{issue.issue_name}】")
-            message_parts.append(f"現象: {issue.expert_content.get('observation', '')}")
-            message_parts.append(f"改善策: {issue.expert_content.get('action', '')}")
+            if idx > 1:
+                message_parts.append("\n\n")
+            message_parts.append(f"【{issue.issue_name}】\n")
+            message_parts.append(f"【現象】: {issue.expert_content.get('observation', '')}\n")
+            message_parts.append(f"【原因】: {issue.expert_content.get('cause', '')}\n")
+            message_parts.append(f"【改善策】: {issue.expert_content.get('action', '')}\n")
+            drill = issue.expert_content.get('drill', {})
+            drill_name = drill.get('name', '') if isinstance(drill, dict) else str(drill)
+            if drill_name:
+                message_parts.append(f"【ドリル】: {drill_name}")
         
         advice_data = {
             "title": "フォーム改善アドバイス",
@@ -321,17 +326,22 @@ async def generate_integrated_advice(
         print(f"❌ Gemini Error: {e}")
         import traceback
         traceback.print_exc()
-        # フォールバック: 専門家の見解から直接アドバイスを生成
+        # フォールバック: 専門家の見解から直接アドバイスを生成（読みやすい形式）
         issue_names = [i.issue_name for i in diagnosed_issues]
-        issue_observations = [i.expert_content.get('observation', '') for i in diagnosed_issues]
-        issue_actions = [i.expert_content.get('action', '') for i in diagnosed_issues]
         
-        # 専門家の見解を統合したメッセージを生成
-        message_parts = [f"専門家の分析により、{len(diagnosed_issues)}つの改善点が見つかりました。"]
+        # 専門家の見解を統合したメッセージを生成（読みやすい形式）
+        message_parts = []
         for idx, issue in enumerate(diagnosed_issues, 1):
-            message_parts.append(f"\n【{issue.issue_name}】")
-            message_parts.append(f"現象: {issue.expert_content.get('observation', '')}")
-            message_parts.append(f"改善策: {issue.expert_content.get('action', '')}")
+            if idx > 1:
+                message_parts.append("\n\n")
+            message_parts.append(f"【{issue.issue_name}】\n")
+            message_parts.append(f"【現象】: {issue.expert_content.get('observation', '')}\n")
+            message_parts.append(f"【原因】: {issue.expert_content.get('cause', '')}\n")
+            message_parts.append(f"【改善策】: {issue.expert_content.get('action', '')}\n")
+            drill = issue.expert_content.get('drill', {})
+            drill_name = drill.get('name', '') if isinstance(drill, dict) else str(drill)
+            if drill_name:
+                message_parts.append(f"【ドリル】: {drill_name}")
         
         advice_data = {
             "title": "フォーム改善アドバイス",
