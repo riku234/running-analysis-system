@@ -23,6 +23,14 @@ interface AnalysisResultLiteProps {
       name: string
       severity?: string
       angle?: string
+      target_metric?: string
+      observation?: string
+      cause?: string
+      action?: string
+      drill?: {
+        name?: string
+        url?: string
+      }
     }>
   } | null
 }
@@ -174,9 +182,10 @@ export default function AnalysisResultLite({ zScoreData, adviceData }: AnalysisR
     ]
   }, [zScoreData])
 
-  // One Big Thing（最優先課題）
+  // One Big Thing（最優先課題）- Z値が最も大きい課題を1つだけ選択
   const oneBigThing = useMemo(() => {
     console.log('🔍 One Big Thing - adviceData:', adviceData)
+    console.log('🔍 One Big Thing - zScoreData:', zScoreData)
     
     if (!adviceData) {
       console.log('⚠️ adviceData is null or undefined')
@@ -186,40 +195,138 @@ export default function AnalysisResultLite({ zScoreData, adviceData }: AnalysisR
     // raw_issuesが存在するか確認
     const rawIssues = adviceData.raw_issues || []
     console.log('🔍 raw_issues:', rawIssues)
+    console.log('🔍 raw_issues[0]:', rawIssues[0])
+    if (rawIssues[0]) {
+      console.log('🔍 raw_issues[0].observation:', rawIssues[0].observation)
+      console.log('🔍 raw_issues[0].cause:', rawIssues[0].cause)
+      console.log('🔍 raw_issues[0].action:', rawIssues[0].action)
+      console.log('🔍 raw_issues[0].drill:', rawIssues[0].drill)
+    }
 
     if (rawIssues.length === 0) {
-      // raw_issuesがない場合、ai_adviceから情報を取得
-      if (adviceData.ai_advice) {
-        const keyPoints = adviceData.ai_advice.key_points || []
-        if (keyPoints.length > 0) {
-          return {
-            name: adviceData.ai_advice.title || 'フォーム改善',
-            message: adviceData.ai_advice.message || keyPoints[0],
-            severity: 'medium' as const
-          }
-        }
-      }
-      console.log('⚠️ raw_issues and ai_advice are both empty')
+      console.log('⚠️ raw_issues is empty')
       return null
     }
 
-    // raw_issuesからseverityがhighのものを優先的に選択
-    const highPriorityIssues = rawIssues.filter(issue => issue.severity === 'high')
-    const targetIssue = highPriorityIssues.length > 0 ? highPriorityIssues[0] : rawIssues[0]
+    // Z値データから各課題のZ値を取得して、最も大きいものを選択
+    let maxZScore = 0
+    let targetIssue = rawIssues[0] // デフォルトは最初の課題
 
-    // 対応するメッセージを取得
-    const message = adviceData.ai_advice?.message || 
-                   adviceData.ai_advice?.key_points?.[0] || 
-                   `${targetIssue.name}の改善に取り組みましょう。`
+    // 角度名のマッピング（target_metric → 実際のZ値データのキー名）
+    const angleMapping: Record<string, string[]> = {
+      "trunk_angle_z": ["体幹角度", "trunk_angle_z"],
+      "shank_angle_z": ["右下腿角度", "左下腿角度", "right_shank_angle_z", "left_shank_angle_z"],
+      "thigh_angle_z": ["右大腿角度", "左大腿角度", "right_thigh_angle_z", "left_thigh_angle_z"],
+      "knee_angle_z": ["右膝角度", "左膝角度", "right_knee_angle_z", "left_knee_angle_z"]
+    }
 
-    console.log('✅ One Big Thing selected:', { name: targetIssue.name, message })
+    // 各課題について、対応するZ値を取得
+    for (const issue of rawIssues) {
+      if (!zScoreData) continue
+
+      // target_metricから角度名リストを取得
+      const targetMetric = issue.target_metric || issue.angle
+      if (!targetMetric) continue
+
+      const checkAngles = angleMapping[targetMetric] || [targetMetric, issue.angle].filter(Boolean)
+
+      // 角度名からZ値を取得
+      let issueZScore = 0
+      Object.values(zScoreData).forEach(eventData => {
+        for (const angleName of checkAngles) {
+          const angleValue = eventData[angleName] || 
+                            eventData[angleName.replace('角度', '')] ||
+                            eventData[`${angleName}_z`] ||
+                            eventData[`left_${angleName}_z`] ||
+                            eventData[`right_${angleName}_z`]
+          
+          if (angleValue !== undefined) {
+            const absZ = Math.abs(angleValue)
+            if (absZ > issueZScore) issueZScore = absZ
+          }
+        }
+      })
+
+      // severityがhighの場合は優先度を上げる（Z値に+2.0を加算）
+      const priorityZ = issue.severity === 'high' ? issueZScore + 2.0 : issueZScore
+
+      if (priorityZ > maxZScore) {
+        maxZScore = priorityZ
+        targetIssue = issue
+      }
+    }
+
+    console.log('✅ One Big Thing selected:', { 
+      name: targetIssue.name, 
+      severity: targetIssue.severity,
+      maxZScore,
+      observation: targetIssue.observation,
+      cause: targetIssue.cause,
+      action: targetIssue.action,
+      drill: targetIssue.drill
+    })
+
+    // 専門家の見解からメッセージを構築（改行付き）
+    const messageParts: string[] = []
+    
+    // raw_issuesから直接取得を試みる
+    if (targetIssue.observation) {
+      messageParts.push(`【現象】: ${targetIssue.observation}`)
+    } else {
+      console.warn('⚠️ observation is missing for:', targetIssue.name)
+    }
+    
+    if (targetIssue.cause) {
+      messageParts.push(`【原因】: ${targetIssue.cause}`)
+    } else {
+      console.warn('⚠️ cause is missing for:', targetIssue.name)
+    }
+    
+    if (targetIssue.action) {
+      messageParts.push(`【改善策】: ${targetIssue.action}`)
+    } else {
+      console.warn('⚠️ action is missing for:', targetIssue.name)
+    }
+    
+    if (targetIssue.drill?.name) {
+      messageParts.push(`【ドリル】: ${targetIssue.drill.name}`)
+    } else {
+      console.warn('⚠️ drill is missing for:', targetIssue.name)
+    }
+
+    // もしraw_issuesから取得できなかった場合、ai_advice.messageから抽出を試みる
+    if (messageParts.length === 0 || (messageParts.length === 1 && targetIssue.drill?.name)) {
+      console.log('⚠️ raw_issuesから情報が取得できなかったため、ai_advice.messageから抽出を試みます')
+      const aiMessage = adviceData?.ai_advice?.message || ''
+      
+      // ai_advice.messageから課題名に一致する部分を抽出
+      const issueNamePattern = new RegExp(`【${targetIssue.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}】([\\s\\S]*?)(?=【|$)`, 'i')
+      const match = aiMessage.match(issueNamePattern)
+      
+      if (match && match[1]) {
+        const issueContent = match[1].trim()
+        // 現象、原因、改善策、ドリルを抽出
+        const observationMatch = issueContent.match(/【現象】:\s*(.+?)(?=【|$)/)
+        const causeMatch = issueContent.match(/【原因】:\s*(.+?)(?=【|$)/)
+        const actionMatch = issueContent.match(/【改善策】:\s*(.+?)(?=【|$)/)
+        const drillMatch = issueContent.match(/【ドリル】:\s*(.+?)(?=【|$)/)
+        
+        if (observationMatch) messageParts.push(`【現象】: ${observationMatch[1].trim()}`)
+        if (causeMatch) messageParts.push(`【原因】: ${causeMatch[1].trim()}`)
+        if (actionMatch) messageParts.push(`【改善策】: ${actionMatch[1].trim()}`)
+        if (drillMatch) messageParts.push(`【ドリル】: ${drillMatch[1].trim()}`)
+      }
+    }
+
+    console.log('📝 Message parts:', messageParts)
+    console.log('📝 Final message:', messageParts.join('\n'))
 
     return {
       name: targetIssue.name,
-      message: message,
+      message: messageParts.join('\n'),
       severity: targetIssue.severity || 'medium'
     }
-  }, [adviceData])
+  }, [adviceData, zScoreData])
 
   if (!zScoreData) {
     return (
@@ -298,19 +405,11 @@ export default function AnalysisResultLite({ zScoreData, adviceData }: AnalysisR
           <CardContent className="pt-6">
             <div className="space-y-4">
               <div className="p-4 bg-blue-50 rounded-lg">
-                <h3 className="text-lg font-bold text-gray-900 mb-2">{oneBigThing.name}</h3>
-                <p className="text-gray-700 leading-relaxed">{oneBigThing.message}</p>
-              </div>
-              {adviceData?.ai_advice?.key_points && adviceData.ai_advice.key_points.length > 0 && (
-                <div className="mt-4">
-                  <h4 className="font-semibold text-gray-900 mb-2">ポイント</h4>
-                  <ul className="list-disc list-inside space-y-1 text-gray-700">
-                    {adviceData.ai_advice.key_points.slice(0, 3).map((point, index) => (
-                      <li key={index}>{point}</li>
-                    ))}
-                  </ul>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">{oneBigThing.name}</h3>
+                <div className="text-gray-700 leading-relaxed whitespace-pre-line">
+                  {oneBigThing.message}
                 </div>
-              )}
+              </div>
             </div>
           </CardContent>
         </Card>

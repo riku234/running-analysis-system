@@ -27,6 +27,7 @@ class DiagnosisResult(BaseModel):
     expert_content: Dict[str, Any]
     detected_event: str  # 検出されたイベント種別
     detected_angle: str  # 検出された角度名
+    target_metric: str  # ルールのtarget_metric（Z値取得用）
 
 # ==========================================
 # 3. ルールベース診断エンジン（シンプル版）
@@ -117,7 +118,8 @@ class RuleBasedAdviceEngine:
                         severity=rule.get("severity", "medium"),
                         expert_content=rule.get("content", {}),
                         detected_event=event_type,
-                        detected_angle=angle_name
+                        detected_angle=angle_name,
+                        target_metric=target_metric
                     )
         
         return None
@@ -364,7 +366,11 @@ messageフィールドには、検出された各課題について、以下の�
                 "drill": i.expert_content.get("drill", {}),
                 "severity": i.severity,
                 "event": i.detected_event,
-                "angle": i.detected_angle
+                "angle": i.detected_angle,
+                "target_metric": i.target_metric,  # ルールのtarget_metric（例: "trunk_angle_z"）
+                "observation": i.expert_content.get("observation", ""),
+                "cause": i.expert_content.get("cause", ""),
+                "action": i.expert_content.get("action", "")
             } 
             for i in diagnosed_issues
         ]

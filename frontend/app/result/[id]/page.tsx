@@ -246,11 +246,19 @@ interface AnalysisResult {
       message?: string
       key_points?: string[]
     }
-    raw_issues?: {
+    raw_issues?: Array<{
       name: string
       severity?: string
       angle?: string
-    }[]
+      target_metric?: string
+      observation?: string
+      cause?: string
+      action?: string
+      drill?: {
+        name?: string
+        url?: string
+      }
+    }>
   }
   advice_results?: {
     status: string
@@ -263,11 +271,19 @@ interface AnalysisResult {
       message?: string
       key_points?: string[]
     }
-    raw_issues?: {
+    raw_issues?: Array<{
       name: string
       severity?: string
       angle?: string
-    }[]
+      target_metric?: string
+      observation?: string
+      cause?: string
+      action?: string
+      drill?: {
+        name?: string
+        url?: string
+      }
+    }>
   }
   issue_analysis?: {
     status: string
