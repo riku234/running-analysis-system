@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import PoseVisualizer from '@/app/components/PoseVisualizer'
 import AngleGraphsCard from '@/app/components/AngleGraphsCard'
 import AnalysisResultLite from '@/app/components/AnalysisResultLite'
+import BackViewAnalysisResult from '@/app/components/BackViewAnalysisResult'
 import { useResultStore } from '@/lib/store'
 
 // より現実的なランニングサイクルのダミーデータを生成
@@ -300,6 +301,44 @@ interface AnalysisResult {
     }
   }
   z_score_analysis?: ZScoreAnalysisResult
+  back_view_analysis?: {
+    hip_drop: {
+      value: number
+      unit: string
+      max_drop: number
+      average_drop: number
+      angle_degrees: number
+      max_angle_degrees: number
+      average_angle_degrees: number
+      status: string
+    }
+    vertical_oscillation: {
+      value: number
+      unit: string
+      min_y: number
+      max_y: number
+      oscillation_range: number
+      status: string
+    }
+    crossover: {
+      value: number
+      unit: string
+      left_crossover: number
+      right_crossover: number
+      max_crossover: number
+      average_crossover: number
+      landing_count: number
+      status: string
+    }
+    summary: {
+      total_frames: number
+      analyzed_frames: number
+      hip_drop_status: string
+      vertical_oscillation_status: string
+      crossover_status: string
+    }
+  }
+  camera_angle?: string
   error?: string
 }
 
@@ -761,14 +800,27 @@ export default function ResultPage({ params }: { params: { id: string } }) {
           
           // APIから最新のアドバイスデータを取得（localStorageにない場合のため）
           try {
-            const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
+            // 背後解析モードの場合はcamera_angleパラメータを追加
+            const url = analysisMode === 'back' 
+              ? `/api/video/result/${params.id}?camera_angle=back`
+              : `/api/video_processing/result/${params.id}`
+            const apiResponse = await fetch(url)
             if (apiResponse.ok) {
               const apiData = await apiResponse.json()
               console.log('📊 APIから取得したデータ:', {
                 has_z_score_analysis: !!apiData.z_score_analysis,
                 has_advice_analysis: !!apiData.advice_analysis,
-                has_advice_results: !!apiData.advice_results
+                has_advice_results: !!apiData.advice_results,
+                has_back_view_analysis: !!apiData.back_view_analysis,
+                camera_angle: apiData.camera_angle
               })
+              
+              // 背後解析データを反映
+              if (apiData.back_view_analysis) {
+                console.log('✅ APIから背後解析データを取得して反映')
+                completeResult.back_view_analysis = apiData.back_view_analysis
+                completeResult.camera_angle = apiData.camera_angle || 'back'
+              }
               
               // Z値分析データを反映
               if (apiData.z_score_analysis) {
@@ -836,11 +888,17 @@ export default function ResultPage({ params }: { params: { id: string } }) {
         
         // APIからデータを取得（localStorageにない場合）
         try {
-          const apiResponse = await fetch(`/api/video_processing/result/${params.id}`)
+          // 背後解析モードの場合はcamera_angleパラメータを追加
+          const url = analysisMode === 'back' 
+            ? `/api/video/result/${params.id}?camera_angle=back`
+            : `/api/video_processing/result/${params.id}`
+          const apiResponse = await fetch(url)
           if (apiResponse.ok) {
             const apiData = await apiResponse.json()
-            console.log('📊 APIから取得したデータ:', {
+            console.log('📊 APIから取得したデータ（2回目）:', {
               has_z_score_analysis: !!apiData.z_score_analysis,
+              has_back_view_analysis: !!apiData.back_view_analysis,
+              camera_angle: apiData.camera_angle,
               has_advice_analysis: !!apiData.advice_analysis,
               has_advice_results: !!apiData.advice_results,
               has_pose_analysis: !!apiData.pose_analysis
@@ -864,7 +922,9 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               z_score_analysis: apiData.z_score_analysis,
               issue_analysis: apiData.issue_analysis,
               advice_analysis: apiData.advice_analysis,
-              advice_results: apiData.advice_results
+              advice_results: apiData.advice_results,
+              back_view_analysis: apiData.back_view_analysis,
+              camera_angle: apiData.camera_angle
             }
             
             // resultとzScoreDataを設定
@@ -1079,6 +1139,52 @@ export default function ResultPage({ params }: { params: { id: string } }) {
             }
             adviceData={result?.advice_analysis || result?.advice_results || null}
           />
+        </div>
+      </div>
+    )
+  }
+
+  // 背後解析モード
+  if (analysisMode === 'back') {
+    return (
+      <div className="min-h-screen bg-gradient-running">
+        <div className="container mx-auto p-6 space-y-6">
+          {/* ヘッダー */}
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-3xl font-bold text-purple-600">解析結果 (背後解析)</h1>
+              <p className="text-muted-foreground">
+                {result?.upload_info?.original_filename || '解析中...'}
+              </p>
+            </div>
+            <div className="flex items-center space-x-3">
+              <Button 
+                variant="outline" 
+                onClick={() => window.location.href = `/result/${params.id}?mode=lite`}
+              >
+                Lite Modeに切り替え
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => window.location.href = `/result/${params.id}?mode=pro`}
+              >
+                Pro Modeに切り替え
+              </Button>
+            </div>
+          </div>
+
+          {/* 背後解析結果 */}
+          {result?.back_view_analysis ? (
+            <BackViewAnalysisResult analysisResult={result.back_view_analysis} />
+          ) : (
+            <Card>
+              <CardContent className="p-6">
+                <div className="text-center text-gray-500">
+                  背後解析データが見つかりません
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     )

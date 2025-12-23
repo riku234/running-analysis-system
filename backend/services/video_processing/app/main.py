@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
@@ -40,6 +40,7 @@ POSE_ESTIMATION_URL = "http://pose_estimation:8002/estimate"
 FEATURE_EXTRACTION_URL = "http://feature_extraction:8003/extract"
 ANALYSIS_URL = "http://analysis:8004/analyze-z-score"
 ADVICE_GENERATION_URL = "http://advice_generation:8005"
+BACK_VIEW_ANALYSIS_URL = "http://back_view_analysis:8006/analyze"
 
 # データベース保存の有効/無効を制御
 # 環境変数 ENABLE_DB_SAVE が "true" の場合のみデータベースに保存
@@ -74,7 +75,8 @@ async def health_check():
 async def upload_video(
     file: UploadFile = File(...),
     user_id: str = Form("default_user"),
-    prompt_settings: Optional[str] = Form(None)
+    prompt_settings: Optional[str] = Form(None),
+    camera_angle: str = Form("side"),  # 撮影角度: "side" (横から) または "back" (背後から)
 ):
     """
     動画ファイルをアップロードして解析パイプラインを実行する（堅牢版）
@@ -190,6 +192,50 @@ async def upload_video(
                 pose_response.raise_for_status()
                 pose_data = pose_response.json()
                 logger.info("骨格推定完了")
+                
+                # 撮影角度に応じて分岐
+                if camera_angle == "back":
+                    # 背後からの撮影: 背後解析パス
+                    logger.info("背後からの撮影を検出: 背後解析パスを実行します")
+                    
+                    # 背後解析サービスを呼び出し
+                    back_view_request = {
+                        "pose_data": pose_data.get("pose_data", []),
+                        "video_info": pose_data.get("video_info", {})
+                    }
+                    
+                    back_view_response = await client.post(
+                        BACK_VIEW_ANALYSIS_URL,
+                        json=back_view_request,
+                        timeout=120.0  # 2分のタイムアウト
+                    )
+                    back_view_response.raise_for_status()
+                    back_view_data = back_view_response.json()
+                    logger.info("背後解析完了")
+                    
+                    # 背後解析結果をレスポンスに含める
+                    response_data = {
+                        "status": "success",
+                        "message": "背後解析が完了しました",
+                        "upload_info": {
+                            "file_id": unique_id,
+                            "original_filename": file.filename,
+                            "saved_filename": safe_filename,
+                            "file_size": file_size,
+                            "content_type": file.content_type,
+                            "upload_timestamp": datetime.now().isoformat(),
+                            "file_extension": file_extension
+                        },
+                        "pose_analysis": pose_data,
+                        "back_view_analysis": back_view_data.get("analysis_result"),
+                        "camera_angle": "back"
+                    }
+                    
+                    logger.info("✅ 背後解析結果を返却します")
+                    return response_data
+                
+                # 横からの撮影: 既存のZ値分析パス
+                logger.info("横からの撮影を検出: Z値分析パスを実行します")
                 
                 # Step 2: 特徴量計算
                 logger.info("特徴量計算サービスを呼び出します")
@@ -616,11 +662,23 @@ async def stream_video(filename: str):
     )
 
 @app.get("/result/{video_id}")
-async def get_result(video_id: str):
+async def get_result(
+    video_id: str,
+    camera_angle: str = Query("side", description="撮影角度: side (横から) または back (背後から)")
+):
     """
     指定されたvideo_idの解析結果を取得する
     """
     try:
+        # デバッグ: camera_angleパラメータの確認
+        logger.info("=" * 80)
+        logger.info(f"🔍 [DEBUG] get_result呼び出し")
+        logger.info(f"   video_id: {video_id}")
+        logger.info(f"   camera_angle (raw): {camera_angle} (type: {type(camera_angle)})")
+        camera_angle_normalized = str(camera_angle).strip().lower()
+        logger.info(f"   camera_angle (正規化後): '{camera_angle_normalized}'")
+        logger.info("=" * 80)
+        
         # 保存されたファイルを探す
         for file_path in UPLOAD_DIRECTORY.glob(f"*{video_id}*"):
             if file_path.suffix.lower() in ['.mp4', '.avi', '.mov', '.mkv']:
@@ -640,6 +698,46 @@ async def get_result(video_id: str):
                     pose_response = await client.post(POSE_ESTIMATION_URL, json=pose_request)
                     pose_response.raise_for_status()
                     pose_data = pose_response.json()
+                    
+                    # 撮影角度に応じて分岐
+                    if camera_angle_normalized == "back":
+                        # 背後からの撮影: 背後解析パス
+                        logger.info("背後からの撮影を検出: 背後解析パスを実行します")
+                        
+                        # 背後解析サービスを呼び出し
+                        back_view_request = {
+                            "pose_data": pose_data.get("pose_data", []),
+                            "video_info": pose_data.get("video_info", {})
+                        }
+                        
+                        back_view_response = await client.post(
+                            BACK_VIEW_ANALYSIS_URL,
+                            json=back_view_request,
+                            timeout=120.0  # 2分のタイムアウト
+                        )
+                        back_view_response.raise_for_status()
+                        back_view_data = back_view_response.json()
+                        logger.info("背後解析完了")
+                        
+                        # 背後解析結果をレスポンスに含める
+                        result = {
+                            "status": "success",
+                            "message": "背後解析が完了しました",
+                            "upload_info": {
+                                "file_id": video_id,
+                                "original_filename": file_path.name,
+                                "saved_filename": file_path.name,
+                            },
+                            "pose_analysis": pose_data,
+                            "back_view_analysis": back_view_data.get("analysis_result"),
+                            "camera_angle": "back"
+                        }
+                        
+                        logger.info("✅ 背後解析結果を返却します")
+                        return result
+                    
+                    # 横からの撮影: 既存のZ値分析パス
+                    logger.info("横からの撮影を検出: Z値分析パスを実行します")
                     
                     # Step 2: 特徴量抽出
                     logger.info("特徴量抽出を実行中...")

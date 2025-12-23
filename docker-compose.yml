@@ -37,6 +37,8 @@ services:
         condition: service_healthy
       advice_generation:
         condition: service_healthy
+      back_view_analysis:
+        condition: service_healthy
     networks:
       - app_network
     restart: on-failure
@@ -134,6 +136,23 @@ services:
       - app_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8005/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  back_view_analysis:
+    build:
+      context: ./backend/services/back_view_analysis
+      dockerfile: Dockerfile
+    ports:
+      - "8008:8006"
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/docs"]
       interval: 10s
       timeout: 5s
       retries: 5
