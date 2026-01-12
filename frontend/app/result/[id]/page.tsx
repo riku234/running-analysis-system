@@ -1138,6 +1138,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               null
             }
             adviceData={result?.advice_analysis || result?.advice_results || null}
+            videoUrl={videoUrl}
+            poseData={poseData}
           />
         </div>
       </div>

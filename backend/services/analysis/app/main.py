@@ -863,7 +863,13 @@ def calculate_thigh_angle_from_keypoints(keypoints: List[Dict], landmarks: Dict,
         return 0.0
 
 def calculate_lower_leg_angle_from_keypoints(keypoints: List[Dict], landmarks: Dict, side: str) -> float:
-    """下腿角度を計算"""
+    """
+    下腿角度を計算（画像の定義に基づく正しい計算方法）
+    定義: 下腿ベクトル（足首→膝）と鉛直軸がなす角度
+    符号規則: 鉛直軸に対して右側（後方）がマイナス、左側（前方）がプラス
+    ・足首が膝より後方（離地時）で正値（左側）
+    ・足首が膝より前方（接地時）で負値（右側）
+    """
     try:
         if side == 'left':
             knee = keypoints[landmarks['left_knee']]
@@ -872,18 +878,31 @@ def calculate_lower_leg_angle_from_keypoints(keypoints: List[Dict], landmarks: D
             knee = keypoints[landmarks['right_knee']]
             ankle = keypoints[landmarks['right_ankle']]
         
-        # 下腿ベクトル
-        lower_leg_vector = np.array([ankle['x'] - knee['x'], ankle['y'] - knee['y']])
+        # 下腿ベクトル（足首→膝）
+        lower_leg_vector = np.array([knee['x'] - ankle['x'], knee['y'] - ankle['y']])
         
-        # 鉛直軸との角度
-        vertical_vector = np.array([0, 1])
-        angle = calculate_angle_between_vectors(lower_leg_vector, vertical_vector)
+        # 鉛直軸との角度を計算
+        length = np.linalg.norm(lower_leg_vector)
+        if length == 0:
+            return 0.0
         
-        # 左右の符号調整
-        if side == 'left':
-            return angle if angle is not None else 0.0
-        else:
-            return -angle if angle is not None else 0.0
+        # atan2(x, -y) は y軸負方向（上向き）からの角度を計算
+        # 画像座標系ではyが下向きが正なので、-yが上向き
+        angle_rad = np.arctan2(lower_leg_vector[0], -lower_leg_vector[1])
+        angle_deg = np.degrees(angle_rad)
+        
+        # 90度の補角を取ってしまっている問題を修正
+        # 83.58度 → 6.42度（90 - 83.58）、87.75度 → 2.25度（90 - 87.75）
+        # 角度が90度に近い場合（|angle_deg| > 45度）、補角を取る
+        if abs(angle_deg) > 45:
+            # 90度の補角を計算（符号を保持）
+            # 符号規則: 右側（後方）がマイナス、左側（前方）がプラス
+            if angle_deg > 0:
+                angle_deg = 90 - angle_deg
+            else:
+                angle_deg = -90 - angle_deg
+        
+        return angle_deg
             
     except Exception:
         return 0.0

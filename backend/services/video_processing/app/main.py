@@ -181,7 +181,7 @@ async def upload_video(
                 logger.info("骨格推定サービスを呼び出します")
                 pose_request = {
                     "video_path": f"uploads/{safe_filename}",
-                    "confidence_threshold": 0.5
+                    "confidence_threshold": 0.3  # 精度向上のため0.3に変更（サービス側のデフォルトと同じ）
                 }
                 
                 pose_response = await client.post(
@@ -693,7 +693,7 @@ async def get_result(
                     logger.info("骨格推定を実行中...")
                     pose_request = {
                         "video_path": str(file_path),
-                        "confidence_threshold": 0.5
+                        "confidence_threshold": 0.3  # 精度向上のため0.3に変更（サービス側のデフォルトと同じ）
                     }
                     pose_response = await client.post(POSE_ESTIMATION_URL, json=pose_request)
                     pose_response.raise_for_status()
