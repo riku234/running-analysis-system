@@ -83,10 +83,22 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
   const [currentTime, setCurrentTime] = useState(0)
   const animationFrameRef = useRef<number | null>(null)
   
-  // スローモーション設定
+  // スローモーション設定と動画読み込み
   useEffect(() => {
-    if (videoRef.current) {
+    if (videoRef.current && videoUrl) {
       videoRef.current.playbackRate = 0.3 // 0.3倍速（よりスローモーション）
+      // 動画を明示的に読み込み
+      videoRef.current.load()
+      videoRef.current.play().catch(err => {
+        console.warn('自動再生がブロックされました:', err)
+        // ユーザー操作後に再生を試みる
+        const tryPlay = () => {
+          if (videoRef.current) {
+            videoRef.current.play().catch(console.error)
+          }
+        }
+        document.addEventListener('click', tryPlay, { once: true })
+      })
     }
   }, [videoUrl])
 
@@ -119,36 +131,77 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
 
   // 指定された時刻に近いランドマークを取得する関数（精度向上）
   const getCurrentLandmarks = () => {
-    if (!poseData || poseData.length === 0) return null
+    if (!poseData || poseData.length === 0) {
+      console.log('⚠️ poseDataが空です:', { poseData, length: poseData?.length })
+      return null
+    }
     
     // フレーム番号ベースのマッチングも試す（より正確）
     if (videoRef.current && poseData.length > 0) {
       const video = videoRef.current
-      const fps = poseData[0].timestamp > 0 ? 1 / (poseData[1]?.timestamp - poseData[0].timestamp) : 30
+      // FPS計算を改善（タイムスタンプが0の場合の処理）
+      let fps = 30 // デフォルト値
+      if (poseData.length > 1) {
+        const timeDiff = poseData[1].timestamp - poseData[0].timestamp
+        if (timeDiff > 0) {
+          fps = 1 / timeDiff
+        } else if (poseData[0].frame_number !== undefined && poseData[1].frame_number !== undefined) {
+          // フレーム番号からFPSを推定
+          const frameDiff = poseData[1].frame_number - poseData[0].frame_number
+          if (frameDiff > 0 && video.duration > 0) {
+            fps = frameDiff / video.duration
+          }
+        }
+      }
+      
       const frameNumber = Math.round(currentTime * fps)
       
       // フレーム番号で直接マッチング
       const frameMatch = poseData.find(frame => frame.frame_number === frameNumber)
-      if (frameMatch) {
+      if (frameMatch && frameMatch.keypoints) {
         return frameMatch.keypoints
       }
     }
     
     // タイムスタンプベースのマッチング（フォールバック）
-    const closestFrame = poseData.reduce((prev, curr) => {
-      const prevDiff = Math.abs(prev.timestamp - currentTime)
-      const currDiff = Math.abs(curr.timestamp - currentTime)
-      return currDiff < prevDiff ? curr : prev
-    })
-    
-    // より厳密な閾値（0.05秒以内、スローモーション時でも正確に）
-    if (Math.abs(closestFrame.timestamp - currentTime) < 0.05) {
-      return closestFrame.keypoints
+    if (poseData.length > 0) {
+      const closestFrame = poseData.reduce((prev, curr) => {
+        const prevDiff = Math.abs((prev.timestamp || 0) - currentTime)
+        const currDiff = Math.abs((curr.timestamp || 0) - currentTime)
+        return currDiff < prevDiff ? curr : prev
+      })
+      
+      // より緩い閾値（0.1秒以内、スローモーション時でも表示されるように）
+      if (Math.abs((closestFrame.timestamp || 0) - currentTime) < 0.1) {
+        if (closestFrame.keypoints && closestFrame.keypoints.length > 0) {
+          return closestFrame.keypoints
+        }
+      }
+      
+      // 最後のフォールバック: 最初のフレームを表示
+      if (poseData[0] && poseData[0].keypoints && poseData[0].keypoints.length > 0) {
+        return poseData[0].keypoints
+      }
     }
+    
+    console.log('⚠️ ランドマークが見つかりません:', { currentTime, poseDataLength: poseData?.length })
     return null
   }
 
   const landmarks = getCurrentLandmarks()
+  
+  // デバッグ用ログ
+  useEffect(() => {
+    if (videoUrl) {
+      console.log('📹 videoUrl:', videoUrl)
+    }
+    if (poseData) {
+      console.log('🦴 poseData:', { length: poseData.length, firstFrame: poseData[0] })
+    }
+    if (landmarks) {
+      console.log('📍 landmarks:', { count: landmarks.length })
+    }
+  }, [videoUrl, poseData, landmarks])
 
   // ラベル位置計算ヘルパー（小さめのサイズに調整）
   const getStyle = (index: number, defaultPos: { x: number, y: number }) => {
@@ -203,6 +256,15 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
               loop
               playsInline
               onTimeUpdate={handleTimeUpdate}
+              onError={(e) => {
+                console.error('動画読み込みエラー:', e)
+              }}
+              onLoadedData={() => {
+                console.log('動画読み込み完了:', videoUrl)
+                if (videoRef.current) {
+                  videoRef.current.play().catch(err => console.error('動画再生エラー:', err))
+                }
+              }}
             />
             {/* 紫のフィルターオーバーレイ - 背景を消すために濃く */}
             <div className="absolute inset-0 bg-purple-800/85 mix-blend-multiply pointer-events-none"></div>
@@ -211,19 +273,20 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
           </>
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-purple-800 text-white">
-            <p>Running Video Placeholder</p>
+            <p>動画を読み込み中...</p>
           </div>
         )}
       </div>
 
       {/* 2. 骨格オーバーレイ (SVG描画) - 全て白 */}
-      {landmarks && (
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ opacity: 0.9 }}>
+      {landmarks && landmarks.length > 0 ? (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ opacity: 0.9, zIndex: 10 }}>
           {/* 骨格線を描画 */}
           {POSE_CONNECTIONS.map(([start, end], idx) => {
+            if (start >= landmarks.length || end >= landmarks.length) return null
             const startPoint = landmarks[start]
             const endPoint = landmarks[end]
-            if (!startPoint || !endPoint || startPoint.visibility < 0.5 || endPoint.visibility < 0.5) return null
+            if (!startPoint || !endPoint || (startPoint.visibility !== undefined && startPoint.visibility < 0.3) || (endPoint.visibility !== undefined && endPoint.visibility < 0.3)) return null
             
             return (
               <line
@@ -233,26 +296,33 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
                 x2={`${endPoint.x * 100}%`}
                 y2={`${endPoint.y * 100}%`}
                 stroke="white"
-                strokeWidth="2"
+                strokeWidth="3"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               />
             )
           })}
           
           {/* 関節ポイントを描画 */}
           {landmarks.map((point, idx) => {
-            if (!point || point.visibility < 0.5) return null
+            if (!point || (point.visibility !== undefined && point.visibility < 0.3)) return null
             return (
               <circle
                 key={idx}
                 cx={`${point.x * 100}%`}
                 cy={`${point.y * 100}%`}
-                r="3"
+                r="4"
                 fill="white"
+                stroke="purple"
+                strokeWidth="1"
               />
             )
           })}
         </svg>
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <p className="text-white/50 text-sm">骨格データを読み込み中...</p>
+        </div>
       )}
 
       {/* 3. 角度測定線とラベル - 全て白 */}
