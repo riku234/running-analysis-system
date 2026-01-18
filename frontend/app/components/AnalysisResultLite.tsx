@@ -3,7 +3,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer } from 'recharts'
 import { ChevronRight, ChevronLeft, Play, Info, CheckCircle, Activity } from 'lucide-react'
-import Image from 'next/image'
 
 interface ZScoreData {
   [event: string]: {
@@ -82,23 +81,80 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
   const videoRef = useRef<HTMLVideoElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const animationFrameRef = useRef<number | null>(null)
+  const loggedEmptyPoseData = useRef(false)
+  const loggedNoMatch = useRef(false)
   
   // スローモーション設定と動画読み込み
   useEffect(() => {
-    if (videoRef.current && videoUrl) {
-      videoRef.current.playbackRate = 0.3 // 0.3倍速（よりスローモーション）
-      // 動画を明示的に読み込み
-      videoRef.current.load()
-      videoRef.current.play().catch(err => {
-        console.warn('自動再生がブロックされました:', err)
-        // ユーザー操作後に再生を試みる
-        const tryPlay = () => {
-          if (videoRef.current) {
-            videoRef.current.play().catch(console.error)
+    if (!videoUrl || !videoRef.current) {
+      console.warn('⚠️ videoUrlまたはvideoRefがありません:', { videoUrl, hasVideoRef: !!videoRef.current })
+      return
+    }
+
+    const video = videoRef.current
+    console.log('📹 動画読み込み開始:', videoUrl)
+    
+    // 動画の読み込み完了を待ってから再生
+    const handleCanPlay = () => {
+      if (video && video.readyState >= 2) { // HAVE_CURRENT_DATA以上
+        console.log('✅ 動画再生可能状態:', { readyState: video.readyState, duration: video.duration })
+        video.playbackRate = 0.3 // 0.3倍速（よりスローモーション）
+        video.play().catch(err => {
+          // 自動再生がブロックされた場合は警告のみ（ユーザー操作で再生可能）
+          if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+            console.warn('⚠️ 動画再生エラー:', err)
+          } else {
+            console.info('ℹ️ 自動再生がブロックされました（ユーザー操作で再生可能）')
           }
-        }
-        document.addEventListener('click', tryPlay, { once: true })
+        })
+      }
+    }
+
+    const handleLoadedData = () => {
+      console.log('✅ 動画データ読み込み完了:', { readyState: video.readyState })
+      if (video.readyState >= 2) {
+        video.playbackRate = 0.3
+        video.play().catch(err => {
+          if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+            console.warn('⚠️ 動画再生エラー:', err)
+          }
+        })
+      }
+    }
+
+    const handleError = (e: Event) => {
+      console.error('❌ 動画読み込みエラー:', {
+        error: e,
+        networkState: video.networkState,
+        errorCode: video.error?.code,
+        errorMessage: video.error?.message
       })
+    }
+
+    // 既に読み込まれている場合
+    if (video.readyState >= 2) {
+      console.log('✅ 動画は既に読み込まれています')
+      video.playbackRate = 0.3
+      video.play().catch(err => {
+        if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+          console.warn('⚠️ 動画再生エラー:', err)
+        }
+      })
+    } else {
+      // イベントリスナーを追加
+      video.addEventListener('canplay', handleCanPlay, { once: true })
+      video.addEventListener('loadeddata', handleLoadedData, { once: true })
+      video.addEventListener('error', handleError, { once: true })
+      
+      // 動画を明示的に読み込む
+      video.load()
+      console.log('📥 動画読み込みリクエスト送信')
+    }
+
+    return () => {
+      video.removeEventListener('canplay', handleCanPlay)
+      video.removeEventListener('loadeddata', handleLoadedData)
+      video.removeEventListener('error', handleError)
     }
   }, [videoUrl])
 
@@ -132,7 +188,16 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
   // 指定された時刻に近いランドマークを取得する関数（精度向上）
   const getCurrentLandmarks = () => {
     if (!poseData || poseData.length === 0) {
-      console.log('⚠️ poseDataが空です:', { poseData, length: poseData?.length })
+      // デバッグログは初回のみ表示（無限ループを防ぐ）
+      if (!loggedEmptyPoseData.current) {
+        console.warn('⚠️ poseDataが空です:', { 
+          poseData: poseData ? '存在するが空' : 'null/undefined',
+          length: poseData?.length || 0,
+          type: typeof poseData,
+          isArray: Array.isArray(poseData)
+        })
+        loggedEmptyPoseData.current = true
+      }
       return null
     }
     
@@ -184,7 +249,16 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
       }
     }
     
-    console.log('⚠️ ランドマークが見つかりません:', { currentTime, poseDataLength: poseData?.length })
+    // デバッグログは初回のみ表示
+    if (!(getCurrentLandmarks as any)._noMatchLogged) {
+      console.warn('⚠️ ランドマークが見つかりません:', { 
+        currentTime, 
+        poseDataLength: poseData?.length,
+        firstFrameTimestamp: poseData?.[0]?.timestamp,
+        lastFrameTimestamp: poseData?.[poseData.length - 1]?.timestamp
+      })
+      ;(getCurrentLandmarks as any)._noMatchLogged = true
+    }
     return null
   }
 
@@ -251,19 +325,66 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
               ref={videoRef}
               src={videoUrl}
               className="w-full h-full object-contain"
-              autoPlay
               muted
               loop
               playsInline
+              preload="auto"
               onTimeUpdate={handleTimeUpdate}
               onError={(e) => {
-                console.error('動画読み込みエラー:', e)
+                console.error('❌ 動画読み込みエラー:', {
+                  error: e,
+                  videoUrl: videoUrl,
+                  videoElement: videoRef.current
+                })
+                if (videoRef.current) {
+                  console.error('動画要素の状態:', {
+                    readyState: videoRef.current.readyState,
+                    networkState: videoRef.current.networkState,
+                    error: videoRef.current.error
+                  })
+                }
+              }}
+              onLoadedMetadata={() => {
+                console.log('✅ 動画メタデータ読み込み完了:', {
+                  videoUrl: videoUrl,
+                  duration: videoRef.current?.duration,
+                  videoWidth: videoRef.current?.videoWidth,
+                  videoHeight: videoRef.current?.videoHeight
+                })
               }}
               onLoadedData={() => {
-                console.log('動画読み込み完了:', videoUrl)
+                console.log('✅ 動画データ読み込み完了:', videoUrl)
                 if (videoRef.current) {
-                  videoRef.current.play().catch(err => console.error('動画再生エラー:', err))
+                  videoRef.current.playbackRate = 0.3
+                  videoRef.current.play().catch(err => {
+                    console.warn('⚠️ 自動再生がブロックされました:', err)
+                    // ユーザー操作で再生可能にする
+                    const tryPlay = () => {
+                      if (videoRef.current) {
+                        videoRef.current.play().catch(console.error)
+                      }
+                    }
+                    document.addEventListener('click', tryPlay, { once: true })
+                    document.addEventListener('touchstart', tryPlay, { once: true })
+                  })
                 }
+              }}
+              onCanPlay={() => {
+                console.log('✅ 動画再生可能:', videoUrl)
+                if (videoRef.current && videoRef.current.readyState >= 2) {
+                  videoRef.current.playbackRate = 0.3
+                  videoRef.current.play().catch(err => {
+                    if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+                      console.warn('⚠️ 動画再生エラー:', err)
+                    }
+                  })
+                }
+              }}
+              onPlay={() => {
+                console.log('▶️ 動画再生開始')
+              }}
+              onPause={() => {
+                console.log('⏸️ 動画一時停止')
               }}
             />
             {/* 紫のフィルターオーバーレイ - 背景を消すために濃く */}
@@ -446,13 +567,27 @@ const DynamicTrackingVideo = ({ videoUrl, poseData }: { videoUrl?: string | null
 }
 
 export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, poseData }: AnalysisResultLiteProps) {
-  // ページ管理 (0~6 の全7ページ)
+  // ページ管理 (0~4 の全5ページ)
   const [currentStep, setCurrentStep] = useState(0)
-  const totalSteps = 7
+  const totalSteps = 5
 
   // ページ遷移関数
   const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, totalSteps - 1))
   const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 0))
+
+  // デバッグログ
+  useEffect(() => {
+    console.log('📊 AnalysisResultLite Props:', {
+      hasZScoreData: !!zScoreData,
+      hasAdviceData: !!adviceData,
+      videoUrl: videoUrl?.substring(0, 50) + '...',
+      poseDataLength: poseData?.length || 0,
+      adviceDataRaw: adviceData ? {
+        hasRawIssues: !!adviceData.raw_issues,
+        rawIssuesLength: adviceData.raw_issues?.length || 0
+      } : null
+    })
+  }, [zScoreData, adviceData, videoUrl, poseData])
 
   // Z値から3要素のスコアを計算
   const radarData = useMemo(() => {
@@ -551,13 +686,56 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
   // One Big Thing（最優先課題）- Z値が最も大きい課題を1つだけ選択
   const oneBigThing = useMemo(() => {
     if (!adviceData) {
+      console.warn('⚠️ adviceDataがありません')
       return null
     }
 
-    const rawIssues = adviceData.raw_issues || []
+    // 複数のパターンからraw_issuesを取得
+    let rawIssues: any[] = []
+    
+    // パターン1: adviceData.raw_issuesが直接存在
+    if (adviceData.raw_issues && Array.isArray(adviceData.raw_issues)) {
+      rawIssues = adviceData.raw_issues
+    }
+    // パターン2: adviceData.issuesが存在
+    else if ((adviceData as any).issues && Array.isArray((adviceData as any).issues)) {
+      rawIssues = (adviceData as any).issues
+    }
+    // パターン3: advice_results内にraw_issuesが存在
+    else if ((adviceData as any).advice_results?.raw_issues && Array.isArray((adviceData as any).advice_results.raw_issues)) {
+      rawIssues = (adviceData as any).advice_results.raw_issues
+    }
+    // パターン4: 直接配列として渡されている
+    else if (Array.isArray(adviceData)) {
+      rawIssues = adviceData
+    }
+
     if (rawIssues.length === 0) {
+      // raw_issuesが空の場合でも、ai_adviceがあれば表示可能な情報を返す
+      const aiAdvice = (adviceData as any).ai_advice
+      if (aiAdvice && (aiAdvice.title || aiAdvice.message)) {
+        console.log('ℹ️ raw_issuesは空ですが、ai_adviceがあります:', aiAdvice)
+        return {
+          name: aiAdvice.title || '良好なフォームです',
+          observation: aiAdvice.message || '特筆すべき統計的な乖離は見当たりません。',
+          cause: '',
+          action: aiAdvice.key_points?.join('\n') || '',
+          drillName: 'フォーム維持',
+          drillPoints: aiAdvice.key_points || ['現在の素晴らしいフォームを維持してください'],
+          drillUrl: null
+        }
+      }
+      
+      console.warn('⚠️ raw_issuesが空です:', { 
+        adviceDataKeys: Object.keys(adviceData),
+        adviceDataType: typeof adviceData,
+        hasAiAdvice: !!(adviceData as any).ai_advice,
+        adviceDataStructure: JSON.stringify(adviceData).substring(0, 500)
+      })
       return null
     }
+    
+    console.log('✅ raw_issuesを取得:', { count: rawIssues.length, issues: rawIssues.map((i: any) => i.name || i.issue || 'unknown') })
 
     // Z値データから各課題のZ値を取得して、最も大きいものを選択
     let maxZScore = 0
@@ -575,14 +753,14 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
     for (const issue of rawIssues) {
       if (!zScoreData) continue
 
-      const targetMetric = issue.target_metric || issue.angle
+      const targetMetric = issue.target_metric || issue.angle || (issue as any).metric
       if (!targetMetric) continue
 
-      const checkAngles = angleMapping[targetMetric] || [targetMetric, issue.angle].filter(Boolean)
+      const checkAngles = angleMapping[targetMetric] || [targetMetric, issue.angle, (issue as any).metric].filter(Boolean)
 
       // 角度名からZ値を取得
       let issueZScore = 0
-      Object.values(zScoreData).forEach(eventData => {
+      Object.values(zScoreData).forEach((eventData: any) => {
         for (const angleName of checkAngles) {
           const angleValue = eventData[angleName] || 
                             eventData[angleName.replace('角度', '')] ||
@@ -598,7 +776,7 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
       })
 
       // severityがhighの場合は優先度を上げる（Z値に+2.0を加算）
-      const priorityZ = issue.severity === 'high' ? issueZScore + 2.0 : issueZScore
+      const priorityZ = (issue.severity === 'high' || (issue as any).priority === 'high') ? issueZScore + 2.0 : issueZScore
 
       if (priorityZ > maxZScore) {
         maxZScore = priorityZ
@@ -645,6 +823,20 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
     }
   }, [adviceData, zScoreData])
 
+  // oneBigThingのデバッグログ
+  useEffect(() => {
+    if (oneBigThing) {
+      console.log('✅ oneBigThing:', {
+        name: oneBigThing.name,
+        drillName: oneBigThing.drillName,
+        drillPointsCount: oneBigThing.drillPoints.length,
+        hasDrillUrl: !!oneBigThing.drillUrl
+      })
+    } else {
+      console.warn('⚠️ oneBigThingがnullです')
+    }
+  }, [oneBigThing])
+
   if (!zScoreData) {
     return (
       <div className="text-center py-12">
@@ -666,57 +858,114 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
             <div className="h-full w-2/3 bg-red-600"></div>
           </div>
 
-          {/* --- Page 1: イントロダクション & 総合スコア - iPad最適化 --- */}
+          {/* --- Page 0: スコア（左側）+ 指標の説明（右側）を統合 - iPad最適化 --- */}
           {currentStep === 0 && (
-            <div className="flex-1 flex flex-col items-center justify-center p-6 animate-fade-in overflow-y-auto">
-              <h1 className="text-3xl font-extrabold text-blue-900 mb-2 tracking-tight shrink-0">あなたのランニングスコア</h1>
-              <p className="text-lg text-gray-500 mb-6 font-medium shrink-0">AI解析による総合診断結果</p>
-              
-              {/* レーダーチャート表示エリア */}
-              <div className="w-full max-w-lg h-[380px] bg-slate-50 rounded-2xl flex items-center justify-center mb-6 relative border border-slate-200 p-4">
-                {radarData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart data={radarData}>
-                      <PolarGrid stroke="#e5e7eb" />
-                      <PolarAngleAxis 
-                        dataKey="category" 
-                        tick={{ fill: '#1e3a8a', fontSize: 16, fontWeight: 700 }}
-                      />
-                      <PolarRadiusAxis 
-                        angle={90} 
-                        domain={[0, 100]} 
-                        tick={{ fill: '#64748b', fontSize: 12 }}
-                      />
-                      <Radar
-                        name="スコア"
-                        dataKey="score"
-                        stroke="#dc2626"
-                        fill="#dc2626"
-                        fillOpacity={0.6}
-                      />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="text-center text-gray-400">
-                    <p className="mb-2 font-bold text-base">レーダーチャート表示エリア</p>
-                    <div className="flex gap-3 text-sm justify-center mt-4">
-                      <span className="px-4 py-1 bg-blue-900 text-white rounded-full font-bold">姿勢</span>
-                      <span className="px-4 py-1 bg-red-600 text-white rounded-full font-bold">着地</span>
-                      <span className="px-4 py-1 bg-sky-500 text-white rounded-full font-bold">スイング</span>
-                    </div>
-                  </div>
-                )}
+            <div className="flex-1 flex flex-col p-4 md:p-6 animate-fade-in overflow-hidden">
+              {/* タイトル */}
+              <div className="text-center mb-4 shrink-0">
+                <h1 className="text-2xl md:text-3xl font-extrabold text-blue-900 mb-1 tracking-tight">あなたのランニングスコア</h1>
+                <p className="text-sm md:text-base text-gray-500 font-medium">AI解析による総合診断結果</p>
               </div>
 
-              <div className="flex items-baseline gap-2 shrink-0">
-                <span className="text-blue-900 text-xl font-bold">総合スコア</span>
-                <span className="text-6xl font-extrabold text-red-600 tracking-tighter drop-shadow-sm">{totalScore}</span>
-                <span className="text-2xl font-bold text-red-600">点</span>
+              {/* メインコンテンツ: 左側にスコア、右側に説明 */}
+              <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 overflow-y-auto px-2">
+                {/* 左側: スコア表示 */}
+                <div className="flex flex-col items-center justify-center space-y-4">
+                  {/* レーダーチャート表示エリア */}
+                  <div className="w-full max-w-sm h-[240px] md:h-[280px] bg-slate-50 rounded-2xl flex items-center justify-center relative border border-slate-200 p-3 md:p-4">
+                    {radarData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart data={radarData}>
+                          <PolarGrid stroke="#e5e7eb" />
+                          <PolarAngleAxis 
+                            dataKey="category" 
+                            tick={{ fill: '#1e3a8a', fontSize: 12, fontWeight: 700 }}
+                          />
+                          <PolarRadiusAxis 
+                            angle={90} 
+                            domain={[0, 100]} 
+                            tick={{ fill: '#64748b', fontSize: 10 }}
+                          />
+                          <Radar
+                            name="スコア"
+                            dataKey="score"
+                            stroke="#dc2626"
+                            fill="#dc2626"
+                            fillOpacity={0.6}
+                          />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="text-center text-gray-400">
+                        <p className="mb-2 font-bold text-sm">レーダーチャート表示エリア</p>
+                        <div className="flex gap-2 text-xs justify-center mt-2">
+                          <span className="px-3 py-1 bg-blue-900 text-white rounded-full font-bold">姿勢</span>
+                          <span className="px-3 py-1 bg-red-600 text-white rounded-full font-bold">着地</span>
+                          <span className="px-3 py-1 bg-sky-500 text-white rounded-full font-bold">スイング</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 総合スコア */}
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-blue-900 text-base md:text-lg font-bold">総合スコア</span>
+                    <span className="text-5xl md:text-6xl font-extrabold text-red-600 tracking-tighter drop-shadow-sm">{totalScore}</span>
+                    <span className="text-xl md:text-2xl font-bold text-red-600">点</span>
+                  </div>
+                </div>
+
+                {/* 右側: 指標の説明 */}
+                <div className="flex flex-col justify-center space-y-3 md:space-y-4">
+                  <h2 className="text-lg md:text-xl font-bold text-blue-900 mb-2 text-center">3つの指標について</h2>
+                  
+                  {/* ① 姿勢 (Navy/Blue - Stability) */}
+                  <div className="bg-white p-3 md:p-4 rounded-xl flex items-start gap-3 border-2 border-blue-100 shadow-sm">
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-blue-900 rounded-lg flex items-center justify-center text-white font-bold text-sm md:text-base shadow-md shrink-0">1</div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base md:text-lg font-bold text-blue-900 mb-1">姿勢</h3>
+                      <p className="text-xs md:text-sm font-bold text-slate-700 mb-1 leading-snug">
+                        「走りの土台となる、上半身の角度」
+                      </p>
+                      <p className="text-xs md:text-sm text-slate-500 leading-relaxed">
+                        走っている時の背筋が伸びているか、前かがみや後ろ反りになりすぎていないかを分析します。適切な前傾姿勢は、重心移動をスムーズにし、省エネで走るための鍵となります。
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ② 着地 (Red - Power/Impact) */}
+                  <div className="bg-white p-3 md:p-4 rounded-xl flex items-start gap-3 border-2 border-red-100 shadow-sm">
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-red-600 rounded-lg flex items-center justify-center text-white font-bold text-sm md:text-base shadow-md shrink-0">2</div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base md:text-lg font-bold text-red-700 mb-1">着地</h3>
+                      <p className="text-xs md:text-sm font-bold text-slate-700 mb-1 leading-snug">
+                        「ブレーキをかけない、スムーズな接地」
+                      </p>
+                      <p className="text-xs md:text-sm text-slate-500 leading-relaxed">
+                        足が地面に着く瞬間の「すねの角度」を見ます。足が体の重心より前に出すぎているとブレーキがかかってしまいます。スムーズに次の一歩へつなげるための重要な指標です。
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ③ スイング (Sky Blue/Light Blue - Speed) */}
+                  <div className="bg-white p-3 md:p-4 rounded-xl flex items-start gap-3 border-2 border-sky-100 shadow-sm">
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-sky-500 rounded-lg flex items-center justify-center text-white font-bold text-sm md:text-base shadow-md shrink-0">3</div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base md:text-lg font-bold text-sky-700 mb-1">スイング</h3>
+                      <p className="text-xs md:text-sm font-bold text-slate-700 mb-1 leading-snug">
+                        「ダイナミックな脚の運び」
+                      </p>
+                      <p className="text-xs md:text-sm text-slate-500 leading-relaxed">
+                        太ももがしっかりと上がり、脚が前に出ているかを分析します。ここが弱いと歩幅（ストライド）が伸び悩みます。アクセル全開で走るための「脚の振り出し」の強さを表します。
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {/* --- Page 1 (New): 計測ポイント可視化動画 --- */}
+          {/* --- Page 1: 計測ポイント可視化動画 --- */}
           {currentStep === 1 && (
             <div className="flex-1 p-8 animate-fade-in flex flex-col items-center overflow-y-auto">
               <div className="w-full max-w-5xl h-full flex flex-col">
@@ -748,80 +997,8 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
             </div>
           )}
 
-          {/* --- Page 2: 指標の説明 (Xebio Color Scheme) - iPad最適化（縦並び） --- */}
+          {/* --- Page 2: One Big Thing (Red Emphasis) - 現象・原因・改善策を表示（縦並び） --- */}
           {currentStep === 2 && (
-            <div className="flex-1 px-8 py-6 animate-fade-in flex flex-col overflow-y-auto">
-              <h2 className="text-3xl font-bold text-blue-900 mb-6 text-center">3つの指標について</h2>
-              
-              <div className="space-y-5 max-w-4xl mx-auto w-full">
-                {/* ① 姿勢 (Navy/Blue - Stability) */}
-                <div className="bg-white p-5 rounded-2xl flex items-start gap-5 border-2 border-blue-100 shadow-sm hover:shadow-lg hover:border-blue-300 transition-all">
-                  <div className="w-12 h-12 bg-blue-900 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md shrink-0">1</div>
-                  <div className="flex-1">
-                    <h3 className="text-2xl font-bold text-blue-900 mb-2">姿勢</h3>
-                    <p className="text-lg font-bold text-slate-700 mb-2 leading-snug">
-                      「走りの土台となる、上半身の角度」
-                    </p>
-                    <p className="text-base text-slate-500 leading-relaxed">
-                      走っている時の背筋が伸びているか、前かがみや後ろ反りになりすぎていないかを分析します。適切な前傾姿勢は、重心移動をスムーズにし、省エネで走るための鍵となります。
-                    </p>
-                  </div>
-                </div>
-
-                {/* ② 着地 (Red - Power/Impact) */}
-                <div className="bg-white p-5 rounded-2xl flex items-start gap-5 border-2 border-red-100 shadow-sm hover:shadow-lg hover:border-red-300 transition-all">
-                  <div className="w-12 h-12 bg-red-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md shrink-0">2</div>
-                  <div className="flex-1">
-                    <h3 className="text-2xl font-bold text-red-700 mb-2">着地</h3>
-                    <p className="text-lg font-bold text-slate-700 mb-2 leading-snug">
-                      「ブレーキをかけない、スムーズな接地」
-                    </p>
-                    <p className="text-base text-slate-500 leading-relaxed">
-                      足が地面に着く瞬間の「すねの角度」を見ます。足が体の重心より前に出すぎているとブレーキがかかってしまいます。スムーズに次の一歩へつなげるための重要な指標です。
-                    </p>
-                  </div>
-                </div>
-
-                {/* ③ スイング (Sky Blue/Light Blue - Speed) */}
-                <div className="bg-white p-5 rounded-2xl flex items-start gap-5 border-2 border-sky-100 shadow-sm hover:shadow-lg hover:border-sky-300 transition-all">
-                  <div className="w-12 h-12 bg-sky-500 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md shrink-0">3</div>
-                  <div className="flex-1">
-                    <h3 className="text-2xl font-bold text-sky-700 mb-2">スイング</h3>
-                    <p className="text-lg font-bold text-slate-700 mb-2 leading-snug">
-                      「ダイナミックな脚の運び」
-                    </p>
-                    <p className="text-base text-slate-500 leading-relaxed">
-                      太ももがしっかりと上がり、脚が前に出ているかを分析します。ここが弱いと歩幅（ストライド）が伸び悩みます。アクセル全開で走るための「脚の振り出し」の強さを表します。
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* --- Page 3: 角度基準 --- */}
-          {currentStep === 3 && (
-            <div className="flex-1 flex flex-col items-center justify-center p-10 animate-fade-in">
-              <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold text-blue-900 mb-2">解析の基準となる角度</h2>
-                <p className="text-xl text-slate-500">AIは以下のポイントを測定してスコアを算出しています</p>
-              </div>
-              
-              <div className="w-full max-w-5xl h-[550px] bg-slate-50 rounded-3xl flex items-center justify-center border-2 border-dashed border-slate-300 relative overflow-hidden">
-                <Image
-                  src="/angle_reference_diagram.png"
-                  alt="角度測定基準"
-                  width={800}
-                  height={600}
-                  className="w-full h-full object-contain"
-                  priority
-                />
-              </div>
-            </div>
-          )}
-
-          {/* --- Page 4: One Big Thing (Red Emphasis) - 現象・原因・改善策を表示（縦並び） --- */}
-          {currentStep === 4 && (
             <div className="flex-1 flex flex-col items-center p-6 animate-fade-in bg-gradient-to-br from-white via-red-50/30 to-white overflow-y-auto">
               {oneBigThing ? (
                 <>
@@ -889,8 +1066,8 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
             </div>
           )}
 
-          {/* --- Page 5: 具体的なドリル (Action: Red/Blue) - iPad最適化 --- */}
-          {currentStep === 5 && (
+          {/* --- Page 3: 具体的なドリル (Action: Red/Blue) - iPad最適化 --- */}
+          {currentStep === 3 && (
             <div className="flex-1 px-10 py-8 animate-fade-in flex flex-col overflow-y-auto">
               <h2 className="text-3xl font-bold text-blue-900 mb-8 flex items-center gap-4 justify-center">
                 <span className="bg-red-600 text-white px-6 py-2 rounded-lg text-xl font-bold shadow-md tracking-wider">ACTION</span>
@@ -961,8 +1138,8 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
             </div>
           )}
 
-          {/* --- Page 6: おすすめのシューズ (Title Only) --- */}
-          {currentStep === 6 && (
+          {/* --- Page 4: おすすめのシューズ (Title Only) --- */}
+          {currentStep === 4 && (
             <div className="flex-1 flex flex-col items-center justify-center p-10 animate-fade-in bg-slate-50">
               <div className="text-center">
                 <h2 className="text-5xl font-extrabold text-blue-900 mb-6 tracking-tight">あなたに最適のランニングシューズ</h2>

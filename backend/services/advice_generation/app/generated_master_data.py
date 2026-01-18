@@ -9,7 +9,7 @@ ADVICE_MASTER_DATA = {
             "target_event": None,  # 全イベントをチェック
             "target_metric": "trunk_angle_z",
             "operator": "lt",
-            "threshold": -2.0,
+            "threshold": -1.5,
             "severity": "high"
         },
         "content": {
@@ -28,7 +28,7 @@ ADVICE_MASTER_DATA = {
             "target_event": None,
             "target_metric": "trunk_angle_z",
             "operator": "gt",
-            "threshold": 2.0,
+            "threshold": 1.5,
             "severity": "high"
         },
         "content": {
@@ -47,7 +47,7 @@ ADVICE_MASTER_DATA = {
             "target_event": None,
             "target_metric": "shank_angle_z",
             "operator": "gt",
-            "threshold": 2.0,
+            "threshold": 1.5,
             "severity": "high"
         },
         "content": {
@@ -66,7 +66,7 @@ ADVICE_MASTER_DATA = {
             "target_event": None,
             "target_metric": "knee_angle_z",
             "operator": "gt",
-            "threshold": 2.0,
+            "threshold": 1.5,
             "severity": "medium"
         },
         "content": {
@@ -85,7 +85,7 @@ ADVICE_MASTER_DATA = {
             "target_event": None,
             "target_metric": "thigh_angle_z",
             "operator": "lt",
-            "threshold": -2.0,
+            "threshold": -1.5,
             "severity": "medium"
         },
         "content": {

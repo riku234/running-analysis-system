@@ -837,8 +837,21 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   advice_results: !!apiData.advice_results,
                   integrated_advice: apiData.advice_analysis?.integrated_advice?.substring(0, 100) || 'なし'
                 })
-                completeResult.advice_analysis = apiData.advice_analysis || completeResult.advice_analysis
-                completeResult.advice_results = apiData.advice_results || completeResult.advice_results
+                // advice_analysisとadvice_resultsを統合
+                if (apiData.advice_analysis) {
+                  completeResult.advice_analysis = apiData.advice_analysis
+                  // advice_resultsにも同じデータを設定（後方互換性）
+                  if (!completeResult.advice_results) {
+                    completeResult.advice_results = apiData.advice_analysis
+                  }
+                }
+                if (apiData.advice_results) {
+                  completeResult.advice_results = apiData.advice_results
+                  // advice_analysisにも同じデータを設定（後方互換性）
+                  if (!completeResult.advice_analysis) {
+                    completeResult.advice_analysis = apiData.advice_results
+                  }
+                }
               } else {
                 console.log('⚠️ APIレスポンスにアドバイスデータが含まれていません')
               }
@@ -1137,9 +1150,19 @@ export default function ResultPage({ params }: { params: { id: string } }) {
               result?.z_score_analysis?.z_scores || 
               null
             }
-            adviceData={result?.advice_analysis || result?.advice_results || null}
+            adviceData={
+              result?.advice_analysis || 
+              result?.advice_results || 
+              (result?.advice_analysis?.raw_issues ? { raw_issues: result.advice_analysis.raw_issues } : null) ||
+              (result?.advice_results?.raw_issues ? { raw_issues: result.advice_results.raw_issues } : null) ||
+              null
+            }
             videoUrl={videoUrl}
-            poseData={poseData}
+            poseData={
+              poseData || 
+              result?.pose_analysis?.pose_data || 
+              null
+            }
           />
         </div>
       </div>

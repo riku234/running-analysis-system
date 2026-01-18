@@ -977,7 +977,7 @@ def calculate_z_scores(event_angles: Dict[str, Dict[str, float]], standard_model
                     # 評価コメント
                     if abs(z_score) <= 1.0:
                         comment = "✅ 正常範囲内"
-                    elif abs(z_score) <= 2.0:
+                    elif abs(z_score) <= 1.5:
                         comment = "⚠️  やや偏差あり"
                     else:
                         comment = "🚨 大きな偏差"
@@ -1007,15 +1007,15 @@ def generate_analysis_summary(z_scores: Dict[str, Dict[str, float]]) -> Dict[str
         'recommendations': []
     }
     
-    # 有意な偏差を検出（|Z| > 2.0）
+    # 有意な偏差を検出（|Z| > 1.5）
     for event_type, scores in z_scores.items():
         for angle_name, z_score in scores.items():
-            if abs(z_score) > 2.0:
+            if abs(z_score) > 1.5:
                 summary['significant_deviations'].append({
                     'event': event_type,
                     'angle': angle_name,
                     'z_score': z_score,
-                    'severity': 'high' if abs(z_score) > 3.0 else 'moderate'
+                    'severity': 'high' if abs(z_score) > 2.5 else 'moderate'
                 })
     
     # 全体評価
@@ -1079,10 +1079,10 @@ def print_z_score_analysis_results(analysis_result: Dict[str, Any]) -> None:
             angle_display = angle_names.get(angle_name, angle_name)
             
             # Z値の評価
-            if abs(z_score) > 3.0:
+            if abs(z_score) > 2.5:
                 status = "🔴 要改善"
                 color = "\033[91m"  # 赤
-            elif abs(z_score) > 2.0:
+            elif abs(z_score) > 1.5:
                 status = "🟡 注意"
                 color = "\033[93m"  # 黄
             elif abs(z_score) > 1.0:
@@ -1120,7 +1120,7 @@ def print_z_score_analysis_results(analysis_result: Dict[str, Any]) -> None:
     
     # 有意な偏差の詳細
     if significant_deviations:
-        print(f"\n⚠️  注目すべき点 (|Z| > 2.0):")
+        print(f"\n⚠️  注目すべき点 (|Z| > 1.5):")
         for i, deviation in enumerate(significant_deviations, 1):
             event_name = event_names.get(deviation['event'], deviation['event'])
             angle_name = angle_names.get(deviation['angle'], deviation['angle'])
@@ -1133,9 +1133,9 @@ def print_z_score_analysis_results(analysis_result: Dict[str, Any]) -> None:
     print("\n" + "="*80)
     print("💡 Z値の読み方:")
     print("   |Z| < 1.0: 標準範囲内")
-    print("   1.0 ≤ |Z| < 2.0: やや標準から外れている")
-    print("   2.0 ≤ |Z| < 3.0: 標準から大きく外れている（注意）")
-    print("   |Z| ≥ 3.0: 標準から非常に大きく外れている（要改善）")
+    print("   1.0 ≤ |Z| < 1.5: やや標準から外れている")
+    print("   1.5 ≤ |Z| < 2.5: 標準から大きく外れている（注意・改善推奨）")
+    print("   |Z| ≥ 2.5: 標準から非常に大きく外れている（要改善）")
     print("="*80)
 
 def print_all_events_summary(all_events: List[Tuple[int, str, str]]) -> None:
