@@ -683,11 +683,11 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
     return Math.round(sum / radarData.length)
   }, [radarData])
 
-  // One Big Thing（最優先課題）- Z値が最も大きい課題を1つだけ選択
-  const oneBigThing = useMemo(() => {
+  // あなたの課題 - Z値が大きい順に2つの課題を選択
+  const topTwoIssues = useMemo(() => {
     if (!adviceData) {
       console.warn('⚠️ adviceDataがありません')
-      return null
+      return []
     }
 
     // 複数のパターンからraw_issuesを取得
@@ -715,7 +715,7 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
       const aiAdvice = (adviceData as any).ai_advice
       if (aiAdvice && (aiAdvice.title || aiAdvice.message)) {
         console.log('ℹ️ raw_issuesは空ですが、ai_adviceがあります:', aiAdvice)
-        return {
+        return [{
           name: aiAdvice.title || '良好なフォームです',
           observation: aiAdvice.message || '特筆すべき統計的な乖離は見当たりません。',
           cause: '',
@@ -723,7 +723,7 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
           drillName: 'フォーム維持',
           drillPoints: aiAdvice.key_points || ['現在の素晴らしいフォームを維持してください'],
           drillUrl: null
-        }
+        }]
       }
       
       console.warn('⚠️ raw_issuesが空です:', { 
@@ -732,14 +732,10 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
         hasAiAdvice: !!(adviceData as any).ai_advice,
         adviceDataStructure: JSON.stringify(adviceData).substring(0, 500)
       })
-      return null
+      return []
     }
     
     console.log('✅ raw_issuesを取得:', { count: rawIssues.length, issues: rawIssues.map((i: any) => i.name || i.issue || 'unknown') })
-
-    // Z値データから各課題のZ値を取得して、最も大きいものを選択
-    let maxZScore = 0
-    let targetIssue = rawIssues[0]
 
     // 角度名のマッピング（target_metric → 実際のZ値データのキー名）
     const angleMapping: Record<string, string[]> = {
@@ -749,12 +745,16 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
       "knee_angle_z": ["右膝角度", "左膝角度", "right_knee_angle_z", "left_knee_angle_z"]
     }
 
-    // 各課題について、対応するZ値を取得
-    for (const issue of rawIssues) {
-      if (!zScoreData) continue
+    // 各課題について、対応するZ値を計算して配列に格納
+    const issuesWithZScore = rawIssues.map(issue => {
+      if (!zScoreData) {
+        return { issue, zScore: 0 }
+      }
 
       const targetMetric = issue.target_metric || issue.angle || (issue as any).metric
-      if (!targetMetric) continue
+      if (!targetMetric) {
+        return { issue, zScore: 0 }
+      }
 
       const checkAngles = angleMapping[targetMetric] || [targetMetric, issue.angle, (issue as any).metric].filter(Boolean)
 
@@ -778,64 +778,72 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
       // severityがhighの場合は優先度を上げる（Z値に+2.0を加算）
       const priorityZ = (issue.severity === 'high' || (issue as any).priority === 'high') ? issueZScore + 2.0 : issueZScore
 
-      if (priorityZ > maxZScore) {
-        maxZScore = priorityZ
-        targetIssue = issue
-      }
-    }
+      return { issue, zScore: priorityZ }
+    })
 
-    // ドリルのポイントを抽出（actionから）
-    const drillPoints: string[] = []
-    if (targetIssue.action) {
-      // actionから箇条書きを抽出
-      const lines = targetIssue.action.split('\n').filter(line => line.trim())
-      lines.forEach(line => {
-        // 「・」「-」「1.」などの箇条書き記号を除去
-        const cleaned = line.replace(/^[・\-\d\.\s]+/, '').trim()
-        if (cleaned && cleaned.length > 0) {
-          drillPoints.push(cleaned)
+    // Z値が大きい順にソート
+    issuesWithZScore.sort((a, b) => b.zScore - a.zScore)
+
+    // 上位2つを選択
+    const topTwo = issuesWithZScore.slice(0, 2).map(({ issue }) => {
+      // ドリルのポイントを抽出（actionから）
+      const drillPoints: string[] = []
+      if (issue.action) {
+        // actionから箇条書きを抽出
+        const lines = issue.action.split('\n').filter(line => line.trim())
+        lines.forEach(line => {
+          // 「・」「-」「1.」などの箇条書き記号を除去
+          const cleaned = line.replace(/^[・\-\d\.\s]+/, '').trim()
+          if (cleaned && cleaned.length > 0) {
+            drillPoints.push(cleaned)
+          }
+        })
+      }
+
+      // ドリル名がactionに含まれている場合は抽出
+      let drillName = issue.drill?.name || ''
+      if (!drillName && issue.action) {
+        // actionの最初の行をドリル名として使用
+        const firstLine = issue.action.split('\n')[0]?.trim()
+        if (firstLine && firstLine.length < 50) {
+          drillName = firstLine
         }
-      })
-    }
-
-    // ドリル名がactionに含まれている場合は抽出
-    let drillName = targetIssue.drill?.name || ''
-    if (!drillName && targetIssue.action) {
-      // actionの最初の行をドリル名として使用
-      const firstLine = targetIssue.action.split('\n')[0]?.trim()
-      if (firstLine && firstLine.length < 50) {
-        drillName = firstLine
       }
-    }
 
-    return {
-      name: targetIssue.name,
-      observation: targetIssue.observation || '',
-      cause: targetIssue.cause || '',
-      action: targetIssue.action || '',
-      drillName: drillName || '改善トレーニング',
-      drillPoints: drillPoints.length > 0 ? drillPoints : [
-        '姿勢を意識する',
-        'ゆっくりと動作を行う',
-        '呼吸を整える'
-      ],
-      drillUrl: targetIssue.drill?.url || null
-    }
+      return {
+        name: issue.name,
+        observation: issue.observation || '',
+        cause: issue.cause || '',
+        action: issue.action || '',
+        drillName: drillName || '改善トレーニング',
+        drillPoints: drillPoints.length > 0 ? drillPoints : [
+          '姿勢を意識する',
+          'ゆっくりと動作を行う',
+          '呼吸を整える'
+        ],
+        drillUrl: issue.drill?.url || null
+      }
+    })
+
+    return topTwo
   }, [adviceData, zScoreData])
 
-  // oneBigThingのデバッグログ
+  // topTwoIssuesのデバッグログ
   useEffect(() => {
-    if (oneBigThing) {
-      console.log('✅ oneBigThing:', {
-        name: oneBigThing.name,
-        drillName: oneBigThing.drillName,
-        drillPointsCount: oneBigThing.drillPoints.length,
-        hasDrillUrl: !!oneBigThing.drillUrl
+    if (topTwoIssues.length > 0) {
+      console.log('✅ topTwoIssues:', {
+        count: topTwoIssues.length,
+        issues: topTwoIssues.map(issue => ({
+          name: issue.name,
+          drillName: issue.drillName,
+          drillPointsCount: issue.drillPoints.length,
+          hasDrillUrl: !!issue.drillUrl
+        }))
       })
     } else {
-      console.warn('⚠️ oneBigThingがnullです')
+      console.warn('⚠️ topTwoIssuesが空です')
     }
-  }, [oneBigThing])
+  }, [topTwoIssues])
 
   if (!zScoreData) {
     return (
@@ -997,70 +1005,80 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
             </div>
           )}
 
-          {/* --- Page 2: One Big Thing (Red Emphasis) - 現象・原因・改善策を表示（縦並び） --- */}
+          {/* --- Page 2: あなたの課題 - 上位2つの課題を表示（各課題について現象・原因・改善策） --- */}
           {currentStep === 2 && (
-            <div className="flex-1 flex flex-col items-center p-6 animate-fade-in bg-gradient-to-br from-white via-red-50/30 to-white overflow-y-auto">
-              {oneBigThing ? (
+            <div className="flex-1 flex flex-col items-center p-3 md:p-4 animate-fade-in bg-gradient-to-br from-white via-red-50/30 to-white overflow-y-auto">
+              {topTwoIssues.length > 0 ? (
                 <>
-                  <div className="bg-red-600 text-white px-6 py-2 rounded-full text-base font-bold mb-5 shadow-lg flex items-center gap-2 ring-4 ring-red-100 shrink-0">
-                    <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-                    あなたの最優先課題 (One Big Thing)
+                  <div className="bg-red-600 text-white px-5 py-1.5 rounded-full text-sm md:text-base font-bold mb-3 md:mb-4 shadow-lg flex items-center gap-2 ring-4 ring-red-100 shrink-0">
+                    <span className="w-1.5 h-1.5 md:w-2 md:h-2 bg-white rounded-full animate-pulse"></span>
+                    あなたの課題
                   </div>
                   
-                  <h2 className="text-3xl md:text-4xl font-extrabold text-blue-900 mb-6 tracking-tight text-center px-4 shrink-0">
-                    {oneBigThing.name}
-                  </h2>
-                  
-                  <div className="w-full max-w-4xl space-y-4 px-4 pb-4">
-                    {/* 現象 */}
-                    {oneBigThing.observation && (
-                      <div className="bg-white p-5 rounded-xl shadow-lg border-l-4 border-blue-900">
-                        <h3 className="text-xl font-bold text-blue-900 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">🔍</span> 現象
-                        </h3>
-                        <p className="text-base leading-relaxed text-slate-700 font-medium">
-                          {oneBigThing.observation}
-                        </p>
-                      </div>
-                    )}
-                    
-                    {/* 原因 */}
-                    {oneBigThing.cause && (
-                      <div className="bg-white p-5 rounded-xl shadow-lg border-l-4 border-red-600">
-                        <h3 className="text-xl font-bold text-red-700 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">🧐</span> 原因
-                        </h3>
-                        <p className="text-base leading-relaxed text-slate-700 font-medium">
-                          {oneBigThing.cause}
-                        </p>
-                      </div>
-                    )}
-                    
-                    {/* 改善策 */}
-                    {oneBigThing.action && (
-                      <div className="bg-white p-5 rounded-xl shadow-lg border-l-4 border-sky-500">
-                        <h3 className="text-xl font-bold text-sky-700 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">💡</span> 改善策
-                        </h3>
-                        <div className="text-base leading-relaxed text-slate-700 font-medium whitespace-pre-line">
-                          {oneBigThing.action}
+                  <div className="w-full max-w-4xl space-y-3 md:space-y-4 px-2 md:px-4 pb-2">
+                    {topTwoIssues.map((issue, index) => (
+                      <div key={index} className="bg-white rounded-xl shadow-md border-2 border-slate-200 overflow-hidden">
+                        {/* 課題タイトル */}
+                        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 md:py-2.5">
+                          <h2 className="text-lg md:text-xl font-extrabold tracking-tight text-center">
+                            {issue.name}
+                          </h2>
+                        </div>
+                        
+                        {/* 現象・原因・改善策 */}
+                        <div className="p-3 md:p-4 space-y-2.5 md:space-y-3">
+                          {/* 現象 */}
+                          {issue.observation && (
+                            <div className="bg-blue-50 p-3 md:p-3.5 rounded-lg border-l-3 border-blue-600">
+                              <h3 className="text-sm md:text-base font-bold text-blue-900 mb-1.5 md:mb-2 flex items-center gap-1.5">
+                                <span className="text-base md:text-lg">🔍</span> 現象
+                              </h3>
+                              <p className="text-xs md:text-sm leading-relaxed text-slate-700 font-medium">
+                                {issue.observation}
+                              </p>
+                            </div>
+                          )}
+                          
+                          {/* 原因 */}
+                          {issue.cause && (
+                            <div className="bg-red-50 p-3 md:p-3.5 rounded-lg border-l-3 border-red-600">
+                              <h3 className="text-sm md:text-base font-bold text-red-700 mb-1.5 md:mb-2 flex items-center gap-1.5">
+                                <span className="text-base md:text-lg">🧐</span> 原因
+                              </h3>
+                              <p className="text-xs md:text-sm leading-relaxed text-slate-700 font-medium">
+                                {issue.cause}
+                              </p>
+                            </div>
+                          )}
+                          
+                          {/* 改善策 */}
+                          {issue.action && (
+                            <div className="bg-sky-50 p-3 md:p-3.5 rounded-lg border-l-3 border-sky-500">
+                              <h3 className="text-sm md:text-base font-bold text-sky-700 mb-1.5 md:mb-2 flex items-center gap-1.5">
+                                <span className="text-base md:text-lg">💡</span> 改善策
+                              </h3>
+                              <div className="text-xs md:text-sm leading-relaxed text-slate-700 font-medium whitespace-pre-line">
+                                {issue.action}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* データがない場合のフォールバック */}
+                          {!issue.observation && !issue.cause && !issue.action && (
+                            <div className="bg-gray-50 p-3 md:p-3.5 rounded-lg border-l-3 border-gray-400">
+                              <p className="text-xs md:text-sm text-slate-500 text-center">
+                                詳細なアドバイスデータがありません
+                              </p>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    )}
-                    
-                    {/* データがない場合のフォールバック */}
-                    {!oneBigThing.observation && !oneBigThing.cause && !oneBigThing.action && (
-                      <div className="bg-white p-5 rounded-xl shadow-lg border-l-4 border-gray-400">
-                        <p className="text-base text-slate-500 text-center">
-                          詳細なアドバイスデータがありません
-                        </p>
-                      </div>
-                    )}
+                    ))}
                   </div>
                 </>
               ) : (
                 <div className="text-center">
-                  <p className="text-xl text-gray-500">課題データが見つかりません</p>
+                  <p className="text-base md:text-lg text-gray-500">課題データが見つかりません</p>
                 </div>
               )}
             </div>
@@ -1074,15 +1092,15 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
                 改善のためのトレーニング
               </h2>
               
-              {oneBigThing ? (
+              {topTwoIssues.length > 0 && topTwoIssues[0] ? (
                 <div className="flex-1 grid grid-cols-2 gap-10 items-start max-w-6xl mx-auto w-full">
                   {/* Left: Text */}
                   <div className="space-y-6">
                     <div className="bg-white border-2 border-blue-100 p-6 rounded-2xl shadow-sm">
                       <span className="text-blue-900 font-extrabold tracking-wider text-xs uppercase mb-2 block">Drill Name</span>
-                      <h3 className="text-3xl font-bold text-slate-900 mb-3">{oneBigThing.drillName}</h3>
+                      <h3 className="text-3xl font-bold text-slate-900 mb-3">{topTwoIssues[0].drillName}</h3>
                       <p className="text-lg text-slate-700 leading-relaxed">
-                        {oneBigThing.action || oneBigThing.cause || '背筋を伸ばし、一歩踏み出すごとに骨盤を「グッ」と前に押し出す意識で歩きます。'}
+                        {topTwoIssues[0].action || topTwoIssues[0].cause || '背筋を伸ばし、一歩踏み出すごとに骨盤を「グッ」と前に押し出す意識で歩きます。'}
                       </p>
                     </div>
                     
@@ -1092,7 +1110,7 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
                         意識するポイント
                       </h4>
                       <ul className="space-y-3">
-                        {oneBigThing.drillPoints.map((point, idx) => (
+                        {topTwoIssues[0].drillPoints.map((point, idx) => (
                           <li key={idx} className="flex items-center gap-3 text-lg text-slate-700 font-medium bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                             <span className="w-7 h-7 bg-blue-900 text-white rounded-full flex items-center justify-center font-bold text-xs shrink-0">
                               {idx + 1}
@@ -1106,9 +1124,9 @@ export default function AnalysisResultLite({ zScoreData, adviceData, videoUrl, p
 
                   {/* Right: Video Player */}
                   <div className="h-full max-h-[450px] w-full bg-black rounded-2xl overflow-hidden relative group cursor-pointer shadow-2xl ring-4 ring-slate-100">
-                    {oneBigThing.drillUrl ? (
+                    {topTwoIssues[0].drillUrl ? (
                       <video 
-                        src={oneBigThing.drillUrl} 
+                        src={topTwoIssues[0].drillUrl} 
                         className="w-full h-full object-cover" 
                         controls
                         playsInline
