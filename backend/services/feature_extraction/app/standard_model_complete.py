@@ -131,7 +131,15 @@ def get_standard_model_data():
         frame_num = int(row[0])
         frame_key = f"Frame_{frame_num}"
         
+        # データ構造を確認: [Frame, 体幹角度_mean, 体幹角度_std, 右大腿角度_平均, 右大腿角度_std, 右下腿角度_平均, 右下腿角度_std, 左大腿角度_平均, 左大腿角度_std, 左下腿角度_平均, 左下腿角度_std]
+        # row[1]: 体幹角度のmean
+        # row[3]: 右大腿角度の平均値
+        # row[5]: 右下腿角度の最大値（実際は平均値）
+        # row[7]: 左大腿角度の追加値_1（実際は平均値）
+        # row[9]: 左下腿角度の追加値_3（実際は平均値）
+        
         standard_model[frame_key] = {
+            # 元のデータ構造も保持
             "mean": row[1],
             "std_dev": row[2],
             "平均値": row[3],
@@ -141,7 +149,18 @@ def get_standard_model_data():
             "追加値_1": row[7] if len(row) > 7 else None,
             "追加値_2": row[8] if len(row) > 8 else None,
             "追加値_3": row[9] if len(row) > 9 else None,
-            "追加値_4": row[10] if len(row) > 10 else None
+            "追加値_4": row[10] if len(row) > 10 else None,
+            # 角度データを標準形式で追加（generate_keypoints_from_angles用）
+            "体幹角度_平均": row[1],  # meanが体幹角度
+            "体幹角度_標準偏差": row[2],
+            "右大腿角度_平均": row[3],  # 平均値が右大腿角度
+            "右大腿角度_標準偏差": row[4],
+            "右下腿角度_平均": row[5],  # 最大値が右下腿角度（実際は平均値）
+            "右下腿角度_標準偏差": row[6] if len(row) > 6 else 0.0,
+            "左大腿角度_平均": row[7] if len(row) > 7 else 0.0,  # 追加値_1が左大腿角度
+            "左大腿角度_標準偏差": row[8] if len(row) > 8 else 0.0,
+            "左下腿角度_平均": row[9] if len(row) > 9 else 0.0,  # 追加値_3が左下腿角度
+            "左下腿角度_標準偏差": row[10] if len(row) > 10 else 0.0
         }
     
     # 主要な指標も追加（体幹角度、大腿角度、下腿角度の代表値）

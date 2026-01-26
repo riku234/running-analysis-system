@@ -1310,10 +1310,12 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     console.log("🔴 問題のある角度リスト:", problematicAngles)
                     
                     return (
-                      <PoseVisualizer 
+                      <PoseVisualizer
+                        showSkeleton={false} 
                         videoUrl={videoUrl}
                         poseData={poseAnalysisData}
                         problematicAngles={problematicAngles}
+                        zScoreAnalysis={zScoreData || undefined}
                       />
                     )
                   })()

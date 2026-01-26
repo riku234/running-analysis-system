@@ -19,6 +19,9 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # アプリケーションコードをコピー
 COPY app/ ./app/
 
+# s-motion_girl_Velocity2.sdファイルをコピー（存在する場合）
+COPY s-motion_girl_Velocity2.sd* ./
+
 # ポートを公開
 EXPOSE 8003
 

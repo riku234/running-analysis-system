@@ -8,179 +8,27 @@ import numpy as np
 import os
 import sys
 from scipy import signal
+try:
+    from standard_model_keypoints import generate_keypoints_from_angles
+except ImportError:
+    import sys
+    import os
+    sys.path.append(os.path.dirname(__file__))
+    from standard_model_keypoints import generate_keypoints_from_angles
 
-# 標準動作モデルデータを直接定義（添付画像の表から正確に抽出）
-def get_standard_model_data():
-    """標準動作モデルの統計データを返す関数（添付画像の表データ）"""
-    
-    # 添付画像の表データを正確に転記
-    # 各行は: 体幹角度(平均), 体幹角度(標準偏差), 右大腿角度(平均), 右大腿角度(標準偏差), 右下腿角度(平均), 右下腿角度(標準偏差), 左大腿角度(平均), 左大腿角度(標準偏差), 左下腿角度(平均), 左下腿角度(標準偏差)
-    frame_data = {
-        # Frame 0 - 各列の値を正確に読み取り
-        "Frame_0": {
-            "体幹角度_平均": 3.969911,
-            "体幹角度_標準偏差": 3.558016,
-            "右大腿角度_平均": -14.5973,
-            "右大腿角度_標準偏差": 12.61641,
-            "右下腿角度_平均": 3.302240,
-            "右下腿角度_標準偏差": 24.2674,
-            "左大腿角度_平均": 1.081713,
-            "左大腿角度_標準偏差": 13.04959,
-            "左下腿角度_平均": 6.63447,
-            "左下腿角度_標準偏差": 24.70281
-        },
-        
-        "Frame_1": {
-            "体幹角度_平均": 4.046965,
-            "体幹角度_標準偏差": 1.789897,
-            "右大腿角度_平均": -14.5721,
-            "右大腿角度_標準偏差": 15.63024,
-            "右下腿角度_平均": 5.065471,
-            "右下腿角度_標準偏差": 24.2419,
-            "左大腿角度_平均": 2.26731,
-            "左大腿角度_標準偏差": 12.75336,
-            "左下腿角度_平均": 6.80302,
-            "左下腿角度_標準偏差": 26.17134
-        },
-        
-        "Frame_2": {
-            "体幹角度_平均": 4.156448,
-            "体幹角度_標準偏差": 3.220768,
-            "右大腿角度_平均": -14.6106,
-            "右大腿角度_標準偏差": 16.63565,
-            "右下腿角度_平均": 7.111266,
-            "右下腿角度_標準偏差": 24.14577,
-            "左大腿角度_平均": -4.22733,
-            "左大腿角度_標準偏差": 11.37309,
-            "左下腿角度_平均": 6.87872,
-            "左下腿角度_標準偏差": 26.84108
-        },
-        
-        "Frame_3": {
-            "体幹角度_平均": 4.286579,
-            "体幹角度_標準偏差": 1.314960,
-            "右大腿角度_平均": -14.6958,
-            "右大腿角度_標準偏差": 16.26299,
-            "右下腿角度_平均": 9.337421,
-            "右下腿角度_標準偏差": 2.355924,
-            "左大腿角度_平均": 8.99297,
-            "左大腿角度_標準偏差": 10.04186,
-            "左下腿角度_平均": 9.53437,
-            "左下腿角度_標準偏差": 27.7925
-        },
-        
-        "Frame_25": {
-            "体幹角度_平均": 6.342406,
-            "体幹角度_標準偏差": 2.368135,
-            "右大腿角度_平均": 1.83133,
-            "右大腿角度_標準偏差": 12.13514,
-            "右下腿角度_平均": 37.63283,
-            "右下腿角度_標準偏差": 15.91777,
-            "左大腿角度_平均": 33.5589,
-            "左大腿角度_標準偏差": 14.94268,
-            "左下腿角度_平均": -6.40468,
-            "左下腿角度_標準偏差": 15.14576
-        },
-        
-        "Frame_50": {
-            "体幹角度_平均": 3.65441,
-            "体幹角度_標準偏差": 3.355749,
-            "右大腿角度_平均": 2.607396,
-            "右大腿角度_標準偏差": 10.60853,
-            "右下腿角度_平均": 61.84115,
-            "右下腿角度_標準偏差": 23.73552,
-            "左大腿角度_平均": 15.0691,
-            "左大腿角度_標準偏差": 12.79283,
-            "左下腿角度_平均": 1.217666,
-            "左下腿角度_標準偏差": 24.81256
-        },
-        
-        "Frame_75": {
-            "体幹角度_平均": 5.624295,
-            "体幹角度_標準偏差": 2.760298,
-            "右大腿角度_平均": -31.0944,
-            "右大腿角度_標準偏差": 15.12048,
-            "右下腿角度_平均": 47.34249,
-            "右下腿角度_標準偏差": 14.59232,
-            "左大腿角度_平均": 1.187264,
-            "左大腿角度_標準偏差": 10.76332,
-            "左下腿角度_平均": 3.736554,
-            "左下腿角度_標準偏差": 15.14788
-        },
-        
-        "Frame_100": {
-            "体幹角度_平均": 2.848037,
-            "体幹角度_標準偏差": 3.452682,
-            "右大腿角度_平均": -13.7398,
-            "右大腿角度_標準偏差": 13.38847,
-            "右下腿角度_平均": 3.499593,
-            "右下腿角度_標準偏差": 23.88576,
-            "左大腿角度_平均": 0.886598,
-            "左大腿角度_標準偏差": 11.98876,
-            "左下腿角度_平均": 7.206272,
-            "左下腿角度_標準偏差": 26.24082
-        }
-    }
-    
-    # 全フレームから計算した統計サマリー（比較用の統計値付き）
-    summary_stats = {
-        "体幹角度": {
-            "description": "体幹の前後傾斜角度",
-            "sample_frames": [3.969911, 4.046965, 4.156448, 6.342406, 3.65441, 5.624295, 2.848037],
-            "range_analysis": "約2.8～6.3の範囲で変動",
-            "mean": 4.32,  # サンプルフレームの平均
-            "max": 6.34,   # サンプルフレームの最大値
-            "min": 2.85,   # サンプルフレームの最小値  
-            "std_dev": 1.23 # サンプルフレームの標準偏差
-        },
-        
-        "右大腿角度": {
-            "description": "右大腿の鉛直軸からの角度", 
-            "sample_frames": [-14.5973, -14.5721, -14.6106, 1.83133, 2.607396, -31.0944, -13.7398],
-            "range_analysis": "大きな変動（-31.0～2.6の範囲）",
-            "mean": -13.15,
-            "max": 2.61,
-            "min": -31.09,
-            "std_dev": 10.85
-        },
-        
-        "右下腿角度": {
-            "description": "右下腿の鉛直軸からの角度",
-            "sample_frames": [3.302240, 5.065471, 7.111266, 37.63283, 61.84115, 47.34249, 3.499593],
-            "range_analysis": "3.3～61.8の広範囲で変動",
-            "mean": 23.69,
-            "max": 61.84,
-            "min": 3.30,
-            "std_dev": 23.12
-        },
-        
-        "左大腿角度": {
-            "description": "左大腿の鉛直軸からの角度",
-            "sample_frames": [1.081713, 2.26731, -4.22733, 33.5589, 15.0691, 1.187264, 0.886598],
-            "range_analysis": "-4.2～33.6の範囲で変動",
-            "mean": 7.13,
-            "max": 33.56,
-            "min": -4.23,
-            "std_dev": 12.85
-        },
-        
-        "左下腿角度": {
-            "description": "左下腿の鉛直軸からの角度",
-            "sample_frames": [6.63447, 6.80302, 6.87872, -6.40468, 1.217666, 3.736554, 7.206272],
-            "range_analysis": "-6.4～7.2の範囲で変動",
-            "mean": 2.73,
-            "max": 7.21,
-            "min": -6.40,
-            "std_dev": 5.41
-        }
-    }
-    
-    # 完全なデータセットを結合
-    complete_data = {}
-    complete_data.update(frame_data)
-    complete_data.update(summary_stats)
-    
-    return complete_data
+# 標準動作モデルデータを取得（完全版を使用）
+try:
+    from standard_model_complete import get_standard_model_data as get_complete_standard_model_data
+    # 完全版（101フレーム）を使用
+    def get_standard_model_data():
+        return get_complete_standard_model_data()
+except ImportError:
+    # フォールバック: 標準動作モデルデータを直接定義（簡易版）
+    def get_standard_model_data():
+        """標準動作モデルの統計データを返す関数（フォールバック）"""
+        # standard_model_complete.pyがインポートできない場合の簡易フォールバック
+        # 実際にはstandard_model_complete.pyが使用されるため、この関数は通常実行されない
+        return {"Frame_0": {"体幹角度_平均": 0.0, "右大腿角度_平均": 0.0, "右下腿角度_平均": 0.0, "左大腿角度_平均": 0.0, "左下腿角度_平均": 0.0}}
 
 app = FastAPI(
     title="Feature Extraction Service",
@@ -1694,6 +1542,77 @@ async def compare_user_stats_with_standard(user_stats: Dict[str, Dict[str, float
     except Exception as e:
         print(f"❌ 比較エラー: {str(e)}")
         raise HTTPException(status_code=500, detail=f"比較処理に失敗しました: {str(e)}")
+
+@app.get("/standard_model/keypoints")
+async def get_standard_model_keypoints(frame: Optional[int] = None):
+    """
+    標準モデルのキーポイントデータを取得するエンドポイント
+    
+    Args:
+        frame: フレーム番号（0-19）。指定しない場合は全フレームを返す
+    
+    Returns:
+        指定されたフレームのキーポイントデータ、または全フレームのデータ
+    """
+    try:
+        # 提供された座標データから生成
+        try:
+            from standard_model_from_coordinates import get_standard_model_keypoints_from_coordinates
+            standard_model_data = get_standard_model_keypoints_from_coordinates()
+        except ImportError:
+            # フォールバック: 角度データから生成
+            standard_data = get_standard_model_data()
+            frame_keys = [k for k in standard_data.keys() if k.startswith('Frame_')]
+            frame_keys.sort(key=lambda x: int(x.split('_')[1]))
+            
+            all_keypoints = {}
+            for frame_key in frame_keys:
+                frame_num = int(frame_key.split('_')[1])
+                frame_data = standard_data[frame_key]
+                keypoints = generate_keypoints_from_angles(frame_data)
+                all_keypoints[frame_num] = {
+                    "keypoints": keypoints,
+                    "angles": frame_data
+                }
+            
+            sorted_frames = {str(k): all_keypoints[k] for k in sorted(all_keypoints.keys())}
+            standard_model_data = {
+                "status": "success",
+                "total_frames": len(sorted_frames),
+                "frames": sorted_frames,
+                "is_cycle": True,
+                "note": "このデータは1周期分です。リピートして使用してください。"
+            }
+        
+        if frame is not None:
+            # 特定のフレームを取得
+            max_frame = standard_model_data['total_frames'] - 1
+            if frame < 0 or frame > max_frame:
+                raise HTTPException(status_code=400, detail=f"フレーム番号は0-{max_frame}の範囲で指定してください")
+            
+            frame_key = str(frame)
+            if frame_key not in standard_model_data['frames']:
+                raise HTTPException(status_code=404, detail=f"フレーム{frame}のデータが見つかりません")
+            
+            frame_data = standard_model_data['frames'][frame_key]
+            
+            return {
+                "status": "success",
+                "frame": frame,
+                "keypoints": frame_data['keypoints'],
+                "frame_number": frame_data.get('frame_number', frame)
+            }
+        else:
+            # 全フレームを返す
+            return standard_model_data
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 標準モデルキーポイント取得エラー: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"標準モデルキーポイントデータの取得に失敗しました: {str(e)}")
 
 @app.get("/test_comparison")
 async def test_comparison_endpoint():

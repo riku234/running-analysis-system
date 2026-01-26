@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 
 interface KeyPoint {
   x: number
@@ -37,11 +37,27 @@ interface PoseAnalysisData {
   }
 }
 
+interface ZScoreAnalysis {
+  events_detected?: {
+    left_strikes?: number[]
+    right_strikes?: number[]
+    left_offs?: number[]
+    right_offs?: number[]
+  }
+  selected_cycle?: {
+    start_frame: number
+    end_frame: number
+    duration: number
+  }
+}
+
 interface PoseVisualizerProps {
   videoUrl: string
   poseData: PoseAnalysisData
   className?: string
   problematicAngles?: string[]  // Z-scoreで問題のある角度名のリスト（例: ["trunk_angle", "left_thigh_angle"]）
+  showSkeleton?: boolean  // 骨格を表示するかどうか（デフォルト: true）
+  zScoreAnalysis?: ZScoreAnalysis  // Z-score分析結果（ランニング周期検出用）
 }
 
 // MediaPipeランドマークのインデックス定義
@@ -502,11 +518,30 @@ const extractAbsoluteAnglesFromFrame = (keypoints: KeyPoint[]): AbsoluteAngles =
   return angles
 }
 
-export default function PoseVisualizer({ videoUrl, poseData, className = '', problematicAngles = [] }: PoseVisualizerProps) {
+interface StandardModelKeypoints {
+  status: string
+  total_frames: number
+  frames: {
+    [frameNumber: string]: {
+      keypoints: KeyPoint[]
+      angles: any
+    }
+  }
+  is_cycle: boolean
+  note: string
+}
+
+export default function PoseVisualizer({ videoUrl, poseData, className = '', problematicAngles = [], showSkeleton = true, zScoreAnalysis }: PoseVisualizerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null) // 上段の動画用（骨格表示なし）
+  const standardModelCanvasRef = useRef<HTMLCanvasElement>(null) // 下段左：標準モデル用
+  const userCycleCanvasRef = useRef<HTMLCanvasElement>(null) // 下段右：ユーザー1周期用
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isGrayscale, setIsGrayscale] = useState(false) // グレースケール状態
+  const [standardModelKeypoints, setStandardModelKeypoints] = useState<StandardModelKeypoints | null>(null)
+  const [standardModelFrameIndex, setStandardModelFrameIndex] = useState(0)
+  const [userCycleFrameIndex, setUserCycleFrameIndex] = useState(0) // ユーザー1周期のフレームインデックス
+  const [userCycleFrames, setUserCycleFrames] = useState<FramePoseData[]>([]) // ユーザーの1周期のフレームデータ
   const [currentAbsoluteAngles, setCurrentAbsoluteAngles] = useState<AbsoluteAngles>({
     // 既存角度
     trunk_angle: null,
@@ -534,8 +569,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     return poseData.pose_data.find(frame => frame.frame_number === frameNumber) || null
   }
   
-  // キーポイントを描画
-  const drawKeypoints = (ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number) => {
+  // キーポイントを描画（ユーザーの骨格と標準モデルの骨格）
+  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false): void => {
+    if (!keypoints || keypoints.length === 0) {
+      return
+    }
+    
     // 問題のある骨格線のセットを作成
     const problematicConnections = new Set<string>()
     
@@ -550,65 +589,168 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
       }
     })
     
-    // デバッグログ（問題部位がある場合のみ）
-    if (problematicAngles.length > 0) {
-      console.log('🔴 問題のある角度:', problematicAngles)
-      console.log('🔴 赤く表示する骨格線:', Array.from(problematicConnections))
-    }
+    // 可視性の閾値を下げる（より多くのキーポイントを表示）
+    const VISIBILITY_THRESHOLD_LOW = 0.2  // 低可視性でも表示
+    const VISIBILITY_THRESHOLD_HIGH = 0.5  // 高可視性（通常表示）
     
-    ctx.fillStyle = '#ff0000'
-    ctx.strokeStyle = '#00ff00'
-    ctx.lineWidth = 2
-    
-    // キーポイントを描画
+    // キーポイントを描画（可視性に応じてサイズと透明度を調整）
     keypoints.forEach((point, index) => {
-      if (point.visibility > 0.5) { // 信頼度が高いポイントのみ描画
-        const x = point.x * videoWidth
+      if (!point) return
+      
+      // 可視性が低い場合でも表示（薄く表示）
+      if (point.visibility > VISIBILITY_THRESHOLD_LOW) {
+        // X座標を固定する場合（その場で走らせる）
+        const x = fixXPosition 
+          ? (videoWidth / 2) + xOffset  // X座標を中央に固定
+          : point.x * videoWidth + xOffset
         const y = point.y * videoHeight
+        
+        // 可視性に応じてポイントサイズと透明度を調整
+        const pointSize = point.visibility > VISIBILITY_THRESHOLD_HIGH ? 5 : 3
+        const alpha = Math.min(1.0, point.visibility * 1.5) // 可視性を強調
+        
+        ctx.save()
+        ctx.globalAlpha = alpha
+        ctx.fillStyle = color.point
         
         // ポイントを描画
         ctx.beginPath()
-        ctx.arc(x, y, 4, 0, 2 * Math.PI)
+        ctx.arc(x, y, pointSize, 0, 2 * Math.PI)
         ctx.fill()
-        
-        // ポイント番号を描画（デバッグ用）
-        ctx.fillStyle = '#ffffff'
-        ctx.font = '10px Arial'
-        ctx.fillText(index.toString(), x + 5, y - 5)
-        ctx.fillStyle = '#ff0000'
+        ctx.restore()
       }
     })
     
-    // 骨格の線を描画
+    // 骨格の線を描画（より柔軟な条件）
     POSE_CONNECTIONS.forEach(([startIdx, endIdx]) => {
       const startPoint = keypoints[startIdx]
       const endPoint = keypoints[endIdx]
       
+      // 両方のキーポイントが存在し、可視性が閾値以上の場合
       if (startPoint && endPoint && 
-          startPoint.visibility > 0.5 && endPoint.visibility > 0.5) {
-        const startX = startPoint.x * videoWidth
+          startPoint.visibility > VISIBILITY_THRESHOLD_LOW && 
+          endPoint.visibility > VISIBILITY_THRESHOLD_LOW) {
+        
+        // X座標を固定する場合（その場で走らせる）
+        const startX = fixXPosition 
+          ? (videoWidth / 2) + xOffset  // X座標を中央に固定
+          : startPoint.x * videoWidth + xOffset
         const startY = startPoint.y * videoHeight
-        const endX = endPoint.x * videoWidth
+        const endX = fixXPosition 
+          ? (videoWidth / 2) + xOffset  // X座標を中央に固定
+          : endPoint.x * videoWidth + xOffset
         const endY = endPoint.y * videoHeight
         
         // この接続が問題部位かどうか確認
         const connectionKey = `${startIdx}-${endIdx}`
         const isProblematic = problematicConnections.has(connectionKey)
         
-        // 問題部位は赤く太く、それ以外は緑
-        ctx.strokeStyle = isProblematic ? '#ff0000' : '#00ff00'
-        ctx.lineWidth = isProblematic ? 4 : 2
+        // 可視性に応じて線の太さと透明度を調整
+        const minVisibility = Math.min(startPoint.visibility, endPoint.visibility)
+        const lineWidth = isProblematic ? 4 : (minVisibility > VISIBILITY_THRESHOLD_HIGH ? 2.5 : 1.5)
+        const lineAlpha = Math.min(1.0, minVisibility * 1.3) // 可視性を強調
+        
+        ctx.save()
+        ctx.globalAlpha = lineAlpha
+        ctx.strokeStyle = isProblematic ? '#ff0000' : color.line
+        ctx.lineWidth = lineWidth
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
         
         ctx.beginPath()
         ctx.moveTo(startX, startY)
         ctx.lineTo(endX, endY)
         ctx.stroke()
+        ctx.restore()
       }
     })
-  }
+  }, [problematicAngles])
+  
+  // 標準モデルの棒人間を描画（左キャンバス用）
+  const drawStandardModelSkeleton = useCallback(() => {
+    const canvas = standardModelCanvasRef.current
+    if (!canvas || !standardModelKeypoints) {
+      console.log('⚠️ 標準モデル描画スキップ:', { hasCanvas: !!canvas, hasKeypoints: !!standardModelKeypoints })
+      return
+    }
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    
+    // キャンバスサイズを設定（親要素のサイズを取得）
+    const parent = canvas.parentElement
+    if (!parent) return
+    
+    const width = parent.clientWidth || 640
+    const height = parent.clientHeight || 360
+    
+    canvas.width = width
+    canvas.height = height
+    
+    const frameKey = standardModelFrameIndex.toString()
+    const frameData = standardModelKeypoints.frames[frameKey]
+    if (!frameData) {
+      console.log('⚠️ 標準モデルフレームデータが見つかりません:', { frameKey, availableFrames: Object.keys(standardModelKeypoints.frames).slice(0, 5) })
+      return
+    }
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    
+    // 標準モデルを描画（青色）
+    drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height, 0, {
+      point: '#3b82f6',
+      line: '#3b82f6'
+    })
+    
+    // ログを減らす（毎フレーム出力すると多すぎるため、10フレームごとに出力）
+    if (standardModelFrameIndex % 10 === 0) {
+      console.log('✅ 標準モデル描画完了:', { frameIndex: standardModelFrameIndex, frameKey, width, height })
+    }
+  }, [standardModelFrameIndex, standardModelKeypoints, drawKeypoints])
+  
+  // ユーザー1周期の棒人間を描画（右キャンバス用）
+  const drawUserCycleSkeleton = useCallback(() => {
+    const canvas = userCycleCanvasRef.current
+    if (!canvas || !userCycleFrames.length) {
+      console.log('⚠️ ユーザー1周期描画スキップ:', { hasCanvas: !!canvas, cycleFramesCount: userCycleFrames.length })
+      return
+    }
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    
+    // キャンバスサイズを設定（親要素のサイズを取得）
+    const parent = canvas.parentElement
+    if (!parent) return
+    
+    const width = parent.clientWidth || 640
+    const height = parent.clientHeight || 360
+    
+    canvas.width = width
+    canvas.height = height
+    
+    const frameData = userCycleFrames[userCycleFrameIndex]
+    if (!frameData || !frameData.keypoints) {
+      console.log('⚠️ ユーザー1周期フレームデータが見つかりません:', { frameIndex: userCycleFrameIndex, totalFrames: userCycleFrames.length })
+      return
+    }
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    
+    // ユーザー1周期を描画（赤色）
+    drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height, 0, {
+      point: '#ef4444',
+      line: '#ef4444'
+    })
+    
+    // ログを減らす（毎フレーム出力すると多すぎるため、10フレームごとに出力）
+    if (userCycleFrameIndex % 10 === 0) {
+      console.log('✅ ユーザー1周期描画完了:', { frameIndex: userCycleFrameIndex, totalFrames: userCycleFrames.length, width, height })
+    }
+  }, [userCycleFrameIndex, userCycleFrames, drawKeypoints])
   
   // Canvas描画の更新
-  const updateCanvas = () => {
+  const updateCanvas = useCallback(() => {
     const video = videoRef.current
     const canvas = canvasRef.current
     
@@ -630,8 +772,59 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     const frameData = getCurrentFrameData()
     
     if (frameData && frameData.landmarks_detected) {
-      drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height)
+      // 骨格表示が有効な場合のみ描画
+      if (showSkeleton) {
+        // ユーザーの骨格を描画（赤いポイント、緑の線）
+        drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height, 0, { point: '#ff0000', line: '#00ff00' })
+      }
+    }
+    
+    // 標準モデルの骨格を左にオフセットして描画
+    if (standardModelKeypoints && standardModelFrameIndex >= 0) {
+      const frameKey = String(standardModelFrameIndex)
+      const standardModelFrame = standardModelKeypoints.frames[frameKey]
       
+      if (standardModelFrame && standardModelFrame.keypoints) {
+        // ユーザーの骨格の中心位置を計算（基準点として使用）
+        let userCenterX = canvas.width * 0.5  // デフォルト：画面中央
+        if (frameData && frameData.landmarks_detected && frameData.keypoints) {
+          // 腰の中心位置を計算（左腰と右腰の中点）
+          const leftHip = frameData.keypoints[23]  // 左腰
+          const rightHip = frameData.keypoints[24]  // 右腰
+          if (leftHip && rightHip && leftHip.visibility > 0.5 && rightHip.visibility > 0.5) {
+            userCenterX = ((leftHip.x + rightHip.x) / 2) * canvas.width
+          }
+        }
+        
+        // 標準モデルをユーザーの左側（後ろ）に配置
+        // ユーザーの中心から左に、画面幅の20%分オフセット
+        const xOffset = userCenterX - canvas.width * 0.2
+        
+        // デバッグログは最初の数回だけ表示（大量のログを防ぐため）
+        if (standardModelFrameIndex === 0 || standardModelFrameIndex % 10 === 0) {
+          console.log('🔵 標準モデル描画実行:', { 
+            xOffset, 
+            userCenterX,
+            keypointsCount: standardModelFrame.keypoints.length,
+            canvasWidth: canvas.width,
+            standardModelFrameIndex
+          })
+        }
+        drawKeypoints(ctx, standardModelFrame.keypoints, canvas.width, canvas.height, xOffset, { point: '#6699ff', line: '#6699ff' })
+      } else {
+        console.warn('⚠️ 標準モデルフレームデータが見つかりません:', { frameKey, availableFrames: Object.keys(standardModelKeypoints.frames) })
+      }
+    } else {
+      // 警告は一度だけ表示（大量のログを防ぐため）
+      if (standardModelFrameIndex === 0) {
+        console.warn('⚠️ 標準モデル描画スキップ:', {
+          hasStandardModelKeypoints: !!standardModelKeypoints,
+          standardModelFrameIndex
+        })
+      }
+    }
+    
+    if (frameData && frameData.landmarks_detected) {
       // リアルタイムで絶対角度を計算・更新
       const absoluteAngles = extractAbsoluteAnglesFromFrame(frameData.keypoints)
       setCurrentAbsoluteAngles(absoluteAngles)
@@ -662,7 +855,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
         right_foot_angle: null
       })
     }
-  }
+  }, [poseData, showSkeleton, standardModelKeypoints, standardModelFrameIndex, problematicAngles])
   
   // 動画のリサイズ処理
   const handleVideoResize = () => {
@@ -675,6 +868,223 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
       updateCanvas()
     }
   }
+  
+  // 標準モデルキーポイントデータを取得
+  useEffect(() => {
+    const fetchStandardModelKeypoints = async () => {
+      try {
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+        console.log('📥 標準モデルキーポイントデータを取得中...')
+        const response = await fetch('/api/feature_extraction/standard_model/keypoints')
+        if (!response.ok) {
+          throw new Error(`API呼び出しエラー: ${response.status}`)
+        }
+        const data: StandardModelKeypoints = await response.json()
+        console.log('✅ 標準モデルキーポイントデータ取得成功:', {
+          total_frames: data.total_frames,
+          is_cycle: data.is_cycle,
+          note: data.note
+        })
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+        setStandardModelKeypoints(data)
+      } catch (error) {
+        console.error('❌ 標準モデルキーポイントデータの取得に失敗:', error)
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+      }
+    }
+    
+    fetchStandardModelKeypoints()
+  }, [])
+  
+  // ユーザーのランニング1周期を抽出
+  useEffect(() => {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    console.log('🔄 ユーザー1周期抽出開始:', {
+      hasZScoreAnalysis: !!zScoreAnalysis,
+      zScoreAnalysisType: typeof zScoreAnalysis,
+      hasSelectedCycle: !!zScoreAnalysis?.selected_cycle,
+      hasPoseData: !!poseData.pose_data?.length,
+      poseDataLength: poseData.pose_data?.length || 0
+    })
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    
+    if (!poseData.pose_data || !poseData.pose_data.length) {
+      console.warn('⚠️ pose_dataが空です')
+      setUserCycleFrames([])
+      return
+    }
+    
+    let finalFrames: FramePoseData[] = []
+    
+    // 方法1: zScoreAnalysis.selected_cycleから抽出
+    if (zScoreAnalysis?.selected_cycle) {
+      const { start_frame, end_frame } = zScoreAnalysis.selected_cycle
+      console.log('🔍 selected_cycleから抽出を試みます:', { start_frame, end_frame })
+      
+      // フレーム番号でフィルタリング
+      const cycleFrames = poseData.pose_data.filter(
+        frame => frame.frame_number >= start_frame && frame.frame_number <= end_frame
+      )
+      
+      if (cycleFrames.length > 0) {
+        finalFrames = cycleFrames
+        console.log('✅ selected_cycleから抽出成功:', {
+          start_frame,
+          end_frame,
+          cycleFramesCount: finalFrames.length
+        })
+      } else {
+        // フレーム番号が見つからない場合、インデックスベースで試す
+        console.log('⚠️ フレーム番号でマッチしませんでした。インデックスベースで試します')
+        const startIdx = Math.min(start_frame, poseData.pose_data.length - 1)
+        const endIdx = Math.min(end_frame, poseData.pose_data.length - 1)
+        finalFrames = poseData.pose_data.slice(startIdx, endIdx + 1)
+        console.log('✅ インデックスベースで抽出成功:', {
+          startIdx,
+          endIdx,
+          cycleFramesCount: finalFrames.length
+        })
+      }
+    }
+    
+    // 方法2: selected_cycleが存在しない場合、最初の200フレームをフォールバックとして使用
+    if (finalFrames.length === 0) {
+      const fallbackFrameCount = 200
+      const availableFrames = Math.min(fallbackFrameCount, poseData.pose_data.length)
+      finalFrames = poseData.pose_data.slice(0, availableFrames)
+      console.log('📋 フォールバック: 最初の200フレームを使用:', {
+        fallbackFrameCount: availableFrames,
+        totalFrames: poseData.pose_data.length,
+        firstFrameNumber: finalFrames[0]?.frame_number,
+        lastFrameNumber: finalFrames[finalFrames.length - 1]?.frame_number
+      })
+    }
+    
+    console.log('✅ ユーザー1周期を抽出完了:', {
+      cycleFramesCount: finalFrames.length,
+      totalFrames: poseData.pose_data.length,
+      firstFrameNumber: finalFrames[0]?.frame_number,
+      lastFrameNumber: finalFrames[finalFrames.length - 1]?.frame_number
+    })
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    
+    setUserCycleFrames(finalFrames)
+  }, [zScoreAnalysis, poseData.pose_data])
+  
+  // zScoreAnalysisの構造を初期化時に一度だけ表示
+  useEffect(() => {
+    if (zScoreAnalysis) {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+      console.log('🔍 zScoreAnalysisの構造:', {
+        hasSelectedCycle: !!zScoreAnalysis.selected_cycle,
+        hasEventsDetected: !!zScoreAnalysis.events_detected,
+        selectedCycle: zScoreAnalysis.selected_cycle,
+        eventsDetected: zScoreAnalysis.events_detected,
+        fullStructure: zScoreAnalysis
+      })
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    } else {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+      console.log('⚠️ zScoreAnalysisが提供されていません')
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    }
+  }, [zScoreAnalysis])
+  
+  // 標準モデル骨格を描画（updateCanvas内で処理済み）
+  
+  
+  
+  // 標準モデルとユーザー1周期を同期してループ再生
+  useEffect(() => {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    console.log('🔄 アニメーションループ初期化:', {
+      hasStandardModelKeypoints: !!standardModelKeypoints,
+      hasUserCycleFrames: !!userCycleFrames.length,
+      userCycleFramesCount: userCycleFrames.length,
+      standardModelTotalFrames: standardModelKeypoints?.total_frames
+    })
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    
+    if (!standardModelKeypoints) {
+      console.warn('⚠️ 標準モデルキーポイントがありません')
+      return
+    }
+    
+    const totalStandardFrames = standardModelKeypoints.total_frames
+    const totalUserFrames = userCycleFrames.length || 1 // 0除算を防ぐ
+    
+    // ペースを合わせる：標準モデルとユーザー1周期が同じ時間で1周期を完了するように調整
+    // 標準モデル：101フレーム、ユーザー1周期：200フレームの場合
+    // ユーザー1周期を標準モデルのペースに合わせる（速度を約2倍に）
+    const standardCycleDuration = totalStandardFrames // 標準モデルの周期（フレーム数）
+    const userCycleDuration = totalUserFrames // ユーザー1周期の周期（フレーム数）
+    
+    // 速度比を計算（標準モデルを基準に）
+    const speedRatio = userCycleDuration / standardCycleDuration
+    
+    console.log('✅ アニメーション開始:', { 
+      totalStandardFrames, 
+      totalUserFrames,
+      standardCycleDuration,
+      userCycleDuration,
+      speedRatio,
+      willAnimateStandard: true,
+      willAnimateUser: totalUserFrames > 0,
+      note: `標準モデルを基準に、ユーザー1周期は${speedRatio.toFixed(2)}倍の速度で再生されます`
+    })
+    
+    let animationFrameId: number
+    let startTime = Date.now()
+    const fps = 30 // アニメーションのフレームレート
+    let lastStandardFrame = -1
+    let lastUserFrame = -1
+    
+    const animate = () => {
+      const elapsed = Date.now() - startTime
+      const frameTime = 1000 / fps
+      const currentFrame = Math.floor(elapsed / frameTime)
+      
+      // 標準モデルのフレームインデックス（ループ）
+      const standardFrame = currentFrame % totalStandardFrames
+      if (standardFrame !== lastStandardFrame) {
+        setStandardModelFrameIndex(standardFrame)
+        lastStandardFrame = standardFrame
+      }
+      
+      // ユーザー1周期のフレームインデックス（ループ、速度を調整）
+      if (totalUserFrames > 0) {
+        // 標準モデルと同じ時間で1周期を完了するように、速度を調整
+        // 例：標準モデルが101フレーム、ユーザーが200フレームの場合
+        // ユーザーは標準モデルの約2倍の速度で再生される
+        const adjustedFrame = Math.floor(currentFrame * speedRatio) % totalUserFrames
+        if (adjustedFrame !== lastUserFrame) {
+          setUserCycleFrameIndex(adjustedFrame)
+          lastUserFrame = adjustedFrame
+        }
+      }
+      
+      animationFrameId = requestAnimationFrame(animate)
+    }
+    
+    animate()
+    
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
+      }
+    }
+  }, [standardModelKeypoints, userCycleFrames])
+  
+  // 標準モデルフレームインデックスが変更されたときにキャンバスを更新
+  useEffect(() => {
+    drawStandardModelSkeleton()
+  }, [standardModelFrameIndex, drawStandardModelSkeleton])
+  
+  // ユーザー1周期フレームインデックスが変更されたときにキャンバスを更新
+  useEffect(() => {
+    drawUserCycleSkeleton()
+  }, [userCycleFrameIndex, drawUserCycleSkeleton])
+  
   
   useEffect(() => {
     const video = videoRef.current
@@ -702,252 +1112,55 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   }, [videoUrl])
   
   return (
-    <div className={`${className}`}>
-      {/* グレースケールトグルボタン */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-gray-600">
-          キーポイントを目立たせるには、グレースケール表示がおすすめです
+    <div className={`${className} space-y-6`}>
+      {/* 上段：撮影した動画のリプレイ */}
+      <div>
+        <h3 className="text-lg font-semibold mb-2">撮影した動画のリプレイ</h3>
+        <div className="relative inline-block w-full">
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            controls
+            className={`w-full rounded-lg shadow-lg ${isGrayscale ? 'grayscale-video' : ''}`}
+            style={{
+              filter: isGrayscale ? 'grayscale(100%)' : 'none',
+              transition: 'filter 0.3s ease'
+            }}
+            onLoadedMetadata={handleVideoResize}
+            preload="metadata"
+          >
+            お使いのブラウザは動画の再生をサポートしていません。
+          </video>
         </div>
-        <button
-          onClick={() => setIsGrayscale(!isGrayscale)}
-          className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors duration-200"
-        >
-          {isGrayscale ? (
-            <>
-              <span className="text-gray-600">⚫</span>
-              <span className="text-sm font-medium">グレースケール</span>
-            </>
-          ) : (
-            <>
-              <span className="text-blue-600">🎨</span>
-              <span className="text-sm font-medium">カラー</span>
-            </>
-          )}
-        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 動画エリア */}
-        <div className="lg:col-span-2">
-          <div className="relative inline-block w-full">
-            <video
-              ref={videoRef}
-              src={videoUrl}
-              controls
-              className={`w-full rounded-lg shadow-lg ${isGrayscale ? 'grayscale-video' : ''}`}
-              style={{
-                filter: isGrayscale ? 'grayscale(100%)' : 'none',
-                transition: 'filter 0.3s ease'
-              }}
-              onLoadedMetadata={handleVideoResize}
-              preload="metadata"
-            >
-              お使いのブラウザは動画の再生をサポートしていません。
-            </video>
-            
-            <canvas
-              ref={canvasRef}
-              className="absolute top-0 left-0 pointer-events-none rounded-lg"
-              style={{ zIndex: 10 }}
-            />
-          </div>
-        </div>
-
-                {/* リアルタイム関節角度表示エリア - 開発環境でのみ表示 */}
-                {false && (
-          <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <h3 className="text-lg font-semibold mb-4 text-gray-800 border-b pb-2">
-              リアルタイム関節角度
-            </h3>
-            
-            <div className="space-y-4">
-              {/* 角度表示 */}
-              <div className="bg-blue-50 rounded-lg p-3 text-center">
-                <h4 className="font-bold text-blue-800 mb-2">リアルタイム角度</h4>
-                
-                {/* 体幹角度 */}
-                <div className="bg-green-50 rounded-lg p-3 mb-2">
-                  <h5 className="font-medium text-green-800 mb-1">体幹角度</h5>
-                  <div className="text-lg font-bold text-green-600">
-                    {currentAbsoluteAngles.trunk_angle !== null ? 
-                      `${currentAbsoluteAngles.trunk_angle.toFixed(1)}°` : 
-                      '計算中...'}
-                  </div>
-                </div>
-
-                {/* 大腿角度 */}
-                <div className="bg-purple-50 rounded-lg p-3 mb-2">
-                  <h5 className="font-medium text-purple-800 mb-1">大腿角度</h5>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="text-gray-600">左:</span>
-                      <div className="font-bold text-purple-600">
-                        {currentAbsoluteAngles.left_thigh_angle !== null ? 
-                          `${currentAbsoluteAngles.left_thigh_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">右:</span>
-                      <div className="font-bold text-purple-600">
-                        {currentAbsoluteAngles.right_thigh_angle !== null ? 
-                          `${currentAbsoluteAngles.right_thigh_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 下腿角度 */}
-                <div className="bg-indigo-50 rounded-lg p-3 mb-2">
-                  <h5 className="font-medium text-indigo-800 mb-1">下腿角度</h5>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="text-gray-600">左:</span>
-                      <div className="font-bold text-indigo-600">
-                        {currentAbsoluteAngles.left_lower_leg_angle !== null ? 
-                          `${currentAbsoluteAngles.left_lower_leg_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">右:</span>
-                      <div className="font-bold text-indigo-600">
-                        {currentAbsoluteAngles.right_lower_leg_angle !== null ? 
-                          `${currentAbsoluteAngles.right_lower_leg_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 上腕角度 - 新規追加 */}
-                <div className="bg-orange-50 rounded-lg p-3 mb-2">
-                  <h5 className="font-medium text-orange-800 mb-1">上腕角度</h5>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="text-gray-600">左:</span>
-                      <div className="font-bold text-orange-600">
-                        {currentAbsoluteAngles.left_upper_arm_angle !== null ? 
-                          `${currentAbsoluteAngles.left_upper_arm_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">右:</span>
-                      <div className="font-bold text-orange-600">
-                        {currentAbsoluteAngles.right_upper_arm_angle !== null ? 
-                          `${currentAbsoluteAngles.right_upper_arm_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 前腕角度 - 新規追加 */}
-                <div className="bg-yellow-50 rounded-lg p-3 mb-2">
-                  <h5 className="font-medium text-yellow-800 mb-1">前腕角度</h5>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="text-gray-600">左:</span>
-                      <div className="font-bold text-yellow-600">
-                        {currentAbsoluteAngles.left_forearm_angle !== null ? 
-                          `${currentAbsoluteAngles.left_forearm_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">右:</span>
-                      <div className="font-bold text-yellow-600">
-                        {currentAbsoluteAngles.right_forearm_angle !== null ? 
-                          `${currentAbsoluteAngles.right_forearm_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 足部角度 - 新規追加 */}
-                <div className="bg-pink-50 rounded-lg p-3">
-                  <h5 className="font-medium text-pink-800 mb-1">足部角度</h5>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="text-gray-600">左:</span>
-                      <div className="font-bold text-pink-600">
-                        {currentAbsoluteAngles.left_foot_angle !== null ? 
-                          `${currentAbsoluteAngles.left_foot_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">右:</span>
-                      <div className="font-bold text-pink-600">
-                        {currentAbsoluteAngles.right_foot_angle !== null ? 
-                          `${currentAbsoluteAngles.right_foot_angle.toFixed(1)}°` : 
-                          '--'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* フレーム情報 */}
-              <div className="bg-gray-50 rounded-lg p-3 mt-4">
-                <h4 className="font-medium text-gray-600 mb-2">フレーム情報</h4>
-                <div className="text-sm space-y-1">
-                  <div>フレーム: {currentFrame}</div>
-                  <div>時刻: {(currentFrame / (poseData.video_info.fps || 30)).toFixed(2)}秒</div>
-                  <div>
-                    骨格検出: {getCurrentFrameData()?.landmarks_detected ? 
-                      <span className="text-green-600 font-medium">検出中</span> : 
-                      <span className="text-red-600 font-medium">未検出</span>}
-                  </div>
-                </div>
-              </div>
+      {/* 下段：棒人間同士の比較 */}
+      <div>
+        <h3 className="text-lg font-semibold mb-2">棒人間同士の比較</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 左：標準モデルの棒人間 */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-600 mb-2">標準モデル</h4>
+            <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
+              <canvas
+                ref={standardModelCanvasRef}
+                className="absolute top-0 left-0 w-full h-full rounded-lg"
+              />
             </div>
           </div>
-        </div>
-        )}
-      </div>
-
-      {/* 解析情報パネル - 開発環境でのみ表示 */}
-      {false && process.env.NODE_ENV === 'development' && (
-        <div className="mt-4 bg-gray-50 rounded-lg p-4">
-          <h3 className="text-lg font-semibold mb-3">骨格解析結果（開発環境のみ）</h3>
           
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="bg-white rounded p-3">
-              <h4 className="font-medium text-gray-700 mb-2">動画情報</h4>
-              <div className="text-sm space-y-1">
-                <div>解像度: {poseData.video_info.width} × {poseData.video_info.height}</div>
-                <div>フレームレート: {poseData.video_info.fps.toFixed(1)} FPS</div>
-                <div>総フレーム数: {poseData.video_info.total_frames}</div>
-                <div>動画時間: {poseData.video_info.duration_seconds.toFixed(1)}秒</div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded p-3">
-              <h4 className="font-medium text-gray-700 mb-2">検出統計</h4>
-              <div className="text-sm space-y-1">
-                <div>検出フレーム: {poseData.summary.detected_pose_frames}</div>
-                <div>検出率: {(poseData.summary.detection_rate * 100).toFixed(1)}%</div>
-                <div>平均信頼度: {(poseData.summary.average_confidence * 100).toFixed(1)}%</div>
-                <div>ランドマーク数: {poseData.summary.mediapipe_landmarks_count}</div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded p-3">
-              <h4 className="font-medium text-gray-700 mb-2">現在のフレーム</h4>
-              <div className="text-sm space-y-1">
-                <div>フレーム番号: {currentFrame}</div>
-                <div>時刻: {(currentFrame / (poseData.video_info.fps || 30)).toFixed(2)}秒</div>
-                <div>骨格検出: {getCurrentFrameData()?.landmarks_detected ? 'あり' : 'なし'}</div>
-              </div>
+          {/* 右：ユーザーのランニング1周期を棒人間化 */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-600 mb-2">あなたの走り（1周期）</h4>
+            <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
+              <canvas
+                ref={userCycleCanvasRef}
+                className="absolute top-0 left-0 w-full h-full rounded-lg"
+              />
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 } 
