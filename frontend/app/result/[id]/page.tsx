@@ -1719,7 +1719,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                   ランニングメトリクス
                 </CardTitle>
                 <div className="text-sm text-muted-foreground mt-1">
-                  重心上下動とピッチ（ケイデンス）
+                  重心上下動
                 </div>
               </CardHeader>
               <CardContent className="flex-1">
@@ -1740,8 +1740,8 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                       </div>
                     )}
                     
-                    {/* ピッチ（ケイデンス） */}
-                    {(result.feature_analysis.features as any)?.running_metrics?.pitch && (
+                    {/* ピッチ（ケイデンス） - 一時的に非表示 */}
+                    {/* {(result.feature_analysis.features as any)?.running_metrics?.pitch && (
                       <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
                         <div className="text-lg font-bold text-blue-700">
                           ピッチ: {((result.feature_analysis.features as any).running_metrics.pitch).toFixed(0)} SPM
@@ -1753,7 +1753,7 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                           理想値: 180 SPM前後
                         </div>
           </div>
-                    )}
+                    )} */}
                     
                     {/* 角度参照図 - アコーディオン形式 */}
                     <div className="mt-6 border rounded-lg bg-white">
@@ -1868,7 +1868,6 @@ export default function ResultPage({ params }: { params: { id: string } }) {
                     
                     {/* データが不足している場合（すべてのメトリクスがない場合のみ） */}
                     {!(result.feature_analysis.features as any)?.running_metrics?.vertical_oscillation && 
-                     !(result.feature_analysis.features as any)?.running_metrics?.pitch &&
                      !result.feature_analysis.features.cadence &&
                      !result.feature_analysis.features.stride_length &&
                      !result.feature_analysis.features.contact_time && (
