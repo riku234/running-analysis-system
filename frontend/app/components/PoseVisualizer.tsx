@@ -536,12 +536,20 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   const canvasRef = useRef<HTMLCanvasElement>(null) // 上段の動画用（骨格表示なし）
   const standardModelCanvasRef = useRef<HTMLCanvasElement>(null) // 下段左：標準モデル用
   const userCycleCanvasRef = useRef<HTMLCanvasElement>(null) // 下段右：ユーザー1周期用
+  // 描画スケール固定用（初期フレームの体幹長から決定）
+  const standardModelScaleRef = useRef<number | null>(null)
+  const userCycleScaleRef = useRef<number | null>(null)
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isGrayscale, setIsGrayscale] = useState(false) // グレースケール状態
   const [standardModelKeypoints, setStandardModelKeypoints] = useState<StandardModelKeypoints | null>(null)
   const [standardModelFrameIndex, setStandardModelFrameIndex] = useState(0)
   const [userCycleFrameIndex, setUserCycleFrameIndex] = useState(0) // ユーザー1周期のフレームインデックス
   const [userCycleFrames, setUserCycleFrames] = useState<FramePoseData[]>([]) // ユーザーの1周期のフレームデータ
+  
+  // ペース同期用：着地タイミングの記録
+  const [leftStrikeTime, setLeftStrikeTime] = useState<number | null>(null) // 左足着地のタイミング（秒）
+  const [rightStrikeTime, setRightStrikeTime] = useState<number | null>(null) // 右足着地のタイミング（秒）
+  const [isManualSyncEnabled, setIsManualSyncEnabled] = useState(false) // 手動同期が有効かどうか
   const [currentAbsoluteAngles, setCurrentAbsoluteAngles] = useState<AbsoluteAngles>({
     // 既存角度
     trunk_angle: null,
@@ -557,6 +565,90 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     left_foot_angle: null,
     right_foot_angle: null
   })
+  
+  // 体幹長に基づいてスケールを固定し、巨大化や縮小を防ぐ
+  // keypoints: 0〜1正規化座標のMediaPipeランドマーク
+  // scaleState.current に一度だけ決定したスケールを保持する
+  const getScaledKeypointsWithFixedTorso = (
+    keypoints: KeyPoint[],
+    scaleState: { current: number | null }
+  ): KeyPoint[] => {
+    if (!keypoints || keypoints.length === 0) return keypoints
+
+    const leftHip = keypoints[LANDMARK_INDICES.left_hip]
+    const rightHip = keypoints[LANDMARK_INDICES.right_hip]
+    const leftShoulder = keypoints[LANDMARK_INDICES.left_shoulder]
+    const rightShoulder = keypoints[LANDMARK_INDICES.right_shoulder]
+
+    // 体幹がきちんと取れていない場合はスケール固定を行わない
+    if (!leftHip || !rightHip || !leftShoulder || !rightShoulder) return keypoints
+
+    const hipCenterX = (leftHip.x + rightHip.x) / 2
+    const hipCenterY = (leftHip.y + rightHip.y) / 2
+    const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2
+    const torsoLength = Math.abs(hipCenterY - shoulderCenterY)
+
+    // 体幹長の妥当性チェック（異常に小さい値や大きすぎる値を除外）
+    const MIN_TORSO_LENGTH = 0.05  // 最小体幹長（画面の5%）
+    const MAX_TORSO_LENGTH = 0.8   // 最大体幹長（画面の80%）
+    
+    if (!Number.isFinite(torsoLength) || torsoLength <= 0 || 
+        torsoLength < MIN_TORSO_LENGTH || torsoLength > MAX_TORSO_LENGTH) {
+      // スケールが既に決定されている場合は、そのまま使用
+      if (scaleState.current != null) {
+        console.warn('⚠️ 体幹長が異常値ですが、既存のスケールを使用します:', {
+          torsoLength,
+          currentScale: scaleState.current
+        })
+      } else {
+        // スケールが未決定の場合は、スケール固定を行わない
+        console.warn('⚠️ 体幹長が異常値のため、スケール固定をスキップします:', {
+          torsoLength,
+          min: MIN_TORSO_LENGTH,
+          max: MAX_TORSO_LENGTH
+        })
+        return keypoints
+      }
+    }
+
+    // キャンバス高さに対して体幹長が約35%になるようにスケールを固定
+    const TARGET_TORSO_LENGTH_NORMALIZED = 0.35
+
+    if (scaleState.current == null) {
+      const rawScale = TARGET_TORSO_LENGTH_NORMALIZED / torsoLength
+      // 極端な拡大・縮小を防ぐためにスケールに上下限を設ける（より厳しく）
+      // 0.5〜2.0の範囲に制限（以前は0.3〜3.0だったが、巨大化を防ぐため厳しく）
+      const clampedScale = Math.min(2.0, Math.max(0.5, rawScale))
+      scaleState.current = clampedScale
+      console.log('🎚 体幹長ベースの描画スケール決定:', {
+        torsoLength: torsoLength.toFixed(4),
+        rawScale: rawScale.toFixed(4),
+        clampedScale: clampedScale.toFixed(4),
+        note: 'スケールは0.5〜2.0の範囲に制限されています'
+      })
+    }
+
+    const scale = scaleState.current ?? 1
+
+    // 体幹の中心（腰の中心）を基準にスケーリング
+    return keypoints.map((kp, index) => {
+      if (!kp) return kp
+      // visibility が極端に低い点はそのままにしておく
+      if (kp.visibility !== undefined && kp.visibility < 0.05) return kp
+
+      const dx = kp.x - hipCenterX
+      const dy = kp.y - hipCenterY
+
+      const scaledX = hipCenterX + dx * scale
+      const scaledY = hipCenterY + dy * scale
+
+      return {
+        ...kp,
+        x: scaledX,
+        y: scaledY
+      }
+    })
+  }
   
   // 動画の現在時刻から対応するフレームを取得
   const getCurrentFrameData = (): FramePoseData | null => {
@@ -696,8 +788,9 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     
-    // 標準モデルを描画（青色）
-    drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height, 0, {
+    // 標準モデルを描画（青色）- 体幹長ベースの固定スケールを適用
+    const scaledKeypoints = getScaledKeypointsWithFixedTorso(frameData.keypoints, standardModelScaleRef)
+    drawKeypoints(ctx, scaledKeypoints, canvas.width, canvas.height, 0, {
       point: '#3b82f6',
       line: '#3b82f6'
     })
@@ -737,8 +830,9 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     
-    // ユーザー1周期を描画（赤色）
-    drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height, 0, {
+    // ユーザー1周期を描画（赤色）- 体幹長ベースの固定スケールを適用
+    const scaledKeypoints = getScaledKeypointsWithFixedTorso(frameData.keypoints, userCycleScaleRef)
+    drawKeypoints(ctx, scaledKeypoints, canvas.width, canvas.height, 0, {
       point: '#ef4444',
       line: '#ef4444'
     })
@@ -810,7 +904,9 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
             standardModelFrameIndex
           })
         }
-        drawKeypoints(ctx, standardModelFrame.keypoints, canvas.width, canvas.height, xOffset, { point: '#6699ff', line: '#6699ff' })
+        // 上段オーバーレイ用の標準モデル描画にも同じ固定スケールを適用
+        const scaledStandardKeypoints = getScaledKeypointsWithFixedTorso(standardModelFrame.keypoints, standardModelScaleRef)
+        drawKeypoints(ctx, scaledStandardKeypoints, canvas.width, canvas.height, xOffset, { point: '#6699ff', line: '#6699ff' })
       } else {
         console.warn('⚠️ 標準モデルフレームデータが見つかりません:', { frameKey, availableFrames: Object.keys(standardModelKeypoints.frames) })
       }
@@ -1001,7 +1097,10 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
       hasStandardModelKeypoints: !!standardModelKeypoints,
       hasUserCycleFrames: !!userCycleFrames.length,
       userCycleFramesCount: userCycleFrames.length,
-      standardModelTotalFrames: standardModelKeypoints?.total_frames
+      standardModelTotalFrames: standardModelKeypoints?.total_frames,
+      isManualSyncEnabled,
+      leftStrikeTime,
+      rightStrikeTime
     })
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     
@@ -1014,24 +1113,36 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     const totalUserFrames = userCycleFrames.length || 1 // 0除算を防ぐ
     
     // ペースを合わせる：標準モデルとユーザー1周期が同じ時間で1周期を完了するように調整
-    // 標準モデル：101フレーム、ユーザー1周期：200フレームの場合
-    // ユーザー1周期を標準モデルのペースに合わせる（速度を約2倍に）
     const standardCycleDuration = totalStandardFrames // 標準モデルの周期（フレーム数）
     const userCycleDuration = totalUserFrames // ユーザー1周期の周期（フレーム数）
     
-    // 速度比を計算（標準モデルを基準に）
-    const speedRatio = userCycleDuration / standardCycleDuration
-    
-    console.log('✅ アニメーション開始:', { 
-      totalStandardFrames, 
-      totalUserFrames,
-      standardCycleDuration,
-      userCycleDuration,
-      speedRatio,
-      willAnimateStandard: true,
-      willAnimateUser: totalUserFrames > 0,
-      note: `標準モデルを基準に、ユーザー1周期は${speedRatio.toFixed(2)}倍の速度で再生されます`
-    })
+    // 手動同期の場合と自動同期の場合で速度比を計算
+    let speedRatio: number
+    if (isManualSyncEnabled && leftStrikeTime !== null && rightStrikeTime !== null) {
+      // 手動同期：標準モデルとユーザーサイクルを同じアニメーション時間で1周期を完了
+      // userCycleFramesには既に1周期分のフレームが入っているので、その長さを使う
+      // 標準モデルと同じ時間で1周期を完了するように、速度比を計算
+      speedRatio = userCycleDuration / standardCycleDuration
+      console.log('✅ 手動同期アニメーション開始:', {
+        leftStrikeTime: leftStrikeTime.toFixed(3),
+        rightStrikeTime: rightStrikeTime.toFixed(3),
+        standardCycleDuration,
+        userCycleDuration,
+        speedRatio,
+        note: `標準モデルとユーザーサイクルを同じ時間で1周期を完了します（速度比: ${speedRatio.toFixed(2)}）`
+      })
+    } else {
+      // 自動同期：標準モデルを基準に速度比を計算
+      speedRatio = userCycleDuration / standardCycleDuration
+      console.log('✅ 自動同期アニメーション開始:', {
+        totalStandardFrames,
+        totalUserFrames,
+        standardCycleDuration,
+        userCycleDuration,
+        speedRatio,
+        note: `標準モデルを基準に、ユーザー1周期は${speedRatio.toFixed(2)}倍の速度で再生されます`
+      })
+    }
     
     let animationFrameId: number
     let startTime = Date.now()
@@ -1053,9 +1164,8 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
       
       // ユーザー1周期のフレームインデックス（ループ、速度を調整）
       if (totalUserFrames > 0) {
-        // 標準モデルと同じ時間で1周期を完了するように、速度を調整
-        // 例：標準モデルが101フレーム、ユーザーが200フレームの場合
-        // ユーザーは標準モデルの約2倍の速度で再生される
+        // 手動同期の場合、記録されたサイクル長に合わせる
+        // 自動同期の場合、標準モデルと同じ時間で1周期を完了するように速度を調整
         const adjustedFrame = Math.floor(currentFrame * speedRatio) % totalUserFrames
         if (adjustedFrame !== lastUserFrame) {
           setUserCycleFrameIndex(adjustedFrame)
@@ -1073,7 +1183,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
         cancelAnimationFrame(animationFrameId)
       }
     }
-  }, [standardModelKeypoints, userCycleFrames])
+  }, [standardModelKeypoints, userCycleFrames, isManualSyncEnabled, leftStrikeTime, rightStrikeTime, poseData.video_info.fps])
   
   // 標準モデルフレームインデックスが変更されたときにキャンバスを更新
   useEffect(() => {
@@ -1131,6 +1241,88 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
           >
             お使いのブラウザは動画の再生をサポートしていません。
           </video>
+        </div>
+        
+        {/* ペース同期用のUI */}
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-gray-700">ペース同期設定</h4>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isManualSyncEnabled}
+                onChange={(e) => setIsManualSyncEnabled(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-gray-600">手動同期を有効にする</span>
+            </label>
+          </div>
+          
+          {isManualSyncEnabled && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 mb-3">
+                動画を再生し、着地の瞬間に一時停止してボタンを押してください
+              </p>
+              <div className="flex gap-3 flex-wrap">
+                <button
+                  onClick={() => {
+                    if (videoRef.current) {
+                      const currentTime = videoRef.current.currentTime
+                      setLeftStrikeTime(currentTime)
+                      console.log('👟 左足着地を設定:', currentTime.toFixed(3), '秒')
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    leftStrikeTime !== null
+                      ? 'bg-green-500 text-white'
+                      : 'bg-blue-500 text-white hover:bg-blue-600'
+                  }`}
+                >
+                  👟 左足着地を設定
+                  {leftStrikeTime !== null && (
+                    <span className="ml-2 text-xs">({leftStrikeTime.toFixed(2)}秒)</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    if (videoRef.current) {
+                      const currentTime = videoRef.current.currentTime
+                      setRightStrikeTime(currentTime)
+                      console.log('👟 右足着地を設定:', currentTime.toFixed(3), '秒')
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    rightStrikeTime !== null
+                      ? 'bg-green-500 text-white'
+                      : 'bg-blue-500 text-white hover:bg-blue-600'
+                  }`}
+                >
+                  👟 右足着地を設定
+                  {rightStrikeTime !== null && (
+                    <span className="ml-2 text-xs">({rightStrikeTime.toFixed(2)}秒)</span>
+                  )}
+                </button>
+                {(leftStrikeTime !== null || rightStrikeTime !== null) && (
+                  <button
+                    onClick={() => {
+                      setLeftStrikeTime(null)
+                      setRightStrikeTime(null)
+                      console.log('🔄 着地タイミングをリセット')
+                    }}
+                    className="px-4 py-2 rounded-md text-sm font-medium bg-gray-500 text-white hover:bg-gray-600"
+                  >
+                    🔄 リセット
+                  </button>
+                )}
+              </div>
+              {leftStrikeTime !== null && rightStrikeTime !== null && (
+                <div className="mt-2 text-xs text-gray-600">
+                  <p>✅ 両足の着地タイミングが設定されました</p>
+                  <p>1サイクルの長さ: {Math.abs(rightStrikeTime - leftStrikeTime).toFixed(2)}秒</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

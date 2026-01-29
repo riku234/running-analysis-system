@@ -8,6 +8,9 @@ import mediapipe as mp
 import numpy as np
 import os
 import json
+import math
+import csv
+from datetime import datetime
 from pathlib import Path
 
 app = FastAPI(
@@ -61,24 +64,106 @@ class PoseEstimationResponse(BaseModel):
     pose_data: List[FramePoseData]
     summary: Dict[str, Any]
 
+# =============================================================================
+# OneEuroFilter クラス（スムージング用）
+# =============================================================================
+class LowPassFilter:
+    """ローパスフィルタ（1次IIRフィルタ）"""
+    def __init__(self, alpha, init_value=None):
+        self.__setAlpha(alpha)
+        self.y = init_value
+        self.s = init_value
+
+    def __setAlpha(self, alpha):
+        alpha = float(alpha)
+        if alpha <= 0 or alpha > 1.0:
+            self.alpha = 1.0  # フィルタなし
+        else:
+            self.alpha = alpha
+
+    def filter(self, value, alpha=None):
+        if alpha is not None:
+            self.__setAlpha(alpha)
+        if self.s is None:
+            self.s = value
+        else:
+            self.s = self.alpha * value + (1.0 - self.alpha) * self.s
+        return self.s
+
+class OneEuroFilter:
+    """1€ Filter（リアルタイムスムージング用）"""
+    def __init__(self, t0, x0, min_cutoff=1.0, beta=0.0, d_cutoff=1.0):
+        """
+        Args:
+            t0: 初期タイムスタンプ（秒）
+            x0: 初期値
+            min_cutoff: 低速時の最小カットオフ周波数（低いほど滑らかだが遅延増）
+            beta: 速度係数（高いほど高速動作時の追従性が良くなる＝遅延減）
+            d_cutoff: 微分フィルタのカットオフ周波数
+        """
+        self.frequency = 0.0
+        self.min_cutoff = float(min_cutoff)
+        self.beta = float(beta)
+        self.d_cutoff = float(d_cutoff)
+        self.x_filter = LowPassFilter(self.alpha(min_cutoff))
+        self.dx_filter = LowPassFilter(self.alpha(d_cutoff))
+        self.t_prev = t0
+        self.x_filter.s = x0
+        self.dx_filter.s = 0
+
+    def alpha(self, cutoff):
+        """カットオフ周波数からアルファ値を計算"""
+        if self.frequency <= 0:
+            return 1.0
+        te = 1.0 / self.frequency
+        tau = 1.0 / (2 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / te)
+
+    def process(self, t, x):
+        """フィルタ処理を実行"""
+        t_e = t - self.t_prev
+
+        # タイムスタンプが更新されていない、または異常な場合のガード処理
+        if t_e <= 0.0:
+            return self.x_filter.s if self.x_filter.s is not None else x
+            
+        self.frequency = 1.0 / t_e
+        self.t_prev = t
+        
+        # 微分（速度）の計算とフィルタリング
+        dx = (x - self.x_filter.s) * self.frequency
+        edx = self.dx_filter.filter(dx, self.alpha(self.d_cutoff))
+        
+        # 速度に応じたカットオフ周波数の動的調整
+        cutoff = self.min_cutoff + self.beta * abs(edx)
+        return self.x_filter.filter(x, self.alpha(cutoff))
+
 @app.get("/")
 async def health_check():
     """サービスヘルスチェック"""
     return {"status": "healthy", "service": "pose_estimation"}
 
-def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5) -> PoseEstimationResponse:
+def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, enable_debug_log: bool = True) -> PoseEstimationResponse:
     """
     動画ファイルから骨格キーポイントを抽出する
     
     Args:
         video_path: 動画ファイルのパス
         confidence_threshold: 信頼度の閾値
+        enable_debug_log: デバッグログを出力するかどうか
         
     Returns:
         骨格キーポイントの検出結果
     """
     if not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail=f"動画ファイルが見つかりません: {video_path}")
+    
+    # デバッグログ用のデータ保存
+    debug_data = {
+        'raw_mediapipe': [],  # MediaPipeの生データ
+        'filtered_oneeuro': [],  # OneEuroFilter後のデータ
+        'timestamps': []
+    }
     
     # OpenCVで動画を開く
     cap = cv2.VideoCapture(video_path)
@@ -101,10 +186,29 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5) 
     pose_data_list = []
     frame_number = 0
     
-    # フレーム間スムージング用のバッファ（複数フレームの移動平均）
-    keypoint_history = []  # 過去Nフレームのキーポイントを保存
-    history_size = 5  # 過去5フレームを使用
-    smoothing_alpha = 0.6  # スムージング係数を調整（より安定性重視）
+    # OneEuroFilter用のフィルタ辞書（33個のランドマーク × 3次元(x,y,z)）
+    # キー: ランドマークインデックス, 値: {'x': OneEuroFilter, 'y': OneEuroFilter, 'z': OneEuroFilter}
+    filters = {}
+    
+    # Outlier Rejection用：前回の良好な座標を保持
+    # キー: ランドマークインデックス, 値: {'x': float, 'y': float, 'z': float}
+    last_valid_landmarks = {}
+    
+    # Outlier Rejection用：連続異常値カウンター
+    # キー: ランドマークインデックス, 値: 連続異常値のフレーム数
+    outlier_count = {}
+    
+    # ID Switch検出と構造的制約チェック用の履歴（過去2フレームのみ保持）
+    keypoint_history = []
+    
+    # OneEuroFilterのパラメータ（ランニングは動きが速いので beta を少し大きめに設定）
+    MIN_CUTOFF = 0.5  # 静止時のブレ軽減（滑らか重視）
+    BETA = 0.01       # 動き出しの反応速度（ラグより滑らかさ優先）
+    D_CUTOFF = 1.0    # 微分フィルタのカットオフ周波数
+    
+    # Outlier Rejectionのパラメータ
+    JUMP_THRESHOLD = 0.1  # 1フレームでこれ以上動いたら「異常」とみなす（画面の10%）
+    MAX_CONSECUTIVE_OUTLIERS = 5  # 連続して異常値が出続ける場合の最大フレーム数（これを超えたら強制更新）
     
     # MediaPipe Poseの初期化（精度向上のため設定を最適化）
     with mp_pose.Pose(
@@ -165,17 +269,92 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5) 
                 landmarks_detected = True
                 confidence_scores = []
                 
-                # 各ランドマークのキーポイントを抽出
+                # 各ランドマークのキーポイントを抽出（Outlier Rejection → OneEuroFilterでスムージング）
                 current_keypoints = []
-                for landmark in results.pose_landmarks.landmark:
+                raw_keypoints_frame = []  # デバッグ用：MediaPipeの生データ
+                filtered_keypoints_frame = []  # デバッグ用：OneEuroFilter後のデータ
+                
+                for i, landmark in enumerate(results.pose_landmarks.landmark):
+                    # MediaPipeの生データを保存（デバッグ用）
+                    if enable_debug_log:
+                        raw_keypoints_frame.append({
+                            'index': i,
+                            'x': landmark.x,
+                            'y': landmark.y,
+                            'z': landmark.z,
+                            'visibility': landmark.visibility
+                        })
+                    
+                    # Outlier Rejection: 異常な「飛び」を検出して前回の値を採用
+                    processed_x, processed_y, processed_z = landmark.x, landmark.y, landmark.z
+                    
+                    if i not in last_valid_landmarks:
+                        # 初回フレームはそのまま採用
+                        last_valid_landmarks[i] = {'x': landmark.x, 'y': landmark.y, 'z': landmark.z}
+                        outlier_count[i] = 0
+                    else:
+                        prev = last_valid_landmarks[i]
+                        
+                        # 移動距離（ユークリッド距離の簡易版）をチェック
+                        dist = abs(landmark.x - prev['x']) + abs(landmark.y - prev['y'])
+                        
+                        if dist > JUMP_THRESHOLD:
+                            # 異常な飛びを検知
+                            outlier_count[i] = outlier_count.get(i, 0) + 1
+                            
+                            # 連続して異常値が出続ける場合の対策
+                            if outlier_count[i] >= MAX_CONSECUTIVE_OUTLIERS:
+                                # 強制更新（検出が完全に失敗している可能性があるため）
+                                last_valid_landmarks[i] = {'x': landmark.x, 'y': landmark.y, 'z': landmark.z}
+                                outlier_count[i] = 0
+                                processed_x, processed_y, processed_z = landmark.x, landmark.y, landmark.z
+                            else:
+                                # 前回の値を維持（フリーズ）
+                                processed_x, processed_y, processed_z = prev['x'], prev['y'], prev['z']
+                        else:
+                            # 正常範囲なら更新
+                            last_valid_landmarks[i] = {'x': landmark.x, 'y': landmark.y, 'z': landmark.z}
+                            outlier_count[i] = 0
+                    
+                    # OneEuroFilterでスムージング（Outlier Rejection後の値を使用）
+                    if i not in filters:
+                        # フィルタが存在しない場合は初期化
+                        filters[i] = {
+                            'x': OneEuroFilter(timestamp, processed_x, min_cutoff=MIN_CUTOFF, beta=BETA, d_cutoff=D_CUTOFF),
+                            'y': OneEuroFilter(timestamp, processed_y, min_cutoff=MIN_CUTOFF, beta=BETA, d_cutoff=D_CUTOFF),
+                            'z': OneEuroFilter(timestamp, processed_z, min_cutoff=MIN_CUTOFF, beta=BETA, d_cutoff=D_CUTOFF)
+                        }
+                        smoothed_x, smoothed_y, smoothed_z = processed_x, processed_y, processed_z
+                    else:
+                        # フィルタ処理の実行（Outlier Rejection後の値を使用）
+                        smoothed_x = filters[i]['x'].process(timestamp, processed_x)
+                        smoothed_y = filters[i]['y'].process(timestamp, processed_y)
+                        smoothed_z = filters[i]['z'].process(timestamp, processed_z)
+                    
+                    # OneEuroFilter後のデータを保存（デバッグ用）
+                    if enable_debug_log:
+                        filtered_keypoints_frame.append({
+                            'index': i,
+                            'x': smoothed_x,
+                            'y': smoothed_y,
+                            'z': smoothed_z,
+                            'visibility': landmark.visibility
+                        })
+                    
                     keypoint = KeyPoint(
-                        x=landmark.x,
-                        y=landmark.y,
-                        z=landmark.z,
+                        x=smoothed_x,
+                        y=smoothed_y,
+                        z=smoothed_z,
                         visibility=landmark.visibility
                     )
                     current_keypoints.append(keypoint)
                     confidence_scores.append(landmark.visibility)
+                
+                # デバッグデータを保存
+                if enable_debug_log:
+                    debug_data['raw_mediapipe'].append(raw_keypoints_frame)
+                    debug_data['filtered_oneeuro'].append(filtered_keypoints_frame)
+                    debug_data['timestamps'].append(timestamp)
                 
                 # 左右の区別を改善するためのユークリッド距離による同一性チェック（1-A）
                 if len(current_keypoints) > 28 and len(keypoint_history) > 0:
@@ -364,64 +543,15 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5) 
                                     visibility=prev_ankle.visibility
                                 )
                 
-                # 複数フレームの移動平均によるスムージング
+                # ID Switch検出と構造的制約チェック用に履歴を保存（OneEuroFilterで既にスムージング済み）
+                # keypoint_historyはID Switch検出と構造的制約チェックで使用するため、最小限の履歴を保持
                 keypoint_history.append(current_keypoints)
+                history_size = 2  # ID Switch検出用に過去2フレームのみ保持
                 if len(keypoint_history) > history_size:
                     keypoint_history.pop(0)
                 
-                # 過去Nフレームの加重平均を計算
-                if len(keypoint_history) > 1:
-                    smoothed_keypoints = []
-                    for i in range(len(current_keypoints)):
-                        # 各キーポイントについて、過去フレームの加重平均を計算
-                        weights = []
-                        values_x = []
-                        values_y = []
-                        values_z = []
-                        visibilities = []
-                        
-                        # 過去フレームから重み付き平均を計算（新しいフレームほど重みが大きい）
-                        for j, hist_kps in enumerate(keypoint_history):
-                            if i < len(hist_kps):
-                                weight = (j + 1) / len(keypoint_history)  # 新しいフレームほど重い
-                                if hist_kps[i].visibility > 0.2:  # 信頼度が低いものは除外
-                                    weights.append(weight * hist_kps[i].visibility)
-                                    values_x.append(hist_kps[i].x)
-                                    values_y.append(hist_kps[i].y)
-                                    values_z.append(hist_kps[i].z)
-                                    visibilities.append(hist_kps[i].visibility)
-                        
-                        if len(values_x) > 0:
-                            # 加重平均を計算
-                            total_weight = sum(weights)
-                            if total_weight > 0:
-                                avg_x = sum(vx * w for vx, w in zip(values_x, weights)) / total_weight
-                                avg_y = sum(vy * w for vy, w in zip(values_y, weights)) / total_weight
-                                avg_z = sum(vz * w for vz, w in zip(values_z, weights)) / total_weight
-                                avg_visibility = max(visibilities)  # 最大信頼度を使用
-                            else:
-                                # 重みがない場合は現フレームの値を使用
-                                avg_x = current_keypoints[i].x
-                                avg_y = current_keypoints[i].y
-                                avg_z = current_keypoints[i].z
-                                avg_visibility = current_keypoints[i].visibility
-                        else:
-                            # データがない場合は現フレームの値を使用
-                            avg_x = current_keypoints[i].x
-                            avg_y = current_keypoints[i].y
-                            avg_z = current_keypoints[i].z
-                            avg_visibility = current_keypoints[i].visibility
-                        
-                        smoothed_keypoints.append(KeyPoint(
-                            x=avg_x,
-                            y=avg_y,
-                            z=avg_z,
-                            visibility=avg_visibility
-                        ))
-                    keypoints = smoothed_keypoints
-                else:
-                    # 履歴が少ない場合はそのまま使用
-                    keypoints = current_keypoints
+                # OneEuroFilterで既にスムージング済みなので、そのまま使用
+                keypoints = current_keypoints
                 
                 # 平均信頼度を計算
                 confidence_score = np.mean(confidence_scores) if confidence_scores else 0.0
@@ -456,6 +586,61 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5) 
             frame_number += 1
     
     cap.release()
+    
+    # デバッグログをファイルに出力
+    if enable_debug_log and len(debug_data['raw_mediapipe']) > 0:
+        try:
+            # タイムスタンプ付きのファイル名を生成
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            video_name = Path(video_path).stem
+            
+            # JSON形式で出力
+            json_output_path = f"debug_coordinates_{video_name}_{timestamp_str}.json"
+            with open(json_output_path, 'w', encoding='utf-8') as f:
+                json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            print(f"📊 デバッグログ（JSON）を出力しました: {json_output_path}")
+            
+            # CSV形式で出力（フレームごと、キーポイントごと）
+            csv_output_path = f"debug_coordinates_{video_name}_{timestamp_str}.csv"
+            with open(csv_output_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # ヘッダー行
+                writer.writerow([
+                    'frame_number', 'timestamp', 'keypoint_index',
+                    'raw_x', 'raw_y', 'raw_z', 'raw_visibility',
+                    'filtered_x', 'filtered_y', 'filtered_z', 'filtered_visibility',
+                    'diff_x', 'diff_y', 'diff_z'
+                ])
+                
+                # データ行
+                for frame_idx in range(len(debug_data['raw_mediapipe'])):
+                    raw_frame = debug_data['raw_mediapipe'][frame_idx]
+                    filtered_frame = debug_data['filtered_oneeuro'][frame_idx]
+                    timestamp = debug_data['timestamps'][frame_idx]
+                    
+                    for kp_idx in range(len(raw_frame)):
+                        raw_kp = raw_frame[kp_idx]
+                        filtered_kp = filtered_frame[kp_idx]
+                        
+                        # 差分を計算
+                        diff_x = filtered_kp['x'] - raw_kp['x']
+                        diff_y = filtered_kp['y'] - raw_kp['y']
+                        diff_z = filtered_kp['z'] - raw_kp['z']
+                        
+                        writer.writerow([
+                            frame_idx,
+                            f"{timestamp:.6f}",
+                            raw_kp['index'],
+                            f"{raw_kp['x']:.6f}", f"{raw_kp['y']:.6f}", f"{raw_kp['z']:.6f}", f"{raw_kp['visibility']:.6f}",
+                            f"{filtered_kp['x']:.6f}", f"{filtered_kp['y']:.6f}", f"{filtered_kp['z']:.6f}", f"{filtered_kp['visibility']:.6f}",
+                            f"{diff_x:.6f}", f"{diff_y:.6f}", f"{diff_z:.6f}"
+                        ])
+            
+            print(f"📊 デバッグログ（CSV）を出力しました: {csv_output_path}")
+            print(f"   - 総フレーム数: {len(debug_data['raw_mediapipe'])}")
+            print(f"   - キーポイント数: {len(debug_data['raw_mediapipe'][0]) if debug_data['raw_mediapipe'] else 0}")
+        except Exception as e:
+            print(f"⚠️ デバッグログの出力に失敗しました: {e}")
     
     # サマリー情報の計算
     detected_frames = sum(1 for pose_data in pose_data_list if pose_data.landmarks_detected)

@@ -81,22 +81,28 @@ def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -
     try:
         print("🦶 足接地・離地検出を開始します...")
         
-        # 足首のY座標を取得
+        # 足首と腰のY座標を取得
         left_ankle_y = []
         right_ankle_y = []
+        hip_y = []  # 腰のY座標（左右の平均）
         
         for frame_data in keypoints_data:
             if 'keypoints' in frame_data:
                 keypoints = frame_data['keypoints']
-                # MediaPipeの足首インデックス（左: 27, 右: 28）
+                # MediaPipeのインデックス（左腰: 23, 右腰: 24, 左足首: 27, 右足首: 28）
+                left_hip_y = keypoints[23]['y'] if len(keypoints) > 23 else 0
+                right_hip_y = keypoints[24]['y'] if len(keypoints) > 24 else 0
+                hip_center_y = (left_hip_y + right_hip_y) / 2 if (left_hip_y > 0 and right_hip_y > 0) else 0
+                
                 left_ankle_y.append(keypoints[27]['y'] if len(keypoints) > 27 else 0)
                 right_ankle_y.append(keypoints[28]['y'] if len(keypoints) > 28 else 0)
+                hip_y.append(hip_center_y)
         
         print(f"   📊 データフレーム数: {len(keypoints_data)}")
         
-        # 接地・離地を統合検出
-        left_events = detect_strikes_and_offs_from_y_coords(left_ankle_y, video_fps, 'left')
-        right_events = detect_strikes_and_offs_from_y_coords(right_ankle_y, video_fps, 'right')
+        # 接地・離地を統合検出（ゼロクロス法を使用）
+        left_events = detect_strikes_and_offs_zero_crossing(left_ankle_y, hip_y, video_fps, 'left')
+        right_events = detect_strikes_and_offs_zero_crossing(right_ankle_y, hip_y, video_fps, 'right')
         
         # イベントを種類別に分類
         left_strikes = [frame for frame, event_type in left_events if event_type == 'strike']
@@ -134,9 +140,132 @@ def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -
         # エラー時も統一されたリスト形式で返却
         return []
 
+def detect_strikes_and_offs_zero_crossing(ankle_y_coords: List[float], hip_y_coords: List[float], video_fps: float, foot_side: str) -> List[Tuple[int, str]]:
+    """
+    ゼロクロス法による着地・離地検出（改良版）
+    
+    足首が腰に対する相対的な高さの平均値を下回った瞬間（＝着地に向かう動き）を検知する
+    ノイズに対してより堅牢な検出方法
+    
+    Args:
+        ankle_y_coords: 足首のY座標リスト
+        hip_y_coords: 腰のY座標リスト（左右の平均）
+        video_fps: 動画のフレームレート
+        foot_side: 'left' または 'right'
+    
+    Returns:
+        List[Tuple[int, str]]: (フレーム番号, イベント種類) のリスト
+    """
+    if not ankle_y_coords or len(ankle_y_coords) < 10:
+        return []
+    
+    if len(hip_y_coords) != len(ankle_y_coords):
+        print(f"   ⚠️  {foot_side}足 腰と足首のデータ数が一致しません（腰:{len(hip_y_coords)}, 足首:{len(ankle_y_coords)}）")
+        # フォールバック: 従来の方法を使用
+        return detect_strikes_and_offs_from_y_coords(ankle_y_coords, video_fps, foot_side)
+    
+    ankle_array = np.array(ankle_y_coords)
+    hip_array = np.array(hip_y_coords)
+    
+    print(f"   📊 {foot_side}足 足首Y座標範囲: {np.min(ankle_array):.3f} - {np.max(ankle_array):.3f}")
+    print(f"   📊 {foot_side}足 腰Y座標範囲: {np.min(hip_array):.3f} - {np.max(hip_array):.3f}")
+    
+    # ===== 有効データのみを抽出 =====
+    valid_threshold = 0.1  # Y座標が0.1以上を有効とみなす
+    valid_mask = (ankle_array > valid_threshold) & (hip_array > valid_threshold)
+    valid_indices = np.where(valid_mask)[0]
+    
+    if len(valid_indices) < 10:
+        print(f"   ❌ {foot_side}足 有効データ不足: {len(valid_indices)}個")
+        return []
+    
+    valid_ankle_y = ankle_array[valid_indices]
+    valid_hip_y = hip_array[valid_indices]
+    
+    excluded_count = len(ankle_array) - len(valid_ankle_y)
+    if excluded_count > 0:
+        print(f"   🔍 {foot_side}足 データ除外: {excluded_count}個の無効フレームを除外")
+        print(f"   ✅ {foot_side}足 有効データ: {len(valid_ankle_y)}個（約{len(valid_ankle_y)/video_fps:.1f}秒）")
+    
+    # ===== ゼロクロス法の実装 =====
+    # 1. 腰に対する相対的な高さを計算
+    relative_height = valid_ankle_y - valid_hip_y
+    
+    # 2. 相対的な高さの平均値を計算（ゼロクロスの基準）
+    mean_relative_height = np.mean(relative_height)
+    
+    print(f"   📊 {foot_side}足 相対的高さの平均値: {mean_relative_height:.4f}")
+    print(f"   📊 {foot_side}足 相対的高さの範囲: {np.min(relative_height):.4f} - {np.max(relative_height):.4f}")
+    
+    # 3. 平滑化（ノイズを軽減）
+    try:
+        from scipy import ndimage
+        sigma = max(1.0, video_fps * 0.03)  # 0.03秒相当
+        smoothed_relative_height = ndimage.gaussian_filter1d(relative_height, sigma=sigma)
+    except ImportError:
+        # scipyがない場合は移動平均
+        window_size = max(3, int(video_fps * 0.1))
+        if len(relative_height) < window_size:
+            return []
+        smoothed_relative_height = np.convolve(relative_height, np.ones(window_size)/window_size, mode='same')
+    
+    # 4. ゼロクロス検出（平均値を下回る瞬間 = 着地）
+    strikes = []
+    for i in range(1, len(smoothed_relative_height)):
+        # 平均値を上回っていた状態から、平均値を下回った瞬間
+        if smoothed_relative_height[i-1] > mean_relative_height and smoothed_relative_height[i] <= mean_relative_height:
+            strikes.append(i)
+    
+    # 5. ゼロクロス検出（平均値を上回る瞬間 = 離地）
+    offs = []
+    for i in range(1, len(smoothed_relative_height)):
+        # 平均値を下回っていた状態から、平均値を上回った瞬間
+        if smoothed_relative_height[i-1] < mean_relative_height and smoothed_relative_height[i] >= mean_relative_height:
+            offs.append(i)
+    
+    # 6. 最小間隔のフィルタリング（短すぎる間隔のイベントを除外）
+    min_distance = max(3, int(video_fps * 0.15))  # 最小間隔0.15秒
+    
+    filtered_strikes = []
+    last_strike = -min_distance
+    for strike_idx in strikes:
+        if strike_idx - last_strike >= min_distance:
+            filtered_strikes.append(strike_idx)
+            last_strike = strike_idx
+    
+    filtered_offs = []
+    last_off = -min_distance
+    for off_idx in offs:
+        if off_idx - last_off >= min_distance:
+            filtered_offs.append(off_idx)
+            last_off = off_idx
+    
+    print(f"   🦶 {foot_side}足 ゼロクロス法検出: 接地{len(filtered_strikes)}回, 離地{len(filtered_offs)}回")
+    
+    # 7. イベントリストを作成（元のフレーム番号に変換）
+    events = []
+    
+    for strike_idx in filtered_strikes:
+        original_frame = valid_indices[strike_idx]
+        events.append((int(original_frame), 'strike'))
+        print(f"   🦶 {foot_side}足接地: フレーム{original_frame}, 相対高さ={smoothed_relative_height[strike_idx]:.4f}")
+    
+    for off_idx in filtered_offs:
+        original_frame = valid_indices[off_idx]
+        events.append((int(original_frame), 'off'))
+        print(f"   🚁 {foot_side}足離地: フレーム{original_frame}, 相対高さ={smoothed_relative_height[off_idx]:.4f}")
+    
+    # 8. フレーム番号でソート
+    events.sort(key=lambda x: x[0])
+    
+    # 9. 論理的な順序チェック
+    events = validate_event_sequence(events, foot_side)
+    
+    return events
+
 def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: float, foot_side: str) -> List[Tuple[int, str]]:
     """
-    Y座標から接地（極小値）と離地（極大値）を統合検出
+    Y座標から接地（極小値）と離地（極大値）を統合検出（従来の方法、フォールバック用）
     Y=0などの異常値を自動的に除外して処理
     
     Args:
