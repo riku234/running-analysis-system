@@ -10,6 +10,7 @@ import os
 import json
 import math
 import csv
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -143,7 +144,7 @@ async def health_check():
     """サービスヘルスチェック"""
     return {"status": "healthy", "service": "pose_estimation"}
 
-def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, enable_debug_log: bool = True) -> PoseEstimationResponse:
+def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, enable_debug_log: bool = False) -> PoseEstimationResponse:
     """
     動画ファイルから骨格キーポイントを抽出する
     
@@ -158,14 +159,27 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
     if not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail=f"動画ファイルが見つかりません: {video_path}")
     
-    # デバッグログ用のデータ保存
+    # 処理時間計測用
+    timing_info = {
+        'total_start': time.time(),
+        'video_open': 0,
+        'mediapipe_init': 0,
+        'frame_processing': [],
+        'outlier_rejection': [],
+        'oneeuro_filter': [],
+        'debug_log_save': 0,
+        'total_end': 0
+    }
+    
+    # デバッグログ用のデータ保存（enable_debug_logがTrueの場合のみ）
     debug_data = {
         'raw_mediapipe': [],  # MediaPipeの生データ
         'filtered_oneeuro': [],  # OneEuroFilter後のデータ
         'timestamps': []
-    }
+    } if enable_debug_log else None
     
     # OpenCVで動画を開く
+    timing_info['video_open'] = time.time()
     cap = cv2.VideoCapture(video_path)
     
     # 動画情報の取得
@@ -211,6 +225,7 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
     MAX_CONSECUTIVE_OUTLIERS = 5  # 連続して異常値が出続ける場合の最大フレーム数（これを超えたら強制更新）
     
     # MediaPipe Poseの初期化（精度向上のため設定を最適化）
+    timing_info['mediapipe_init'] = time.time()
     with mp_pose.Pose(
         static_image_mode=False,
         model_complexity=2,  # 最高精度モデル（0=軽量, 1=標準, 2=高精度）
@@ -350,8 +365,8 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
                     current_keypoints.append(keypoint)
                     confidence_scores.append(landmark.visibility)
                 
-                # デバッグデータを保存
-                if enable_debug_log:
+                # デバッグデータを保存（enable_debug_logがTrueの場合のみ）
+                if enable_debug_log and debug_data is not None:
                     debug_data['raw_mediapipe'].append(raw_keypoints_frame)
                     debug_data['filtered_oneeuro'].append(filtered_keypoints_frame)
                     debug_data['timestamps'].append(timestamp)
@@ -587,8 +602,8 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
     
     cap.release()
     
-    # デバッグログをファイルに出力
-    if enable_debug_log and len(debug_data['raw_mediapipe']) > 0:
+    # デバッグログをファイルに出力（enable_debug_logがTrueで、データが存在する場合のみ）
+    if enable_debug_log and debug_data is not None and len(debug_data.get('raw_mediapipe', [])) > 0:
         try:
             # タイムスタンプ付きのファイル名を生成
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -646,13 +661,39 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
     detected_frames = sum(1 for pose_data in pose_data_list if pose_data.landmarks_detected)
     avg_confidence = np.mean([pose_data.confidence_score for pose_data in pose_data_list if pose_data.landmarks_detected]) if detected_frames > 0 else 0.0
     
+    # 処理時間の計算
+    timing_info['total_end'] = time.time()
+    total_time = timing_info['total_end'] - timing_info['total_start']
+    video_open_time = timing_info['video_open'] - timing_info['total_start']
+    # MediaPipe初期化時間（mediapipe_initが0の場合は0として扱う）
+    if timing_info['mediapipe_init'] > 0:
+        mediapipe_init_time = timing_info['mediapipe_init'] - timing_info['video_open']
+        frame_processing_start = timing_info['mediapipe_init']
+    else:
+        mediapipe_init_time = 0.0
+        frame_processing_start = timing_info['video_open']
+    processing_time = timing_info['total_end'] - frame_processing_start
+    
     summary = {
         "total_processed_frames": len(pose_data_list),
         "detected_pose_frames": detected_frames,
         "detection_rate": detected_frames / len(pose_data_list) if len(pose_data_list) > 0 else 0.0,
         "average_confidence": float(avg_confidence),
-        "mediapipe_landmarks_count": 33  # MediaPipe Poseは33個のランドマーク
+        "mediapipe_landmarks_count": 33,  # MediaPipe Poseは33個のランドマーク
+        "processing_time_seconds": round(total_time, 2),
+        "frames_per_second": round(len(pose_data_list) / total_time, 2) if total_time > 0 else 0.0,
+        "debug_log_enabled": enable_debug_log
     }
+    
+    # 処理時間のログ出力
+    print(f"⏱️  処理時間サマリー:")
+    print(f"   - 総処理時間: {total_time:.2f}秒")
+    print(f"   - 動画オープン: {video_open_time:.2f}秒")
+    print(f"   - MediaPipe初期化: {mediapipe_init_time:.2f}秒")
+    print(f"   - フレーム処理: {processing_time:.2f}秒 ({len(pose_data_list)}フレーム)")
+    print(f"   - 処理速度: {summary['frames_per_second']:.2f} FPS")
+    if enable_debug_log:
+        print(f"   - ⚠️  デバッグログ出力が有効です（処理時間に影響する可能性があります）")
     
     return PoseEstimationResponse(
         status="success",

@@ -60,7 +60,7 @@ interface PoseVisualizerProps {
   zScoreAnalysis?: ZScoreAnalysis  // Z-score分析結果（ランニング周期検出用）
 }
 
-// MediaPipeランドマークのインデックス定義
+// MediaPipeランドマークのインデックス定義（33個）
 const LANDMARK_INDICES = {
   left_shoulder: 11,
   right_shoulder: 12,
@@ -76,6 +76,34 @@ const LANDMARK_INDICES = {
   right_ankle: 28,
   left_foot_index: 31,
   right_foot_index: 32
+}
+
+// 24関節点のインデックス定義（s-motion形式）
+const KEYPOINT_INDICES_24 = {
+  right_hand: 0,
+  right_wrist: 1,
+  right_elbow: 2,
+  right_shoulder: 3,
+  left_hand: 4,
+  left_wrist: 5,
+  left_elbow: 6,
+  left_shoulder: 7,
+  right_toe: 8,
+  right_ball: 9,
+  right_heel: 10,
+  right_ankle: 11,
+  right_knee: 12,
+  right_hip: 13,
+  left_toe: 14,
+  left_ball: 15,
+  left_heel: 16,
+  left_ankle: 17,
+  left_knee: 18,
+  left_hip: 19,
+  head_top: 20,
+  ear: 21,
+  body_center: 22,
+  neck: 23
 }
 
 // 関節角度の状態管理
@@ -114,6 +142,27 @@ const POSE_CONNECTIONS = [
   // 脚
   [23, 25], [25, 27], [27, 29], [27, 31], // 左脚
   [24, 26], [26, 28], [28, 30], [28, 32], // 右脚
+]
+
+// 24関節点の骨格接続定義（s-motion形式）
+// インデックス: 0-3(右腕), 4-7(左腕), 8-13(右脚), 14-19(左脚), 20-23(頭部・体幹)
+const POSE_CONNECTIONS_24 = [
+  // 右腕: 0(手) - 1(手首) - 2(肘) - 3(肩)
+  [0, 1], [1, 2], [2, 3],
+  // 左腕: 4(手) - 5(手首) - 6(肘) - 7(肩)
+  [4, 5], [5, 6], [6, 7],
+  // 右脚: 8(爪先) - 9(母指球) - 10(踵) - 11(足首) - 12(膝) - 13(股関節)
+  [8, 9], [9, 10], [10, 11], [11, 12], [12, 13],
+  // 左脚: 14(爪先) - 15(母指球) - 16(踵) - 17(足首) - 18(膝) - 19(股関節)
+  [14, 15], [15, 16], [16, 17], [17, 18], [18, 19],
+  // 肩の接続: 3(右肩) - 7(左肩), 3(右肩) - 22(身体重心), 7(左肩) - 22(身体重心)
+  [3, 7], [3, 22], [7, 22],
+  // 胴体: 13(右股関節) - 19(左股関節), 13(右股関節) - 22(身体重心), 19(左股関節) - 22(身体重心)
+  [13, 19], [13, 22], [19, 22],
+  // 頭部: 20(頭頂) - 21(耳), 21(耳) - 23(首), 23(首) - 22(身体重心)
+  [20, 21], [21, 23], [23, 22],
+  // 肩と股関節の接続: 3(右肩) - 13(右股関節), 7(左肩) - 19(左股関節)
+  [3, 13], [7, 19]
 ]
 
 // 角度名から骨格線（ランドマークペア）へのマッピング
@@ -528,8 +577,22 @@ interface StandardModelKeypoints {
     }
   }
   is_cycle: boolean
+  keypoint_count?: number  // 24または33（省略時は33とみなす）
   note: string
 }
+
+// ============================================================================
+// 標準モデル比較機能の有効/無効フラグ
+// ============================================================================
+// 一旦無効化されていますが、コードは保持されています。
+// 再有効化する場合は、以下のフラグを true に変更してください。
+// 
+// 再有効化手順:
+// 1. このフラグを true に変更: const ENABLE_STANDARD_MODEL_COMPARISON = true
+// 2. フロントエンドを再ビルド: docker compose build frontend
+// 3. フロントエンドを再起動: docker compose up -d frontend
+// ============================================================================
+const ENABLE_STANDARD_MODEL_COMPARISON = false
 
 export default function PoseVisualizer({ videoUrl, poseData, className = '', problematicAngles = [], showSkeleton = true, zScoreAnalysis }: PoseVisualizerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -575,10 +638,19 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   ): KeyPoint[] => {
     if (!keypoints || keypoints.length === 0) return keypoints
 
-    const leftHip = keypoints[LANDMARK_INDICES.left_hip]
-    const rightHip = keypoints[LANDMARK_INDICES.right_hip]
-    const leftShoulder = keypoints[LANDMARK_INDICES.left_shoulder]
-    const rightShoulder = keypoints[LANDMARK_INDICES.right_shoulder]
+    // 24関節点か33ランドマークかを判定
+    const is24Keypoints = keypoints.length === 24
+    
+    // 適切なインデックスを選択
+    const leftHipIdx = is24Keypoints ? KEYPOINT_INDICES_24.left_hip : LANDMARK_INDICES.left_hip
+    const rightHipIdx = is24Keypoints ? KEYPOINT_INDICES_24.right_hip : LANDMARK_INDICES.right_hip
+    const leftShoulderIdx = is24Keypoints ? KEYPOINT_INDICES_24.left_shoulder : LANDMARK_INDICES.left_shoulder
+    const rightShoulderIdx = is24Keypoints ? KEYPOINT_INDICES_24.right_shoulder : LANDMARK_INDICES.right_shoulder
+
+    const leftHip = keypoints[leftHipIdx]
+    const rightHip = keypoints[rightHipIdx]
+    const leftShoulder = keypoints[leftShoulderIdx]
+    const rightShoulder = keypoints[rightShoulderIdx]
 
     // 体幹がきちんと取れていない場合はスケール固定を行わない
     if (!leftHip || !rightHip || !leftShoulder || !rightShoulder) return keypoints
@@ -662,24 +734,31 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   }
   
   // キーポイントを描画（ユーザーの骨格と標準モデルの骨格）
-  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false): void => {
+  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false, use24Keypoints: boolean = false): void => {
     if (!keypoints || keypoints.length === 0) {
       return
     }
     
-    // 問題のある骨格線のセットを作成
-    const problematicConnections = new Set<string>()
+    // 24関節点か33ランドマークかを判定（キーポイント数または引数で判定）
+    const is24Keypoints = use24Keypoints || keypoints.length === 24
     
-    problematicAngles.forEach(angleName => {
-      const connections = ANGLE_TO_SKELETON_CONNECTIONS[angleName]
-      if (connections) {
-        connections.forEach(([start, end]) => {
-          // 両方向のキーを追加（順序に関係なく一致させる）
-          problematicConnections.add(`${start}-${end}`)
-          problematicConnections.add(`${end}-${start}`)
-        })
-      }
-    })
+    // 使用する接続関係を選択
+    const connections = is24Keypoints ? POSE_CONNECTIONS_24 : POSE_CONNECTIONS
+    
+    // 問題のある骨格線のセットを作成（24関節点の場合はスキップ）
+    const problematicConnections = new Set<string>()
+    if (!is24Keypoints) {
+      problematicAngles.forEach(angleName => {
+        const angleConnections = ANGLE_TO_SKELETON_CONNECTIONS[angleName]
+        if (angleConnections) {
+          angleConnections.forEach(([start, end]) => {
+            // 両方向のキーを追加（順序に関係なく一致させる）
+            problematicConnections.add(`${start}-${end}`)
+            problematicConnections.add(`${end}-${start}`)
+          })
+        }
+      })
+    }
     
     // 可視性の閾値を下げる（より多くのキーポイントを表示）
     const VISIBILITY_THRESHOLD_LOW = 0.2  // 低可視性でも表示
@@ -714,7 +793,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     })
     
     // 骨格の線を描画（より柔軟な条件）
-    POSE_CONNECTIONS.forEach(([startIdx, endIdx]) => {
+    connections.forEach(([startIdx, endIdx]) => {
+      // インデックスの範囲チェック
+      if (startIdx >= keypoints.length || endIdx >= keypoints.length) {
+        return
+      }
+      
       const startPoint = keypoints[startIdx]
       const endPoint = keypoints[endIdx]
       
@@ -733,9 +817,9 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
           : endPoint.x * videoWidth + xOffset
         const endY = endPoint.y * videoHeight
         
-        // この接続が問題部位かどうか確認
+        // この接続が問題部位かどうか確認（24関節点の場合は常にfalse）
         const connectionKey = `${startIdx}-${endIdx}`
-        const isProblematic = problematicConnections.has(connectionKey)
+        const isProblematic = !is24Keypoints && problematicConnections.has(connectionKey)
         
         // 可視性に応じて線の太さと透明度を調整
         const minVisibility = Math.min(startPoint.visibility, endPoint.visibility)
@@ -790,10 +874,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     
     // 標準モデルを描画（青色）- 体幹長ベースの固定スケールを適用
     const scaledKeypoints = getScaledKeypointsWithFixedTorso(frameData.keypoints, standardModelScaleRef)
+    // 24関節点かどうかを判定（keypoint_countまたはキーポイント数で判定）
+    const is24Keypoints = standardModelKeypoints.keypoint_count === 24 || scaledKeypoints.length === 24
     drawKeypoints(ctx, scaledKeypoints, canvas.width, canvas.height, 0, {
       point: '#3b82f6',
       line: '#3b82f6'
-    })
+    }, false, is24Keypoints)
     
     // ログを減らす（毎フレーム出力すると多すぎるため、10フレームごとに出力）
     if (standardModelFrameIndex % 10 === 0) {
@@ -873,8 +959,8 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
       }
     }
     
-    // 標準モデルの骨格を左にオフセットして描画
-    if (standardModelKeypoints && standardModelFrameIndex >= 0) {
+    // 標準モデルの骨格を左にオフセットして描画（無効化中、コードは保持）
+    if (ENABLE_STANDARD_MODEL_COMPARISON && standardModelKeypoints && standardModelFrameIndex >= 0) {
       const frameKey = String(standardModelFrameIndex)
       const standardModelFrame = standardModelKeypoints.frames[frameKey]
       
@@ -909,14 +995,6 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
         drawKeypoints(ctx, scaledStandardKeypoints, canvas.width, canvas.height, xOffset, { point: '#6699ff', line: '#6699ff' })
       } else {
         console.warn('⚠️ 標準モデルフレームデータが見つかりません:', { frameKey, availableFrames: Object.keys(standardModelKeypoints.frames) })
-      }
-    } else {
-      // 警告は一度だけ表示（大量のログを防ぐため）
-      if (standardModelFrameIndex === 0) {
-        console.warn('⚠️ 標準モデル描画スキップ:', {
-          hasStandardModelKeypoints: !!standardModelKeypoints,
-          standardModelFrameIndex
-        })
       }
     }
     
@@ -965,8 +1043,13 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     }
   }
   
-  // 標準モデルキーポイントデータを取得
+  // 標準モデルキーポイントデータを取得（無効化中、コードは保持）
   useEffect(() => {
+    if (!ENABLE_STANDARD_MODEL_COMPARISON) {
+      console.log('⚠️ 標準モデル比較機能は現在無効化されています')
+      return
+    }
+    
     const fetchStandardModelKeypoints = async () => {
       try {
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -1090,8 +1173,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   
   
   
-  // 標準モデルとユーザー1周期を同期してループ再生
+  // 標準モデルとユーザー1周期を同期してループ再生（無効化中、コードは保持）
   useEffect(() => {
+    if (!ENABLE_STANDARD_MODEL_COMPARISON) {
+      return
+    }
+    
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     console.log('🔄 アニメーションループ初期化:', {
       hasStandardModelKeypoints: !!standardModelKeypoints,
@@ -1185,13 +1272,15 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     }
   }, [standardModelKeypoints, userCycleFrames, isManualSyncEnabled, leftStrikeTime, rightStrikeTime, poseData.video_info.fps])
   
-  // 標準モデルフレームインデックスが変更されたときにキャンバスを更新
+  // 標準モデルフレームインデックスが変更されたときにキャンバスを更新（無効化中、コードは保持）
   useEffect(() => {
+    if (!ENABLE_STANDARD_MODEL_COMPARISON) return
     drawStandardModelSkeleton()
   }, [standardModelFrameIndex, drawStandardModelSkeleton])
   
-  // ユーザー1周期フレームインデックスが変更されたときにキャンバスを更新
+  // ユーザー1周期フレームインデックスが変更されたときにキャンバスを更新（無効化中、コードは保持）
   useEffect(() => {
+    if (!ENABLE_STANDARD_MODEL_COMPARISON) return
     drawUserCycleSkeleton()
   }, [userCycleFrameIndex, drawUserCycleSkeleton])
   
@@ -1243,20 +1332,21 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
           </video>
         </div>
         
-        {/* ペース同期用のUI */}
-        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-medium text-gray-700">ペース同期設定</h4>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isManualSyncEnabled}
-                onChange={(e) => setIsManualSyncEnabled(e.target.checked)}
-                className="w-4 h-4"
-              />
-              <span className="text-sm text-gray-600">手動同期を有効にする</span>
-            </label>
-          </div>
+        {/* ペース同期用のUI（標準モデル比較機能が有効な場合のみ表示） */}
+        {ENABLE_STANDARD_MODEL_COMPARISON && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium text-gray-700">ペース同期設定</h4>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isManualSyncEnabled}
+                  onChange={(e) => setIsManualSyncEnabled(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm text-gray-600">手動同期を有効にする</span>
+              </label>
+            </div>
           
           {isManualSyncEnabled && (
             <div className="space-y-2">
@@ -1323,36 +1413,39 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
               )}
             </div>
           )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* 下段：棒人間同士の比較 */}
-      <div>
-        <h3 className="text-lg font-semibold mb-2">棒人間同士の比較</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* 左：標準モデルの棒人間 */}
-          <div>
-            <h4 className="text-sm font-medium text-gray-600 mb-2">標準モデル</h4>
-            <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
-              <canvas
-                ref={standardModelCanvasRef}
-                className="absolute top-0 left-0 w-full h-full rounded-lg"
-              />
+      {/* 下段：棒人間同士の比較（無効化中、コードは保持） */}
+      {ENABLE_STANDARD_MODEL_COMPARISON && (
+        <div>
+          <h3 className="text-lg font-semibold mb-2">棒人間同士の比較</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 左：標準モデルの棒人間 */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">標準モデル</h4>
+              <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
+                <canvas
+                  ref={standardModelCanvasRef}
+                  className="absolute top-0 left-0 w-full h-full rounded-lg"
+                />
+              </div>
             </div>
-          </div>
-          
-          {/* 右：ユーザーのランニング1周期を棒人間化 */}
-          <div>
-            <h4 className="text-sm font-medium text-gray-600 mb-2">あなたの走り（1周期）</h4>
-            <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
-              <canvas
-                ref={userCycleCanvasRef}
-                className="absolute top-0 left-0 w-full h-full rounded-lg"
-              />
+            
+            {/* 右：ユーザーのランニング1周期を棒人間化 */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">あなたの走り（1周期）</h4>
+              <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
+                <canvas
+                  ref={userCycleCanvasRef}
+                  className="absolute top-0 left-0 w-full h-full rounded-lg"
+                />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 } 
