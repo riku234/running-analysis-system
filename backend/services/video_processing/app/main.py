@@ -47,6 +47,10 @@ BACK_VIEW_ANALYSIS_URL = "http://back_view_analysis:8006/analyze"
 ENABLE_DB_SAVE = os.getenv("ENABLE_DB_SAVE", "false").lower() == "true"
 logger.info(f"📊 データベース保存: {'有効' if ENABLE_DB_SAVE else '無効'}")
 
+# 解析結果のキャッシュ（メモリ内、サーバー再起動時に失われる）
+# キー: video_id, 値: 解析結果の辞書
+analysis_cache: dict[str, dict] = {}
+
 app = FastAPI(
     title="Video Processing Service",
     description="動画のアップロード、フォーマット変換、フレーム抽出を担当するサービス",
@@ -399,6 +403,10 @@ async def upload_video(
                 else:
                     response_data["message"] += "、アドバイス生成でエラーが発生しました"
                 
+                # 解析結果をキャッシュに保存（再解析を防ぐため）
+                analysis_cache[unique_id] = response_data
+                logger.info(f"💾 解析結果をキャッシュに保存しました: {unique_id}")
+                
                 # ★★★ デバッグログ: フロントエンドに返却する最終レスポンスを出力 ★★★
                 print("=" * 80)
                 print("📤 [VIDEO PROCESSING SERVICE] フロントエンドに返却する最終レスポンス:")
@@ -679,6 +687,23 @@ async def get_result(
         logger.info(f"   camera_angle (正規化後): '{camera_angle_normalized}'")
         logger.info("=" * 80)
         
+        # キャッシュから解析結果を取得（再解析を防ぐ）
+        if video_id in analysis_cache:
+            logger.info(f"✅ キャッシュから解析結果を取得: {video_id}")
+            cached_result = analysis_cache[video_id]
+            # camera_angleが一致するか確認（背後解析の場合）
+            if camera_angle_normalized == "back":
+                if cached_result.get("camera_angle") == "back":
+                    logger.info("✅ キャッシュされた背後解析結果を返却します")
+                    return cached_result
+            else:
+                if cached_result.get("camera_angle") != "back":
+                    logger.info("✅ キャッシュされた横からの解析結果を返却します")
+                    return cached_result
+            logger.info("⚠️ キャッシュされた結果のcamera_angleが一致しないため、再解析を実行します")
+        else:
+            logger.info(f"⚠️ キャッシュに解析結果がありません: {video_id}（再解析を実行します）")
+        
         # 保存されたファイルを探す
         for file_path in UPLOAD_DIRECTORY.glob(f"*{video_id}*"):
             if file_path.suffix.lower() in ['.mp4', '.avi', '.mov', '.mkv']:
@@ -886,6 +911,10 @@ async def get_result(
                     
                 if advice_analysis:
                     result["advice_analysis"] = advice_analysis
+                
+                # 解析結果をキャッシュに保存（再解析を防ぐため）
+                analysis_cache[video_id] = result
+                logger.info(f"💾 解析結果をキャッシュに保存しました: {video_id}")
                 
                 logger.info("完全な解析パイプライン完了")
                 return result
