@@ -230,8 +230,8 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
         static_image_mode=False,
         model_complexity=2,  # 最高精度モデル（0=軽量, 1=標準, 2=高精度）
         enable_segmentation=False,
-        min_detection_confidence=0.2,  # さらに低くして検出率を最大化
-        min_tracking_confidence=0.2  # さらに低くしてトラッキング安定性を最大化
+        min_detection_confidence=0.5,  # 誤検出を防ぐため標準値に戻す
+        min_tracking_confidence=0.5  # 誤検出を防ぐため標準値に戻す
     ) as pose:
         
         while True:
@@ -281,8 +281,21 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
             confidence_score = 0.0
             
             if results.pose_landmarks:
-                landmarks_detected = True
-                confidence_scores = []
+                # 全体の検出信頼度をチェック（誤検出を防ぐため）
+                # 主要なキーポイント（肩、腰、膝、足首）の平均visibilityを計算
+                key_landmark_indices = [11, 12, 23, 24, 25, 26, 27, 28]  # 左右の肩、腰、膝、足首
+                key_visibilities = [results.pose_landmarks.landmark[i].visibility 
+                                   for i in key_landmark_indices 
+                                   if i < len(results.pose_landmarks.landmark)]
+                avg_key_visibility = np.mean(key_visibilities) if key_visibilities else 0.0
+                
+                # 主要キーポイントの平均visibilityが低い場合は検出を無視（誤検出の可能性）
+                if avg_key_visibility < 0.3:
+                    landmarks_detected = False
+                    confidence_score = 0.0
+                else:
+                    landmarks_detected = True
+                    confidence_scores = []
                 
                 # 各ランドマークのキーポイントを抽出（Outlier Rejection → OneEuroFilterでスムージング）
                 current_keypoints = []
@@ -685,13 +698,18 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
         "debug_log_enabled": enable_debug_log
     }
     
-    # 処理時間のログ出力
+    # 処理時間と検出率のログ出力
     print(f"⏱️  処理時間サマリー:")
     print(f"   - 総処理時間: {total_time:.2f}秒")
     print(f"   - 動画オープン: {video_open_time:.2f}秒")
     print(f"   - MediaPipe初期化: {mediapipe_init_time:.2f}秒")
     print(f"   - フレーム処理: {processing_time:.2f}秒 ({len(pose_data_list)}フレーム)")
     print(f"   - 処理速度: {summary['frames_per_second']:.2f} FPS")
+    print(f"📊 検出結果サマリー:")
+    print(f"   - 総フレーム数: {len(pose_data_list)}")
+    print(f"   - 検出成功フレーム数: {detected_frames}")
+    print(f"   - 検出率: {summary['detection_rate']*100:.1f}%")
+    print(f"   - 平均信頼度: {avg_confidence:.3f}")
     if enable_debug_log:
         print(f"   - ⚠️  デバッグログ出力が有効です（処理時間に影響する可能性があります）")
     

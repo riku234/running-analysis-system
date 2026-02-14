@@ -195,7 +195,12 @@ async def upload_video(
                 )
                 pose_response.raise_for_status()
                 pose_data = pose_response.json()
-                logger.info("骨格推定完了")
+                # 検出結果の詳細をログ出力
+                if pose_data.get("summary"):
+                    summary = pose_data["summary"]
+                    logger.info(f"骨格推定完了 - 検出率: {summary.get('detection_rate', 0)*100:.1f}% ({summary.get('detected_pose_frames', 0)}/{summary.get('total_processed_frames', 0)}フレーム), 平均信頼度: {summary.get('average_confidence', 0):.3f}")
+                else:
+                    logger.info("骨格推定完了")
                 
                 # 撮影角度に応じて分岐
                 if camera_angle == "back":

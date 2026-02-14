@@ -54,7 +54,7 @@ KEYPOINT_INDICES_24 = {
     "Head Top": 20,        # 頭頂
     "Ear": 21,             # 耳
     "Body Center": 22,     # 左右肩中点＋身体重心
-    "Neck": 23             # 24個目（推測: 首/Neck、または追加の関節点）
+    "Pelvis": 23           # 24個目（骨盤中心 - Z座標が腰レベルのため首ではなく骨盤と判明）
 }
 
 def load_pose_data_from_file() -> List[List[float]]:
@@ -401,12 +401,72 @@ def convert_to_mediapipe_format(frame_data: List[float], bounds: Dict[str, float
     
     return mediapipe_keypoints
 
-def get_standard_model_keypoints_from_coordinates() -> Dict[str, Any]:
+def convert_to_24_keypoints_format(frame_data: List[float], bounds: Dict[str, float]) -> List[Dict[str, float]]:
     """
-    提供された座標データから標準モデルキーポイントを生成
+    24個の関節点を正しい軸マッピングで正規化して返す
+    
+    s-motionデータの座標系:
+      - X軸: 左右方向（横方向、範囲小）
+      - Y軸: 走行方向（前後、範囲大、フレーム進行で単調増加）
+      - Z軸: 上下方向（高さ、頭が高く足が低い）
+    
+    サイドビュー表示のマッピング:
+      - 画面X = Y軸（走行方向）→ その場走りのため後でセンタリング
+      - 画面Y = Z軸（高さ、反転：高いZ = 画面上部）
+      - 深度  = X軸（左右方向）
+    
+    統一スケーリングでアスペクト比を保持する
+    
+    Args:
+        frame_data: 72個の値（24点 × 3座標）
+        bounds: 全フレームを通した座標の範囲
     
     Returns:
-        フレームごとのキーポイントデータ
+        24個のキーポイント（x, y, z, visibility）
+    """
+    center_y = bounds.get('center_y', (bounds['min_y'] + bounds['max_y']) / 2)
+    center_z = bounds.get('center_z', (bounds['min_z'] + bounds['max_z']) / 2)
+    
+    range_y = bounds.get('range_y', bounds['max_y'] - bounds['min_y']) or 1.0
+    range_z = bounds.get('range_z', bounds['max_z'] - bounds['min_z']) or 1.0
+    
+    # 両表示軸で同じスケールを使用（アスペクト比を保持）
+    display_range = max(range_y, range_z)
+    
+    keypoints = []
+    for i in range(24):
+        idx = i * 3
+        if idx + 2 < len(frame_data):
+            raw_x = frame_data[idx]       # 左右方向（横）
+            raw_y = frame_data[idx + 1]   # 走行方向（前後）→ 画面X
+            raw_z = frame_data[idx + 2]   # 上下方向（高さ）→ 画面Y
+            
+            # サイドビュー表示用のマッピング（統一スケーリング）
+            # 画面X: 走行方向を中央基準で正規化
+            screen_x = 0.5 + (raw_y - center_y) / display_range
+            # 画面Y: 高さを反転（高いZ = 画面上部 = 低いY値）
+            screen_y = 0.5 - (raw_z - center_z) / display_range
+            # 深度: 左右方向（表示には直接使わない）
+            z_depth = (raw_x - bounds['min_x']) / ((bounds['max_x'] - bounds['min_x']) or 1.0)
+            
+            keypoints.append({
+                'x': screen_x,
+                'y': screen_y,
+                'z': max(0.0, min(1.0, z_depth)),
+                'visibility': 0.9
+            })
+        else:
+            # データが不足している場合はデフォルト値
+            keypoints.append({'x': 0.5, 'y': 0.5, 'z': 0.5, 'visibility': 0.0})
+    
+    return keypoints
+
+def get_standard_model_keypoints_from_coordinates() -> Dict[str, Any]:
+    """
+    提供された座標データから標準モデルキーポイントを生成（24関節点のまま）
+    
+    Returns:
+        フレームごとのキーポイントデータ（24関節点）
     """
     # ファイルからデータを読み込む
     pose_data = load_pose_data_from_file()
@@ -425,18 +485,20 @@ def get_standard_model_keypoints_from_coordinates() -> Dict[str, Any]:
     frames = {}
     
     for frame_idx, frame_data in enumerate(pose_data):
-        mediapipe_keypoints = convert_to_mediapipe_format(frame_data, bounds, frame_idx, len(pose_data))
+        # 24関節点のまま返す（変換しない）
+        keypoints_24 = convert_to_24_keypoints_format(frame_data, bounds)
         frames[str(frame_idx)] = {
-            'keypoints': mediapipe_keypoints,
+            'keypoints': keypoints_24,
             'frame_number': frame_idx
         }
     
-    print(f"✅ {len(frames)}フレームのキーポイントを生成しました")
+    print(f"✅ {len(frames)}フレームのキーポイントを生成しました（24関節点のまま）")
     
     return {
         'status': 'success',
         'total_frames': len(frames),
         'frames': frames,
         'is_cycle': True,
-        'note': 'このデータは提供された座標データから生成された1周期分です。リピートして使用してください。'
+        'keypoint_count': 24,  # 24関節点であることを明示
+        'note': 'このデータは提供された座標データから生成された1周期分です（24関節点のまま）。リピートして使用してください。'
     }

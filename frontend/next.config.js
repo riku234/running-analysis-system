@@ -5,18 +5,44 @@ const nextConfig = {
     unoptimized: true
   },
   
-  // API プロキシ設定（本番では同じサーバー内なので localhost を使用）
+  // API プロキシ設定（Docker Compose内のサービスに直接ルーティング）
   async rewrites() {
-    // 本番環境（Docker Compose）では同じネットワーク内のサービス名を使用
-    // 開発環境ではlocalhostを使用
-    const apiBaseUrl = process.env.NODE_ENV === 'production' 
-      ? 'http://api_gateway:80' 
-      : 'http://127.0.0.1:80';
-      
+    const isProd = process.env.NODE_ENV === 'production'
+    
     return [
+      // feature_extraction サービス（標準モデルキーポイント等）
+      {
+        source: '/api/feature_extraction/:path*',
+        destination: isProd 
+          ? 'http://feature_extraction:8003/:path*'
+          : 'http://127.0.0.1:8003/:path*',
+      },
+      // video_processing サービス
+      {
+        source: '/api/video/:path*',
+        destination: isProd
+          ? 'http://video_processing:8001/:path*'
+          : 'http://127.0.0.1:8001/:path*',
+      },
+      {
+        source: '/api/video_processing/:path*',
+        destination: isProd
+          ? 'http://video_processing:8001/:path*'
+          : 'http://127.0.0.1:8001/:path*',
+      },
+      // analysis サービス
+      {
+        source: '/api/analysis/:path*',
+        destination: isProd
+          ? 'http://analysis:8004/:path*'
+          : 'http://127.0.0.1:8004/:path*',
+      },
+      // その他のAPIは API Gateway 経由
       {
         source: '/api/:path*',
-        destination: `${apiBaseUrl}/api/:path*`,
+        destination: isProd
+          ? 'http://api_gateway:80/api/:path*'
+          : 'http://127.0.0.1:80/api/:path*',
       },
     ]
   },

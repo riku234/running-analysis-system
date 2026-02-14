@@ -103,7 +103,7 @@ const KEYPOINT_INDICES_24 = {
   head_top: 20,
   ear: 21,
   body_center: 22,
-  neck: 23
+  pelvis: 23  // 骨盤中心（以前「首/Neck」とラベルされていたが実際はZ座標が腰レベル）
 }
 
 // 関節角度の状態管理
@@ -155,13 +155,15 @@ const POSE_CONNECTIONS_24 = [
   [8, 9], [9, 10], [10, 11], [11, 12], [12, 13],
   // 左脚: 14(爪先) - 15(母指球) - 16(踵) - 17(足首) - 18(膝) - 19(股関節)
   [14, 15], [15, 16], [16, 17], [17, 18], [18, 19],
-  // 肩の接続: 3(右肩) - 7(左肩), 3(右肩) - 22(身体重心), 7(左肩) - 22(身体重心)
-  [3, 7], [3, 22], [7, 22],
-  // 胴体: 13(右股関節) - 19(左股関節), 13(右股関節) - 22(身体重心), 19(左股関節) - 22(身体重心)
-  [13, 19], [13, 22], [19, 22],
-  // 頭部: 20(頭頂) - 21(耳), 21(耳) - 23(首), 23(首) - 22(身体重心)
-  [20, 21], [21, 23], [23, 22],
-  // 肩と股関節の接続: 3(右肩) - 13(右股関節), 7(左肩) - 19(左股関節)
+  // 肩エリア: 3(右肩) - 22(肩中点) - 7(左肩)
+  [3, 22], [7, 22],
+  // 背骨（体幹）: 22(肩中点) - 23(骨盤中心)
+  [22, 23],
+  // 骨盤エリア: 13(右股関節) - 23(骨盤中心) - 19(左股関節)
+  [13, 23], [19, 23],
+  // 頭部: 20(頭頂) - 21(耳) - 22(肩中点)
+  [20, 21], [21, 22],
+  // 胴体の側面: 3(右肩) - 13(右股関節), 7(左肩) - 19(左股関節)
   [3, 13], [7, 19]
 ]
 
@@ -592,7 +594,7 @@ interface StandardModelKeypoints {
 // 2. フロントエンドを再ビルド: docker compose build frontend
 // 3. フロントエンドを再起動: docker compose up -d frontend
 // ============================================================================
-const ENABLE_STANDARD_MODEL_COMPARISON = false
+const ENABLE_STANDARD_MODEL_COMPARISON = true
 
 export default function PoseVisualizer({ videoUrl, poseData, className = '', problematicAngles = [], showSkeleton = true, zScoreAnalysis }: PoseVisualizerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -608,6 +610,10 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   const [standardModelFrameIndex, setStandardModelFrameIndex] = useState(0)
   const [userCycleFrameIndex, setUserCycleFrameIndex] = useState(0) // ユーザー1周期のフレームインデックス
   const [userCycleFrames, setUserCycleFrames] = useState<FramePoseData[]>([]) // ユーザーの1周期のフレームデータ
+  
+  // 棒人間再生コントロール用
+  const [isStandardModelPaused, setIsStandardModelPaused] = useState(false)
+  const [isUserCyclePaused, setIsUserCyclePaused] = useState(false)
   
   // ペース同期用：着地タイミングの記録
   const [leftStrikeTime, setLeftStrikeTime] = useState<number | null>(null) // 左足着地のタイミング（秒）
@@ -683,8 +689,8 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
       }
     }
 
-    // キャンバス高さに対して体幹長が約35%になるようにスケールを固定
-    const TARGET_TORSO_LENGTH_NORMALIZED = 0.35
+    // キャンバス高さに対して体幹長が約18%になるようにスケールを固定
+    const TARGET_TORSO_LENGTH_NORMALIZED = 0.18
 
     if (scaleState.current == null) {
       const rawScale = TARGET_TORSO_LENGTH_NORMALIZED / torsoLength
@@ -722,6 +728,39 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     })
   }
   
+  // キーポイントを腰中心でキャンバス中央に固定し「その場走り」にする
+  // 各フレームの腰中心をキャンバス中央に移動し、全関節の相対位置は保持する
+  const centerKeypointsInPlace = (keypoints: KeyPoint[]): KeyPoint[] => {
+    if (!keypoints || keypoints.length === 0) return keypoints
+
+    // 24関節点か33ランドマークかを判定
+    const is24Keypoints = keypoints.length === 24
+
+    const leftHipIdx = is24Keypoints ? KEYPOINT_INDICES_24.left_hip : LANDMARK_INDICES.left_hip
+    const rightHipIdx = is24Keypoints ? KEYPOINT_INDICES_24.right_hip : LANDMARK_INDICES.right_hip
+
+    const leftHip = keypoints[leftHipIdx]
+    const rightHip = keypoints[rightHipIdx]
+
+    if (!leftHip || !rightHip) return keypoints
+
+    const hipCenterX = (leftHip.x + rightHip.x) / 2
+    const hipCenterY = (leftHip.y + rightHip.y) / 2
+    const targetCenterX = 0.5  // キャンバス水平中央
+    const targetCenterY = 0.45 // キャンバスやや上（腰は体の中間より少し上）
+    const offsetX = targetCenterX - hipCenterX
+    const offsetY = targetCenterY - hipCenterY
+
+    return keypoints.map(kp => {
+      if (!kp) return kp
+      return {
+        ...kp,
+        x: kp.x + offsetX,
+        y: kp.y + offsetY
+      }
+    })
+  }
+
   // 動画の現在時刻から対応するフレームを取得
   const getCurrentFrameData = (): FramePoseData | null => {
     if (!videoRef.current || !poseData.pose_data.length) return null
@@ -734,7 +773,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   }
   
   // キーポイントを描画（ユーザーの骨格と標準モデルの骨格）
-  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false, use24Keypoints: boolean = false): void => {
+  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false, use24Keypoints: boolean = false, highlightProblematic: boolean = true): void => {
     if (!keypoints || keypoints.length === 0) {
       return
     }
@@ -745,9 +784,10 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     // 使用する接続関係を選択
     const connections = is24Keypoints ? POSE_CONNECTIONS_24 : POSE_CONNECTIONS
     
-    // 問題のある骨格線のセットを作成（24関節点の場合はスキップ）
+    // 問題のある骨格線のセットを作成（highlightProblematicがfalseまたは24関節点の場合はスキップ）
     const problematicConnections = new Set<string>()
-    if (!is24Keypoints) {
+    const problematicPointIndices = new Set<number>()
+    if (highlightProblematic && !is24Keypoints) {
       problematicAngles.forEach(angleName => {
         const angleConnections = ANGLE_TO_SKELETON_CONNECTIONS[angleName]
         if (angleConnections) {
@@ -755,6 +795,9 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
             // 両方向のキーを追加（順序に関係なく一致させる）
             problematicConnections.add(`${start}-${end}`)
             problematicConnections.add(`${end}-${start}`)
+            // 問題のある関節点のインデックスも記録
+            problematicPointIndices.add(start)
+            problematicPointIndices.add(end)
           })
         }
       })
@@ -776,13 +819,16 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
           : point.x * videoWidth + xOffset
         const y = point.y * videoHeight
         
+        // 問題のある関節点かどうか確認
+        const isProblematicPoint = problematicPointIndices.has(index)
+        
         // 可視性に応じてポイントサイズと透明度を調整
-        const pointSize = point.visibility > VISIBILITY_THRESHOLD_HIGH ? 5 : 3
+        const pointSize = isProblematicPoint ? 6 : (point.visibility > VISIBILITY_THRESHOLD_HIGH ? 5 : 3)
         const alpha = Math.min(1.0, point.visibility * 1.5) // 可視性を強調
         
         ctx.save()
         ctx.globalAlpha = alpha
-        ctx.fillStyle = color.point
+        ctx.fillStyle = isProblematicPoint ? '#ff0000' : color.point
         
         // ポイントを描画
         ctx.beginPath()
@@ -872,14 +918,15 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     
-    // 標準モデルを描画（青色）- 体幹長ベースの固定スケールを適用
+    // 標準モデルを描画（黒色・問題箇所ハイライトなし）- 体幹長ベースの固定スケール + その場走り
     const scaledKeypoints = getScaledKeypointsWithFixedTorso(frameData.keypoints, standardModelScaleRef)
+    const centeredKeypoints = centerKeypointsInPlace(scaledKeypoints)
     // 24関節点かどうかを判定（keypoint_countまたはキーポイント数で判定）
-    const is24Keypoints = standardModelKeypoints.keypoint_count === 24 || scaledKeypoints.length === 24
-    drawKeypoints(ctx, scaledKeypoints, canvas.width, canvas.height, 0, {
-      point: '#3b82f6',
-      line: '#3b82f6'
-    }, false, is24Keypoints)
+    const is24Keypoints = standardModelKeypoints.keypoint_count === 24 || centeredKeypoints.length === 24
+    drawKeypoints(ctx, centeredKeypoints, canvas.width, canvas.height, 0, {
+      point: '#000000',
+      line: '#000000'
+    }, false, is24Keypoints, false)
     
     // ログを減らす（毎フレーム出力すると多すぎるため、10フレームごとに出力）
     if (standardModelFrameIndex % 10 === 0) {
@@ -916,11 +963,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     
-    // ユーザー1周期を描画（赤色）- 体幹長ベースの固定スケールを適用
+    // ユーザー1周期を描画（黒色ベース、問題箇所のみ赤色）- 体幹長ベースの固定スケール + その場走り
     const scaledKeypoints = getScaledKeypointsWithFixedTorso(frameData.keypoints, userCycleScaleRef)
-    drawKeypoints(ctx, scaledKeypoints, canvas.width, canvas.height, 0, {
-      point: '#ef4444',
-      line: '#ef4444'
+    const centeredKeypoints = centerKeypointsInPlace(scaledKeypoints)
+    drawKeypoints(ctx, centeredKeypoints, canvas.width, canvas.height, 0, {
+      point: '#000000',
+      line: '#000000'
     })
     
     // ログを減らす（毎フレーム出力すると多すぎるため、10フレームごとに出力）
@@ -954,8 +1002,8 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     if (frameData && frameData.landmarks_detected) {
       // 骨格表示が有効な場合のみ描画
       if (showSkeleton) {
-        // ユーザーの骨格を描画（赤いポイント、緑の線）
-        drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height, 0, { point: '#ff0000', line: '#00ff00' })
+        // ユーザーの骨格を描画（黒色ベース、問題箇所のみ赤色）
+        drawKeypoints(ctx, frameData.keypoints, canvas.width, canvas.height, 0, { point: '#000000', line: '#000000' })
       }
     }
     
@@ -1191,24 +1239,23 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     })
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     
-    if (!standardModelKeypoints) {
-      console.warn('⚠️ 標準モデルキーポイントがありません')
+    // 標準モデルがなくてもユーザー側のアニメーションは動かす
+    const totalStandardFrames = standardModelKeypoints?.total_frames || 0
+    const totalUserFrames = userCycleFrames.length || 0
+    
+    if (totalStandardFrames === 0 && totalUserFrames === 0) {
+      console.warn('⚠️ アニメーション対象のデータがありません')
       return
     }
     
-    const totalStandardFrames = standardModelKeypoints.total_frames
-    const totalUserFrames = userCycleFrames.length || 1 // 0除算を防ぐ
-    
     // ペースを合わせる：標準モデルとユーザー1周期が同じ時間で1周期を完了するように調整
-    const standardCycleDuration = totalStandardFrames // 標準モデルの周期（フレーム数）
-    const userCycleDuration = totalUserFrames // ユーザー1周期の周期（フレーム数）
+    // 標準モデルがない場合は101（デフォルトの標準モデルフレーム数）を使用
+    const standardCycleDuration = totalStandardFrames > 0 ? totalStandardFrames : 101
+    const userCycleDuration = totalUserFrames > 0 ? totalUserFrames : 1
     
     // 手動同期の場合と自動同期の場合で速度比を計算
     let speedRatio: number
     if (isManualSyncEnabled && leftStrikeTime !== null && rightStrikeTime !== null) {
-      // 手動同期：標準モデルとユーザーサイクルを同じアニメーション時間で1周期を完了
-      // userCycleFramesには既に1周期分のフレームが入っているので、その長さを使う
-      // 標準モデルと同じ時間で1周期を完了するように、速度比を計算
       speedRatio = userCycleDuration / standardCycleDuration
       console.log('✅ 手動同期アニメーション開始:', {
         leftStrikeTime: leftStrikeTime.toFixed(3),
@@ -1219,7 +1266,6 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
         note: `標準モデルとユーザーサイクルを同じ時間で1周期を完了します（速度比: ${speedRatio.toFixed(2)}）`
       })
     } else {
-      // 自動同期：標準モデルを基準に速度比を計算
       speedRatio = userCycleDuration / standardCycleDuration
       console.log('✅ 自動同期アニメーション開始:', {
         totalStandardFrames,
@@ -1236,27 +1282,55 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     const fps = 30 // アニメーションのフレームレート
     let lastStandardFrame = -1
     let lastUserFrame = -1
+    // 一時停止時のフレーム保持用
+    let pausedStandardFrame = 0
+    let pausedUserFrame = 0
+    let standardPauseOffset = 0
+    let userPauseOffset = 0
+    let wasStandardPaused = false
+    let wasUserPaused = false
     
     const animate = () => {
       const elapsed = Date.now() - startTime
       const frameTime = 1000 / fps
       const currentFrame = Math.floor(elapsed / frameTime)
       
-      // 標準モデルのフレームインデックス（ループ）
-      const standardFrame = currentFrame % totalStandardFrames
-      if (standardFrame !== lastStandardFrame) {
-        setStandardModelFrameIndex(standardFrame)
-        lastStandardFrame = standardFrame
+      // 標準モデルのフレームインデックス（ループ）- 一時停止対応
+      if (totalStandardFrames > 0 && !isStandardModelPaused) {
+        if (wasStandardPaused) {
+          // 一時停止から復帰: オフセットを調整して現在のフレームから続ける
+          standardPauseOffset = currentFrame - pausedStandardFrame
+          wasStandardPaused = false
+        }
+        const standardFrame = (currentFrame - standardPauseOffset) % totalStandardFrames
+        if (standardFrame !== lastStandardFrame) {
+          setStandardModelFrameIndex(standardFrame)
+          lastStandardFrame = standardFrame
+          pausedStandardFrame = currentFrame - standardPauseOffset
+        }
+      } else if (isStandardModelPaused) {
+        if (!wasStandardPaused) {
+          wasStandardPaused = true
+        }
       }
       
-      // ユーザー1周期のフレームインデックス（ループ、速度を調整）
+      // ユーザー1周期のフレームインデックス（ループ、速度を調整）- 一時停止対応
       if (totalUserFrames > 0) {
-        // 手動同期の場合、記録されたサイクル長に合わせる
-        // 自動同期の場合、標準モデルと同じ時間で1周期を完了するように速度を調整
-        const adjustedFrame = Math.floor(currentFrame * speedRatio) % totalUserFrames
-        if (adjustedFrame !== lastUserFrame) {
-          setUserCycleFrameIndex(adjustedFrame)
-          lastUserFrame = adjustedFrame
+        if (!isUserCyclePaused) {
+          if (wasUserPaused) {
+            userPauseOffset = currentFrame - pausedUserFrame
+            wasUserPaused = false
+          }
+          const adjustedFrame = Math.floor((currentFrame - userPauseOffset) * speedRatio) % totalUserFrames
+          if (adjustedFrame !== lastUserFrame) {
+            setUserCycleFrameIndex(adjustedFrame)
+            lastUserFrame = adjustedFrame
+            pausedUserFrame = currentFrame - userPauseOffset
+          }
+        } else {
+          if (!wasUserPaused) {
+            wasUserPaused = true
+          }
         }
       }
       
@@ -1270,8 +1344,29 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
         cancelAnimationFrame(animationFrameId)
       }
     }
-  }, [standardModelKeypoints, userCycleFrames, isManualSyncEnabled, leftStrikeTime, rightStrikeTime, poseData.video_info.fps])
+  }, [standardModelKeypoints, userCycleFrames, isManualSyncEnabled, leftStrikeTime, rightStrikeTime, poseData.video_info.fps, isStandardModelPaused, isUserCyclePaused])
   
+  // 棒人間のフレームコントロール
+  const handleStandardModelStepForward = useCallback(() => {
+    if (!standardModelKeypoints) return
+    setStandardModelFrameIndex(prev => (prev + 1) % standardModelKeypoints.total_frames)
+  }, [standardModelKeypoints])
+
+  const handleStandardModelStepBackward = useCallback(() => {
+    if (!standardModelKeypoints) return
+    setStandardModelFrameIndex(prev => (prev - 1 + standardModelKeypoints.total_frames) % standardModelKeypoints.total_frames)
+  }, [standardModelKeypoints])
+
+  const handleUserCycleStepForward = useCallback(() => {
+    if (!userCycleFrames.length) return
+    setUserCycleFrameIndex(prev => (prev + 1) % userCycleFrames.length)
+  }, [userCycleFrames])
+
+  const handleUserCycleStepBackward = useCallback(() => {
+    if (!userCycleFrames.length) return
+    setUserCycleFrameIndex(prev => (prev - 1 + userCycleFrames.length) % userCycleFrames.length)
+  }, [userCycleFrames])
+
   // 標準モデルフレームインデックスが変更されたときにキャンバスを更新（無効化中、コードは保持）
   useEffect(() => {
     if (!ENABLE_STANDARD_MODEL_COMPARISON) return
@@ -1424,23 +1519,81 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* 左：標準モデルの棒人間 */}
             <div>
-              <h4 className="text-sm font-medium text-gray-600 mb-2">標準モデル</h4>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">
+                標準モデル
+                <span className="ml-2 text-xs text-gray-400">
+                  フレーム: {standardModelFrameIndex + 1} / {standardModelKeypoints?.total_frames || 0}
+                </span>
+              </h4>
               <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
                 <canvas
                   ref={standardModelCanvasRef}
                   className="absolute top-0 left-0 w-full h-full rounded-lg"
                 />
               </div>
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <button
+                  onClick={handleStandardModelStepBackward}
+                  disabled={!isStandardModelPaused}
+                  className={`px-3 py-1 text-sm rounded ${isStandardModelPaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                  title="1フレーム戻る"
+                >
+                  ⏪
+                </button>
+                <button
+                  onClick={() => setIsStandardModelPaused(prev => !prev)}
+                  className={`px-4 py-1 text-sm rounded font-medium ${isStandardModelPaused ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}
+                >
+                  {isStandardModelPaused ? '▶ 再生' : '⏸ 一時停止'}
+                </button>
+                <button
+                  onClick={handleStandardModelStepForward}
+                  disabled={!isStandardModelPaused}
+                  className={`px-3 py-1 text-sm rounded ${isStandardModelPaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                  title="1フレーム進む"
+                >
+                  ⏩
+                </button>
+              </div>
             </div>
             
             {/* 右：ユーザーのランニング1周期を棒人間化 */}
             <div>
-              <h4 className="text-sm font-medium text-gray-600 mb-2">あなたの走り（1周期）</h4>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">
+                あなたの走り（1周期）
+                <span className="ml-2 text-xs text-gray-400">
+                  フレーム: {userCycleFrameIndex + 1} / {userCycleFrames.length || 0}
+                </span>
+              </h4>
               <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
                 <canvas
                   ref={userCycleCanvasRef}
                   className="absolute top-0 left-0 w-full h-full rounded-lg"
                 />
+              </div>
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <button
+                  onClick={handleUserCycleStepBackward}
+                  disabled={!isUserCyclePaused}
+                  className={`px-3 py-1 text-sm rounded ${isUserCyclePaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                  title="1フレーム戻る"
+                >
+                  ⏪
+                </button>
+                <button
+                  onClick={() => setIsUserCyclePaused(prev => !prev)}
+                  className={`px-4 py-1 text-sm rounded font-medium ${isUserCyclePaused ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}
+                >
+                  {isUserCyclePaused ? '▶ 再生' : '⏸ 一時停止'}
+                </button>
+                <button
+                  onClick={handleUserCycleStepForward}
+                  disabled={!isUserCyclePaused}
+                  className={`px-3 py-1 text-sm rounded ${isUserCyclePaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                  title="1フレーム進む"
+                >
+                  ⏩
+                </button>
               </div>
             </div>
           </div>
