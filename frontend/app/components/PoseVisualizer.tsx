@@ -773,7 +773,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   }
   
   // キーポイントを描画（ユーザーの骨格と標準モデルの骨格）
-  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false, use24Keypoints: boolean = false, highlightProblematic: boolean = true): void => {
+  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false, use24Keypoints: boolean = false, highlightProblematic: boolean = true, uniformScale: boolean = false): void => {
     if (!keypoints || keypoints.length === 0) {
       return
     }
@@ -803,9 +803,27 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
       })
     }
     
+    // 均等スケーリング: キャンバスのアスペクト比に関係なく正しい比率で描画
+    // uniformScale=true の場合、XとYを同じスケールで描画し、余白部分は中央に配置
+    let scaleW = videoWidth
+    let scaleH = videoHeight
+    let drawOffsetX = 0
+    let drawOffsetY = 0
+    if (uniformScale) {
+      const uniformSize = Math.min(videoWidth, videoHeight)
+      scaleW = uniformSize
+      scaleH = uniformSize
+      drawOffsetX = (videoWidth - uniformSize) / 2
+      drawOffsetY = (videoHeight - uniformSize) / 2
+    }
+    
     // 可視性の閾値を下げる（より多くのキーポイントを表示）
     const VISIBILITY_THRESHOLD_LOW = 0.2  // 低可視性でも表示
     const VISIBILITY_THRESHOLD_HIGH = 0.5  // 高可視性（通常表示）
+    
+    // 座標変換ヘルパー
+    const toScreenX = (nx: number) => nx * scaleW + drawOffsetX + xOffset
+    const toScreenY = (ny: number) => ny * scaleH + drawOffsetY
     
     // キーポイントを描画（可視性に応じてサイズと透明度を調整）
     keypoints.forEach((point, index) => {
@@ -816,8 +834,8 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
         // X座標を固定する場合（その場で走らせる）
         const x = fixXPosition 
           ? (videoWidth / 2) + xOffset  // X座標を中央に固定
-          : point.x * videoWidth + xOffset
-        const y = point.y * videoHeight
+          : toScreenX(point.x)
+        const y = toScreenY(point.y)
         
         // 問題のある関節点かどうか確認
         const isProblematicPoint = problematicPointIndices.has(index)
@@ -856,12 +874,12 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
         // X座標を固定する場合（その場で走らせる）
         const startX = fixXPosition 
           ? (videoWidth / 2) + xOffset  // X座標を中央に固定
-          : startPoint.x * videoWidth + xOffset
-        const startY = startPoint.y * videoHeight
+          : toScreenX(startPoint.x)
+        const startY = toScreenY(startPoint.y)
         const endX = fixXPosition 
           ? (videoWidth / 2) + xOffset  // X座標を中央に固定
-          : endPoint.x * videoWidth + xOffset
-        const endY = endPoint.y * videoHeight
+          : toScreenX(endPoint.x)
+        const endY = toScreenY(endPoint.y)
         
         // この接続が問題部位かどうか確認（24関節点の場合は常にfalse）
         const connectionKey = `${startIdx}-${endIdx}`
@@ -926,7 +944,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     drawKeypoints(ctx, centeredKeypoints, canvas.width, canvas.height, 0, {
       point: '#000000',
       line: '#000000'
-    }, false, is24Keypoints, false)
+    }, false, is24Keypoints, false, true)  // uniformScale=true: アスペクト比を保持
     
     // ログを減らす（毎フレーム出力すると多すぎるため、10フレームごとに出力）
     if (standardModelFrameIndex % 10 === 0) {
@@ -1407,157 +1425,164 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   
   return (
     <div className={`${className} space-y-6`}>
-      {/* 上段：撮影した動画のリプレイ */}
-      <div>
-        <h3 className="text-lg font-semibold mb-2">撮影した動画のリプレイ</h3>
-        <div className="relative inline-block w-full">
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            controls
-            className={`w-full rounded-lg shadow-lg ${isGrayscale ? 'grayscale-video' : ''}`}
-            style={{
-              filter: isGrayscale ? 'grayscale(100%)' : 'none',
-              transition: 'filter 0.3s ease'
-            }}
-            onLoadedMetadata={handleVideoResize}
-            preload="metadata"
-          >
-            お使いのブラウザは動画の再生をサポートしていません。
-          </video>
+      {/* メインエリア：動画（左2/3）+ お手本棒人間（右1/3） */}
+      <div className="flex gap-4">
+        {/* 左側：撮影した動画のリプレイ（2/3幅） */}
+        <div className="w-2/3">
+          <h3 className="text-lg font-semibold mb-2">撮影した動画</h3>
+          <div className="relative inline-block w-full">
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              controls
+              className={`w-full rounded-lg shadow-lg ${isGrayscale ? 'grayscale-video' : ''}`}
+              style={{
+                filter: isGrayscale ? 'grayscale(100%)' : 'none',
+                transition: 'filter 0.3s ease'
+              }}
+              onLoadedMetadata={handleVideoResize}
+              preload="metadata"
+            >
+              お使いのブラウザは動画の再生をサポートしていません。
+            </video>
+          </div>
         </div>
-        
-        {/* ペース同期用のUI（標準モデル比較機能が有効な場合のみ表示） */}
+
+        {/* 右側：お手本棒人間（1/3幅） */}
         {ENABLE_STANDARD_MODEL_COMPARISON && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium text-gray-700">ペース同期設定</h4>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isManualSyncEnabled}
-                  onChange={(e) => setIsManualSyncEnabled(e.target.checked)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm text-gray-600">手動同期を有効にする</span>
-              </label>
+          <div className="w-1/3 flex flex-col">
+            <h3 className="text-lg font-semibold mb-2">
+              お手本フォーム
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                {standardModelFrameIndex + 1} / {standardModelKeypoints?.total_frames || 0}
+              </span>
+            </h3>
+            <div className="relative flex-1 bg-gray-100 rounded-lg min-h-0" style={{ aspectRatio: '3/4' }}>
+              <canvas
+                ref={standardModelCanvasRef}
+                className="absolute top-0 left-0 w-full h-full rounded-lg"
+              />
             </div>
-          
-          {isManualSyncEnabled && (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-500 mb-3">
-                動画を再生し、着地の瞬間に一時停止してボタンを押してください
-              </p>
-              <div className="flex gap-3 flex-wrap">
-                <button
-                  onClick={() => {
-                    if (videoRef.current) {
-                      const currentTime = videoRef.current.currentTime
-                      setLeftStrikeTime(currentTime)
-                      console.log('👟 左足着地を設定:', currentTime.toFixed(3), '秒')
-                    }
-                  }}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    leftStrikeTime !== null
-                      ? 'bg-green-500 text-white'
-                      : 'bg-blue-500 text-white hover:bg-blue-600'
-                  }`}
-                >
-                  👟 左足着地を設定
-                  {leftStrikeTime !== null && (
-                    <span className="ml-2 text-xs">({leftStrikeTime.toFixed(2)}秒)</span>
-                  )}
-                </button>
-                <button
-                  onClick={() => {
-                    if (videoRef.current) {
-                      const currentTime = videoRef.current.currentTime
-                      setRightStrikeTime(currentTime)
-                      console.log('👟 右足着地を設定:', currentTime.toFixed(3), '秒')
-                    }
-                  }}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    rightStrikeTime !== null
-                      ? 'bg-green-500 text-white'
-                      : 'bg-blue-500 text-white hover:bg-blue-600'
-                  }`}
-                >
-                  👟 右足着地を設定
-                  {rightStrikeTime !== null && (
-                    <span className="ml-2 text-xs">({rightStrikeTime.toFixed(2)}秒)</span>
-                  )}
-                </button>
-                {(leftStrikeTime !== null || rightStrikeTime !== null) && (
-                  <button
-                    onClick={() => {
-                      setLeftStrikeTime(null)
-                      setRightStrikeTime(null)
-                      console.log('🔄 着地タイミングをリセット')
-                    }}
-                    className="px-4 py-2 rounded-md text-sm font-medium bg-gray-500 text-white hover:bg-gray-600"
-                  >
-                    🔄 リセット
-                  </button>
-                )}
-              </div>
-              {leftStrikeTime !== null && rightStrikeTime !== null && (
-                <div className="mt-2 text-xs text-gray-600">
-                  <p>✅ 両足の着地タイミングが設定されました</p>
-                  <p>1サイクルの長さ: {Math.abs(rightStrikeTime - leftStrikeTime).toFixed(2)}秒</p>
-                </div>
-              )}
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <button
+                onClick={handleStandardModelStepBackward}
+                disabled={!isStandardModelPaused}
+                className={`px-3 py-1 text-sm rounded ${isStandardModelPaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                title="1フレーム戻る"
+              >
+                ⏪
+              </button>
+              <button
+                onClick={() => setIsStandardModelPaused(prev => !prev)}
+                className={`px-4 py-1 text-sm rounded font-medium ${isStandardModelPaused ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}
+              >
+                {isStandardModelPaused ? '▶ 再生' : '⏸ 一時停止'}
+              </button>
+              <button
+                onClick={handleStandardModelStepForward}
+                disabled={!isStandardModelPaused}
+                className={`px-3 py-1 text-sm rounded ${isStandardModelPaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                title="1フレーム進む"
+              >
+                ⏩
+              </button>
             </div>
-          )}
           </div>
         )}
       </div>
 
-      {/* 下段：棒人間同士の比較（無効化中、コードは保持） */}
+      {/* ペース同期用のUI（一時非表示、コードは保持） */}
+      {/*
+      {ENABLE_STANDARD_MODEL_COMPARISON && (
+        <div className="p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-gray-700">ペース同期設定</h4>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isManualSyncEnabled}
+                onChange={(e) => setIsManualSyncEnabled(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-gray-600">手動同期を有効にする</span>
+            </label>
+          </div>
+        
+        {isManualSyncEnabled && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 mb-3">
+              動画を再生し、着地の瞬間に一時停止してボタンを押してください
+            </p>
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={() => {
+                  if (videoRef.current) {
+                    const currentTime = videoRef.current.currentTime
+                    setLeftStrikeTime(currentTime)
+                    console.log('👟 左足着地を設定:', currentTime.toFixed(3), '秒')
+                  }
+                }}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  leftStrikeTime !== null
+                    ? 'bg-green-500 text-white'
+                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                }`}
+              >
+                👟 左足着地を設定
+                {leftStrikeTime !== null && (
+                  <span className="ml-2 text-xs">({leftStrikeTime.toFixed(2)}秒)</span>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  if (videoRef.current) {
+                    const currentTime = videoRef.current.currentTime
+                    setRightStrikeTime(currentTime)
+                    console.log('👟 右足着地を設定:', currentTime.toFixed(3), '秒')
+                  }
+                }}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  rightStrikeTime !== null
+                    ? 'bg-green-500 text-white'
+                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                }`}
+              >
+                👟 右足着地を設定
+                {rightStrikeTime !== null && (
+                  <span className="ml-2 text-xs">({rightStrikeTime.toFixed(2)}秒)</span>
+                )}
+              </button>
+              {(leftStrikeTime !== null || rightStrikeTime !== null) && (
+                <button
+                  onClick={() => {
+                    setLeftStrikeTime(null)
+                    setRightStrikeTime(null)
+                    console.log('🔄 着地タイミングをリセット')
+                  }}
+                  className="px-4 py-2 rounded-md text-sm font-medium bg-gray-500 text-white hover:bg-gray-600"
+                >
+                  🔄 リセット
+                </button>
+              )}
+            </div>
+            {leftStrikeTime !== null && rightStrikeTime !== null && (
+              <div className="mt-2 text-xs text-gray-600">
+                <p>✅ 両足の着地タイミングが設定されました</p>
+                <p>1サイクルの長さ: {Math.abs(rightStrikeTime - leftStrikeTime).toFixed(2)}秒</p>
+              </div>
+            )}
+          </div>
+        )}
+        </div>
+      )}
+      */}
+
+      {/* ユーザー棒人間比較セクション（一時非表示、コードは保持） */}
+      {/* 
       {ENABLE_STANDARD_MODEL_COMPARISON && (
         <div>
           <h3 className="text-lg font-semibold mb-2">棒人間同士の比較</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 左：標準モデルの棒人間 */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-600 mb-2">
-                標準モデル
-                <span className="ml-2 text-xs text-gray-400">
-                  フレーム: {standardModelFrameIndex + 1} / {standardModelKeypoints?.total_frames || 0}
-                </span>
-              </h4>
-              <div className="relative w-full bg-gray-100 rounded-lg" style={{ aspectRatio: '16/9' }}>
-                <canvas
-                  ref={standardModelCanvasRef}
-                  className="absolute top-0 left-0 w-full h-full rounded-lg"
-                />
-              </div>
-              <div className="flex items-center justify-center gap-2 mt-2">
-                <button
-                  onClick={handleStandardModelStepBackward}
-                  disabled={!isStandardModelPaused}
-                  className={`px-3 py-1 text-sm rounded ${isStandardModelPaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-                  title="1フレーム戻る"
-                >
-                  ⏪
-                </button>
-                <button
-                  onClick={() => setIsStandardModelPaused(prev => !prev)}
-                  className={`px-4 py-1 text-sm rounded font-medium ${isStandardModelPaused ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}
-                >
-                  {isStandardModelPaused ? '▶ 再生' : '⏸ 一時停止'}
-                </button>
-                <button
-                  onClick={handleStandardModelStepForward}
-                  disabled={!isStandardModelPaused}
-                  className={`px-3 py-1 text-sm rounded ${isStandardModelPaused ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-                  title="1フレーム進む"
-                >
-                  ⏩
-                </button>
-              </div>
-            </div>
-            
-            {/* 右：ユーザーのランニング1周期を棒人間化 */}
             <div>
               <h4 className="text-sm font-medium text-gray-600 mb-2">
                 あなたの走り（1周期）
@@ -1599,6 +1624,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
           </div>
         </div>
       )}
+      */}
     </div>
   )
 } 
