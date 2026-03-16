@@ -773,7 +773,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
   }
   
   // キーポイントを描画（ユーザーの骨格と標準モデルの骨格）
-  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false, use24Keypoints: boolean = false, highlightProblematic: boolean = true, uniformScale: boolean = false): void => {
+  const drawKeypoints = useCallback((ctx: CanvasRenderingContext2D, keypoints: KeyPoint[], videoWidth: number, videoHeight: number, xOffset: number = 0, color: { point: string; line: string } = { point: '#ff0000', line: '#00ff00' }, fixXPosition: boolean = false, use24Keypoints: boolean = false, highlightProblematic: boolean = true, uniformScale: boolean = false, jointPointRadius: number = -1): void => {
     if (!keypoints || keypoints.length === 0) {
       return
     }
@@ -826,35 +826,45 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     const toScreenY = (ny: number) => ny * scaleH + drawOffsetY
     
     // キーポイントを描画（可視性に応じてサイズと透明度を調整）
-    keypoints.forEach((point, index) => {
-      if (!point) return
-      
-      // 可視性が低い場合でも表示（薄く表示）
-      if (point.visibility > VISIBILITY_THRESHOLD_LOW) {
-        // X座標を固定する場合（その場で走らせる）
-        const x = fixXPosition 
-          ? (videoWidth / 2) + xOffset  // X座標を中央に固定
-          : toScreenX(point.x)
-        const y = toScreenY(point.y)
+    // jointPointRadius: -1=デフォルト, 0=描画しない, 正数=指定サイズ
+    if (jointPointRadius !== 0) {
+      keypoints.forEach((point, index) => {
+        if (!point) return
         
-        // 問題のある関節点かどうか確認
-        const isProblematicPoint = problematicPointIndices.has(index)
-        
-        // 可視性に応じてポイントサイズと透明度を調整
-        const pointSize = isProblematicPoint ? 6 : (point.visibility > VISIBILITY_THRESHOLD_HIGH ? 5 : 3)
-        const alpha = Math.min(1.0, point.visibility * 1.5) // 可視性を強調
-        
-        ctx.save()
-        ctx.globalAlpha = alpha
-        ctx.fillStyle = isProblematicPoint ? '#ff0000' : color.point
-        
-        // ポイントを描画
-        ctx.beginPath()
-        ctx.arc(x, y, pointSize, 0, 2 * Math.PI)
-        ctx.fill()
-        ctx.restore()
-      }
-    })
+        // 可視性が低い場合でも表示（薄く表示）
+        if (point.visibility > VISIBILITY_THRESHOLD_LOW) {
+          // X座標を固定する場合（その場で走らせる）
+          const x = fixXPosition 
+            ? (videoWidth / 2) + xOffset  // X座標を中央に固定
+            : toScreenX(point.x)
+          const y = toScreenY(point.y)
+          
+          // 問題のある関節点かどうか確認
+          const isProblematicPoint = problematicPointIndices.has(index)
+          
+          // 可視性に応じてポイントサイズと透明度を調整
+          let pointSize: number
+          if (jointPointRadius > 0) {
+            // 明示的にサイズ指定（標準モデル等で小さくしたい場合）
+            pointSize = isProblematicPoint ? jointPointRadius + 1 : jointPointRadius
+          } else {
+            // デフォルト: 問題部位は大きく、可視性で調整
+            pointSize = isProblematicPoint ? 6 : (point.visibility > VISIBILITY_THRESHOLD_HIGH ? 5 : 3)
+          }
+          const alpha = Math.min(1.0, point.visibility * 1.5) // 可視性を強調
+          
+          ctx.save()
+          ctx.globalAlpha = alpha
+          ctx.fillStyle = isProblematicPoint ? '#ff0000' : color.point
+          
+          // ポイントを描画
+          ctx.beginPath()
+          ctx.arc(x, y, pointSize, 0, 2 * Math.PI)
+          ctx.fill()
+          ctx.restore()
+        }
+      })
+    }
     
     // 骨格の線を描画（より柔軟な条件）
     connections.forEach(([startIdx, endIdx]) => {
@@ -944,7 +954,7 @@ export default function PoseVisualizer({ videoUrl, poseData, className = '', pro
     drawKeypoints(ctx, centeredKeypoints, canvas.width, canvas.height, 0, {
       point: '#000000',
       line: '#000000'
-    }, false, is24Keypoints, false, true)  // uniformScale=true: アスペクト比を保持
+    }, false, is24Keypoints, false, true, 0)  // uniformScale=true, jointPointRadius=0: 関節丸印なし
     
     // ログを減らす（毎フレーム出力すると多すぎるため、10フレームごとに出力）
     if (standardModelFrameIndex % 10 === 0) {

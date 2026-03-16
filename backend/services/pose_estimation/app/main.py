@@ -290,12 +290,12 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
                 avg_key_visibility = np.mean(key_visibilities) if key_visibilities else 0.0
                 
                 # 主要キーポイントの平均visibilityが低い場合は検出を無視（誤検出の可能性）
+                confidence_scores = []  # 常に初期化
                 if avg_key_visibility < 0.3:
                     landmarks_detected = False
                     confidence_score = 0.0
                 else:
                     landmarks_detected = True
-                    confidence_scores = []
                 
                 # 各ランドマークのキーポイントを抽出（Outlier Rejection → OneEuroFilterでスムージング）
                 current_keypoints = []

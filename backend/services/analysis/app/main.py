@@ -668,16 +668,18 @@ def evaluate_cycle_quality(cycle: Dict[str, Any], keypoints_data: List[Dict], vi
 def calculate_cycle_event_angles(keypoints_data: List[Dict], cycle: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
     """
     選択されたサイクルの各イベント時の角度を計算
+    部分サイクル対応: Noneのイベントはスキップ
     
     Args:
         keypoints_data: キーポイントデータ
         cycle: 選択されたサイクル情報
     
     Returns:
-        Dict: 各イベントの角度データ
+        Dict: 各イベントの角度データ（Noneイベントは含まれない）
     """
     cycle_angles = {}
     events = cycle['events']
+    is_partial = cycle.get('is_partial', False)
     
     # 各イベントの角度を計算
     event_mapping = {
@@ -688,27 +690,157 @@ def calculate_cycle_event_angles(keypoints_data: List[Dict], cycle: Dict[str, An
     }
     
     for event_key, angle_key in event_mapping.items():
-        frame_idx = events[event_key]
+        frame_idx = events.get(event_key)
+        
+        # Noneイベントはスキップ（部分サイクル対応）
+        if frame_idx is None:
+            if is_partial:
+                print(f"   ⏭️  {angle_key}: イベント未検出のためスキップ")
+            else:
+                cycle_angles[angle_key] = {}
+                print(f"   ⚠️  {angle_key}: フレームがNone")
+            continue
+        
         print(f"🔧 処理中: {event_key} -> {angle_key}, フレーム: {frame_idx}, データ型: {type(frame_idx)}")
         
         # frame_idxが整数かどうかをチェック
         try:
-            if frame_idx is not None and isinstance(frame_idx, int) and 0 <= frame_idx < len(keypoints_data):
+            if isinstance(frame_idx, int) and 0 <= frame_idx < len(keypoints_data):
                 print(f"🔧 keypoints_data[{frame_idx}] アクセス試行...")
                 frame_data = keypoints_data[frame_idx]
                 print(f"🔧 フレームデータ取得成功: {type(frame_data)}")
                 
                 angles = calculate_angles_for_frame(frame_data)
-                cycle_angles[angle_key] = angles
-                print(f"   📐 {angle_key} (フレーム{frame_idx}): 角度計算完了")
+                if angles:  # 空の角度データはスキップ
+                    cycle_angles[angle_key] = angles
+                    print(f"   📐 {angle_key} (フレーム{frame_idx}): 角度計算完了")
+                else:
+                    print(f"   ⚠️  {angle_key} (フレーム{frame_idx}): 角度計算結果が空（キーポイント不足の可能性）")
             else:
-                cycle_angles[angle_key] = {}
                 print(f"   ⚠️  {angle_key}: フレーム{frame_idx}が無効（型: {type(frame_idx)}, 値: {frame_idx}）")
         except Exception as e:
-            cycle_angles[angle_key] = {}
             print(f"   ❌ {angle_key}: フレーム{frame_idx}でエラー - {type(e).__name__}: {e}")
     
+    print(f"   📊 角度計算結果: {len(cycle_angles)}イベント分の角度を取得")
     return cycle_angles
+
+
+def validate_and_filter_events(events: list, total_frames: int, video_fps: float) -> list:
+    """
+    偽イベントを検証・除外する（Cプラン: サイクル要件の緩和）
+    
+    除外条件:
+    1. 動画の端10%以内のイベント（ランナー出入りの境界アーティファクト）
+    2. 同側のstrike/offが1フレーム差以内（物理的に不可能）
+    3. 左右のstrikeが2フレーム以内に連続（走行では物理的に不自然）
+    
+    Args:
+        events: [(frame, side, type), ...] のリスト
+        total_frames: 動画の総フレーム数
+        video_fps: フレームレート
+    
+    Returns:
+        フィルタ後のイベントリスト
+    """
+    if not events or not isinstance(events, list):
+        return events
+    
+    original_count = len(events)
+    
+    # === フィルタ1: 動画端のイベント除外 ===
+    margin = max(3, int(total_frames * 0.10))
+    filtered = []
+    for event in events:
+        frame_num = event[0]
+        if margin <= frame_num <= (total_frames - margin):
+            filtered.append(event)
+        else:
+            print(f"   🚫 境界フィルタ: フレーム{frame_num} ({event[1]} {event[2]}) 除外 - 動画端{margin}フレーム以内")
+    
+    # === フィルタ2: 同側strike/offの間隔チェック ===
+    # strike直後の同側offは最低3フレーム以上離れているべき
+    validated = []
+    for i, event in enumerate(filtered):
+        is_suspicious = False
+        for j, other in enumerate(filtered):
+            if i == j:
+                continue
+            # 同側で異なるタイプ（strike vs off）のイベント
+            if event[1] == other[1] and event[2] != other[2]:
+                frame_diff = abs(event[0] - other[0])
+                if frame_diff <= 1:
+                    is_suspicious = True
+                    print(f"   🚫 間隔フィルタ: フレーム{event[0]} ({event[1]} {event[2]}) 除外 - 同側イベントと{frame_diff}フレーム差")
+                    break
+        if not is_suspicious:
+            validated.append(event)
+    
+    # === フィルタ3: 左右の同種イベント同時性チェック ===
+    # 左右のstrike/offが2フレーム以内に同時発生は非現実的
+    final = []
+    removed_indices = set()
+    
+    for event_type in ['strike', 'off']:
+        typed_events = [(e, i) for i, e in enumerate(validated) if e[2] == event_type]
+        for i in range(len(typed_events)):
+            for j in range(i + 1, len(typed_events)):
+                e1, idx1 = typed_events[i]
+                e2, idx2 = typed_events[j]
+                if e1[1] != e2[1]:  # 左右が異なる
+                    frame_diff = abs(e1[0] - e2[0])
+                    if frame_diff <= 2:
+                        # 両方除外
+                        removed_indices.add(idx1)
+                        removed_indices.add(idx2)
+                        print(f"   🚫 同時{event_type}: フレーム{e1[0]}({e1[1]}) と フレーム{e2[0]}({e2[1]}) 除外 - {frame_diff}フレーム差")
+    
+    for i, event in enumerate(validated):
+        if i not in removed_indices:
+            final.append(event)
+    
+    removed_count = original_count - len(final)
+    if removed_count > 0:
+        print(f"   📊 イベント検証結果: {original_count}個 → {len(final)}個 ({removed_count}個除外)")
+    else:
+        print(f"   ✅ イベント検証: 全{original_count}個が有効")
+    
+    return final
+
+
+def find_best_quality_frame(keypoints_data: List[Dict]) -> Optional[int]:
+    """
+    キーポイント品質が最も高いフレームを見つける（最終フォールバック用）
+    
+    Args:
+        keypoints_data: キーポイントデータ
+    
+    Returns:
+        最高品質フレームのインデックス、またはNone
+    """
+    best_frame = None
+    best_score = 0
+    
+    # 主要キーポイント（肩、腰、膝、足首）
+    key_indices = [11, 12, 23, 24, 25, 26, 27, 28]
+    
+    for i, frame_data in enumerate(keypoints_data):
+        if 'keypoints' not in frame_data:
+            continue
+        kps = frame_data['keypoints']
+        if len(kps) < 33:
+            continue
+        
+        # 主要キーポイントのvisibilityの合計をスコアとする
+        score = sum(kps[idx].get('visibility', 0) for idx in key_indices if idx < len(kps))
+        
+        if score > best_score:
+            best_score = score
+            best_frame = i
+    
+    if best_frame is not None:
+        print(f"   🔍 最高品質フレーム検索: フレーム{best_frame}, スコア={best_score:.2f}/8.0")
+    
+    return best_frame
 
 # =============================================================================
 # Z値分析メイン関数
@@ -737,7 +869,12 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         # 2. 足接地・離地を検出
         print("🔧 detect_foot_strikes_advanced 呼び出し開始")
         all_events = detect_foot_strikes_advanced(all_keypoints, video_fps)
-        print(f"🔧 detect_foot_strikes_advanced 呼び出し完了: {len(all_events)}個のイベント検出")
+        print(f"🔧 detect_foot_strikes_advanced 呼び出し完了: {len(all_events)}個のイベント検出（フィルタ前）")
+        
+        # 2.5. 偽イベント検証: 動画の端付近・物理的に不可能なイベントを除外
+        total_frames = len(all_keypoints)
+        all_events = validate_and_filter_events(all_events, total_frames, video_fps)
+        print(f"🔧 イベント検証後: {len(all_events)}個のイベント残存")
         
         # 3. all_eventsをリストから辞書形式に変換
         print("🔧 all_eventsをリストから辞書形式に変換開始")
@@ -751,63 +888,90 @@ def analyze_form_with_z_scores(all_keypoints: List[Dict], video_fps: float) -> D
         
         if not best_cycle:
             print("⚠️  明確なランニングサイクルが見つかりませんでした")
-            print("🔧 代替方法：検出された全イベントでZ値分析を実行します")
-            print(f"   📊 検出されたイベント数: {len(all_events) if isinstance(all_events, list) else 'unknown'}")
-            if isinstance(all_events, list):
-                print(f"   📝 イベント詳細: {all_events[:5]}...")
-            else:
-                print(f"   📝 イベント詳細: {str(all_events)[:100]}...")
-                print("   ⚠️  all_eventsがリスト形式ではありません。戻り値型を確認してください。")
+            print("🔧 Cプラン: 部分イベントでもZ値分析を実行します")
             
-            # 代替方法：全イベントからランダムに4つのイベントを選択
-            if isinstance(all_events, list) and len(all_events) >= 4:
-                # 右足接地、右足離地、左足接地、左足離地の順で検索
-                right_strikes = [e[0] for e in all_events if e[1] == 'right' and e[2] == 'strike']
-                right_offs = [e[0] for e in all_events if e[1] == 'right' and e[2] == 'off']
-                left_strikes = [e[0] for e in all_events if e[1] == 'left' and e[2] == 'strike']
-                left_offs = [e[0] for e in all_events if e[1] == 'left' and e[2] == 'off']
+            total_frames = len(all_keypoints)
+            
+            if isinstance(all_events, list) and len(all_events) > 0:
+                print(f"   📊 検出されたイベント数: {len(all_events)}")
+                print(f"   📝 イベント詳細: {all_events}")
                 
-                # 各イベントから最初のものを選択（安全な整数変換）
-                alternative_cycle = {
-                    'start_frame': min([e[0] for e in all_events]),
-                    'end_frame': max([e[0] for e in all_events]),
-                    'events': {
+                # === 偽イベント検証: 動画の端10%以内のイベントを除外 ===
+                margin = max(3, int(total_frames * 0.10))
+                validated_events = []
+                for event in all_events:
+                    frame_num = event[0]
+                    if margin <= frame_num <= (total_frames - margin):
+                        validated_events.append(event)
+                    else:
+                        print(f"   🚫 偽イベント除外: フレーム{frame_num} ({event[1]} {event[2]}) - 動画端付近")
+                
+                excluded_count = len(all_events) - len(validated_events)
+                if excluded_count > 0:
+                    print(f"   📊 偽イベント除外: {excluded_count}個除外, {len(validated_events)}個残存")
+                
+                # 検証後のイベントを使用
+                if len(validated_events) > 0:
+                    right_strikes = [e[0] for e in validated_events if e[1] == 'right' and e[2] == 'strike']
+                    right_offs = [e[0] for e in validated_events if e[1] == 'right' and e[2] == 'off']
+                    left_strikes = [e[0] for e in validated_events if e[1] == 'left' and e[2] == 'strike']
+                    left_offs = [e[0] for e in validated_events if e[1] == 'left' and e[2] == 'off']
+                    
+                    # === 部分サイクル: 検出できたイベントだけで分析 ===
+                    partial_events = {
                         'right_strike': int(right_strikes[0]) if right_strikes else None,
                         'right_off': int(right_offs[0]) if right_offs else None,
                         'left_strike': int(left_strikes[0]) if left_strikes else None,
                         'left_off': int(left_offs[0]) if left_offs else None
                     }
-                }
-                
-                # 代替サイクルが有効かチェック
-                if all(v is not None for v in alternative_cycle['events'].values()):
-                    print("✅ 代替サイクルを使用して分析を継続します")
-                    print(f"   📋 代替サイクル: {alternative_cycle['events']}")
-                    best_cycle = alternative_cycle
+                    
+                    # None以外のイベント数をカウント
+                    valid_event_count = sum(1 for v in partial_events.values() if v is not None)
+                    
+                    if valid_event_count > 0:
+                        valid_frames = [v for v in partial_events.values() if v is not None]
+                        alternative_cycle = {
+                            'start_frame': min(valid_frames),
+                            'end_frame': max(valid_frames),
+                            'events': partial_events,
+                            'is_partial': True
+                        }
+                        print(f"✅ 部分サイクルで分析を継続します（{valid_event_count}/4イベント）")
+                        print(f"   📋 部分サイクル: {partial_events}")
+                        best_cycle = alternative_cycle
+                    else:
+                        print("❌ 偽イベント除外後、有効なイベントが残りませんでした")
                 else:
-                    print("❌ 代替サイクルも作成できませんでした")
+                    print("❌ 偽イベント除外後、有効なイベントが残りませんでした")
+            
+            # それでもbest_cycleがない場合はエラー
+            if not best_cycle:
+                # 最終フォールバック: キーポイント品質が高いフレームを直接選んで分析
+                print("🔧 最終フォールバック: 高品質フレームから直接角度を推定します")
+                best_frame = find_best_quality_frame(all_keypoints)
+                if best_frame is not None:
+                    print(f"   ✅ 最高品質フレーム: {best_frame}")
+                    # 単一フレームを全イベントとして使用（精度は低いが分析は可能）
+                    best_cycle = {
+                        'start_frame': best_frame,
+                        'end_frame': best_frame,
+                        'events': {
+                            'right_strike': best_frame,
+                            'right_off': None,
+                            'left_strike': None,
+                            'left_off': None
+                        },
+                        'is_partial': True,
+                        'is_single_frame_fallback': True
+                    }
+                else:
                     return {
                         'error': '分析可能なイベントが不足しています',
-                        'events_detected': all_events,
+                        'events_detected': all_events if isinstance(all_events, list) else str(all_events),
                         'event_angles': {},
                         'z_scores': {},
                         'analysis_summary': {}
                     }
-            else:
-                if isinstance(all_events, list):
-                    print("❌ 検出されたイベントが不足しています")
-                    error_msg = '分析可能なイベントが不足しています'
-                else:
-                    print("❌ all_eventsがリスト形式ではありません")
-                    error_msg = 'detect_foot_strikes_advanced関数の戻り値型が不正です'
-                
-                return {
-                    'error': error_msg,
-                    'events_detected': all_events if isinstance(all_events, list) else str(all_events),
-                    'event_angles': {},
-                    'z_scores': {},
-                    'analysis_summary': {}
-                }
         
         # 4. 選択されたサイクルのイベント角度を計算
         print(f"🔧 サイクル情報をデバッグ: {best_cycle}")
@@ -1319,23 +1483,38 @@ def print_selected_cycle_info(cycle: Dict[str, Any]) -> None:
         print("⏱️  時間: 計算中...")
     
     events = cycle['events']
-    print(f"\n🎯 サイクル内イベント:")
-    print(f"   1. 右足接地: フレーム{events['right_strike']}")
-    print(f"   2. 右足離地: フレーム{events['right_off']}")
-    print(f"   3. 左足接地: フレーム{events['left_strike']}")
-    print(f"   4. 左足離地: フレーム{events['left_off']}")
+    is_partial = cycle.get('is_partial', False)
     
-    # イベント間隔を計算
-    intervals = [
-        events['right_off'] - events['right_strike'],
-        events['left_strike'] - events['right_off'],
-        events['left_off'] - events['left_strike']
-    ]
+    event_names = {
+        'right_strike': '右足接地',
+        'right_off': '右足離地',
+        'left_strike': '左足接地',
+        'left_off': '左足離地'
+    }
     
-    print(f"\n📊 イベント間隔:")
-    print(f"   右足接地→離地: {intervals[0]}フレーム")
-    print(f"   右足離地→左足接地: {intervals[1]}フレーム") 
-    print(f"   左足接地→離地: {intervals[2]}フレーム")
+    print(f"\n🎯 サイクル内イベント{'（部分サイクル）' if is_partial else ''}:")
+    for i, (key, name) in enumerate(event_names.items(), 1):
+        frame = events.get(key)
+        if frame is not None:
+            print(f"   {i}. {name}: フレーム{frame}")
+        else:
+            print(f"   {i}. {name}: 未検出")
+    
+    # イベント間隔を計算（Noneを含む場合は安全にスキップ）
+    if all(events.get(k) is not None for k in ['right_strike', 'right_off', 'left_strike', 'left_off']):
+        intervals = [
+            events['right_off'] - events['right_strike'],
+            events['left_strike'] - events['right_off'],
+            events['left_off'] - events['left_strike']
+        ]
+        
+        print(f"\n📊 イベント間隔:")
+        print(f"   右足接地→離地: {intervals[0]}フレーム")
+        print(f"   右足離地→左足接地: {intervals[1]}フレーム") 
+        print(f"   左足接地→離地: {intervals[2]}フレーム")
+    else:
+        valid_count = sum(1 for v in events.values() if v is not None)
+        print(f"\n📊 検出イベント数: {valid_count}/4（部分的な検出のため間隔は算出不可）")
     
     print("\n💡 このサイクルのデータを使用してZ値分析を実行しました")
     print("="*80)
