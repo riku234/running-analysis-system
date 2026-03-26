@@ -9,8 +9,8 @@ set -e
 echo "🚀 AWS EC2での迅速なサービス起動を開始..."
 
 # 設定
-EC2_IP="54.206.3.155"
-KEY_FILE="/Users/onoriku/Downloads/Runners Insight Key.pem"
+EC2_IP="57.183.31.148"
+KEY_FILE="/Users/onoriku/Downloads/Runners Insight Key (1).pem"
 
 echo "📡 EC2への接続確認..."
 ssh -i "$KEY_FILE" ec2-user@$EC2_IP "echo 'SSH接続成功'"

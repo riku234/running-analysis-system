@@ -104,6 +104,26 @@ def detect_foot_strikes_advanced(keypoints_data: List[Dict], video_fps: float) -
         left_events = detect_strikes_and_offs_zero_crossing(left_ankle_y, hip_y, video_fps, 'left')
         right_events = detect_strikes_and_offs_zero_crossing(right_ankle_y, hip_y, video_fps, 'right')
         
+        total_zero_cross = len(left_events) + len(right_events)
+        
+        # ピーク検出フォールバック: ゼロクロス法で十分なイベントが得られなかった場合
+        MINIMUM_EVENTS_THRESHOLD = 3
+        if total_zero_cross < MINIMUM_EVENTS_THRESHOLD:
+            print(f"   ⚠️  ゼロクロス法のイベント数が不足 ({total_zero_cross}個 < {MINIMUM_EVENTS_THRESHOLD}個)")
+            print(f"   🔄 ピーク検出フォールバックを実行します...")
+            
+            left_events_peak = detect_strikes_and_offs_peak_detection(left_ankle_y, hip_y, video_fps, 'left')
+            right_events_peak = detect_strikes_and_offs_peak_detection(right_ankle_y, hip_y, video_fps, 'right')
+            
+            total_peak = len(left_events_peak) + len(right_events_peak)
+            
+            if total_peak > total_zero_cross:
+                print(f"   ✅ ピーク検出の方が多くのイベントを検出 ({total_peak}個 > {total_zero_cross}個)")
+                left_events = left_events_peak
+                right_events = right_events_peak
+            else:
+                print(f"   ℹ️  ピーク検出でも改善なし ({total_peak}個)、ゼロクロス法の結果を使用")
+        
         # イベントを種類別に分類
         left_strikes = [frame for frame, event_type in left_events if event_type == 'strike']
         left_offs = [frame for frame, event_type in left_events if event_type == 'off']
@@ -262,6 +282,116 @@ def detect_strikes_and_offs_zero_crossing(ankle_y_coords: List[float], hip_y_coo
     events = validate_event_sequence(events, foot_side)
     
     return events
+
+def detect_strikes_and_offs_peak_detection(ankle_y_coords: List[float], hip_y_coords: List[float], video_fps: float, foot_side: str) -> List[Tuple[int, str]]:
+    """
+    ピーク検出法による着地・離地検出（ゼロクロス法のフォールバック）
+    
+    足首の腰に対する相対高さの局所最大値（足が最も高い＝離地直後）と
+    局所最小値（足が最も低い＝接地直後）を検出する
+    
+    Args:
+        ankle_y_coords: 足首のY座標リスト
+        hip_y_coords: 腰のY座標リスト
+        video_fps: 動画のフレームレート
+        foot_side: 'left' または 'right'
+    
+    Returns:
+        List[Tuple[int, str]]: (フレーム番号, イベント種類) のリスト
+    """
+    if not ankle_y_coords or len(ankle_y_coords) < 10:
+        return []
+    
+    ankle_array = np.array(ankle_y_coords)
+    hip_array = np.array(hip_y_coords)
+    
+    # 有効データのみ抽出
+    valid_threshold = 0.1
+    valid_mask = (ankle_array > valid_threshold) & (hip_array > valid_threshold)
+    valid_indices = np.where(valid_mask)[0]
+    
+    if len(valid_indices) < 10:
+        print(f"   ❌ ピーク検出: {foot_side}足 有効データ不足: {len(valid_indices)}個")
+        return []
+    
+    valid_ankle_y = ankle_array[valid_indices]
+    valid_hip_y = hip_array[valid_indices]
+    
+    # 相対高さ（正の値＝足首が腰より下＝地面に近い）
+    relative_height = valid_ankle_y - valid_hip_y
+    
+    # 平滑化（ゼロクロス法より強めのスムージング）
+    try:
+        from scipy import ndimage
+        sigma = max(2.0, video_fps * 0.06)  # 0.06秒相当（ゼロクロス法の2倍）
+        smoothed = ndimage.gaussian_filter1d(relative_height, sigma=sigma)
+    except ImportError:
+        window_size = max(5, int(video_fps * 0.15))
+        if len(relative_height) < window_size:
+            return []
+        smoothed = np.convolve(relative_height, np.ones(window_size)/window_size, mode='same')
+    
+    # デトレンド: 線形トレンドを除去（ランナーが移動しても相対高さの振動を抽出）
+    from numpy.polynomial import polynomial as P
+    x = np.arange(len(smoothed))
+    coeffs = P.polyfit(x, smoothed, deg=1)
+    trend = P.polyval(x, coeffs)
+    detrended = smoothed - trend
+    
+    print(f"   📊 ピーク検出: {foot_side}足 デトレンド後の振幅: {np.max(detrended) - np.min(detrended):.4f}")
+    
+    # 振幅が非常に小さい場合はスキップ（実質動きなし）
+    amplitude = np.max(detrended) - np.min(detrended)
+    if amplitude < 0.005:
+        print(f"   ❌ ピーク検出: {foot_side}足 振幅が小さすぎます: {amplitude:.4f}")
+        return []
+    
+    # 局所最大値（足が高い位置＝離地）と局所最小値（足が低い位置＝接地）を検出
+    min_distance = max(3, int(video_fps * 0.15))  # 最小間隔0.15秒
+    
+    try:
+        from scipy.signal import find_peaks
+        # 局所最大値（相対高さが大きい＝足が腰から遠い＝地面に近い＝接地）
+        # MediaPipeのY軸は下向きが正なので、大きい値＝地面に近い
+        strike_indices, _ = find_peaks(detrended, distance=min_distance, prominence=amplitude * 0.2)
+        # 局所最小値（相対高さが小さい＝足が腰に近い＝空中＝離地後）
+        off_indices, _ = find_peaks(-detrended, distance=min_distance, prominence=amplitude * 0.2)
+    except ImportError:
+        # scipy.signalがない場合の簡易ピーク検出
+        strike_indices = []
+        off_indices = []
+        for i in range(1, len(detrended) - 1):
+            if detrended[i] > detrended[i-1] and detrended[i] > detrended[i+1]:
+                if not strike_indices or (i - strike_indices[-1]) >= min_distance:
+                    if detrended[i] > np.mean(detrended):
+                        strike_indices.append(i)
+            if detrended[i] < detrended[i-1] and detrended[i] < detrended[i+1]:
+                if not off_indices or (i - off_indices[-1]) >= min_distance:
+                    if detrended[i] < np.mean(detrended):
+                        off_indices.append(i)
+        strike_indices = np.array(strike_indices)
+        off_indices = np.array(off_indices)
+    
+    print(f"   🦶 ピーク検出: {foot_side}足 接地{len(strike_indices)}回, 離地{len(off_indices)}回")
+    
+    # イベントリストを作成（元のフレーム番号に変換）
+    events = []
+    
+    for idx in strike_indices:
+        original_frame = valid_indices[idx]
+        events.append((int(original_frame), 'strike'))
+        print(f"   🦶 [ピーク] {foot_side}足接地: フレーム{original_frame}")
+    
+    for idx in off_indices:
+        original_frame = valid_indices[idx]
+        events.append((int(original_frame), 'off'))
+        print(f"   🚁 [ピーク] {foot_side}足離地: フレーム{original_frame}")
+    
+    events.sort(key=lambda x: x[0])
+    events = validate_event_sequence(events, foot_side)
+    
+    return events
+
 
 def detect_strikes_and_offs_from_y_coords(y_coords: List[float], video_fps: float, foot_side: str) -> List[Tuple[int, str]]:
     """
@@ -710,6 +840,32 @@ def calculate_cycle_event_angles(keypoints_data: List[Dict], cycle: Dict[str, An
                 frame_data = keypoints_data[frame_idx]
                 print(f"🔧 フレームデータ取得成功: {type(frame_data)}")
                 
+                # フレーム品質チェック: 下肢キーポイントのvisibilityを重点的に確認
+                if 'keypoints' in frame_data:
+                    kps = frame_data['keypoints']
+                    # 下肢（膝・足首）の品質を重視
+                    lower_limb_indices = [25, 26, 27, 28]  # 左膝、右膝、左足首、右足首
+                    lower_vis = []
+                    for ki in lower_limb_indices:
+                        if ki < len(kps):
+                            lower_vis.append(kps[ki].get('visibility', 0))
+                    avg_lower_vis = sum(lower_vis) / len(lower_vis) if lower_vis else 0
+                    
+                    # 全体（肩・腰含む）の品質も確認
+                    all_joint_indices = [11, 12, 23, 24, 25, 26, 27, 28]
+                    all_vis = []
+                    for ki in all_joint_indices:
+                        if ki < len(kps):
+                            all_vis.append(kps[ki].get('visibility', 0))
+                    avg_all_vis = sum(all_vis) / len(all_vis) if all_vis else 0
+                    
+                    # 下肢visibility < 0.5 の場合は角度計算が不正確になるためスキップ
+                    if avg_lower_vis < 0.5:
+                        print(f"   ⚠️  {angle_key} (フレーム{frame_idx}): 下肢visibility={avg_lower_vis:.2f} が低すぎるためスキップ（全体={avg_all_vis:.2f}）")
+                        continue
+                    else:
+                        print(f"   ✅ {angle_key} (フレーム{frame_idx}): 下肢vis={avg_lower_vis:.2f}, 全体vis={avg_all_vis:.2f}")
+                
                 angles = calculate_angles_for_frame(frame_data)
                 if angles:  # 空の角度データはスキップ
                     cycle_angles[angle_key] = angles
@@ -777,6 +933,7 @@ def validate_and_filter_events(events: list, total_frames: int, video_fps: float
     
     # === フィルタ3: 左右の同種イベント同時性チェック ===
     # 左右のstrike/offが2フレーム以内に同時発生は非現実的
+    # → 両方除外ではなく、片方（右足優先）を残す
     final = []
     removed_indices = set()
     
@@ -789,10 +946,13 @@ def validate_and_filter_events(events: list, total_frames: int, video_fps: float
                 if e1[1] != e2[1]:  # 左右が異なる
                     frame_diff = abs(e1[0] - e2[0])
                     if frame_diff <= 2:
-                        # 両方除外
-                        removed_indices.add(idx1)
-                        removed_indices.add(idx2)
-                        print(f"   🚫 同時{event_type}: フレーム{e1[0]}({e1[1]}) と フレーム{e2[0]}({e2[1]}) 除外 - {frame_diff}フレーム差")
+                        # 片方のみ除外（右足を優先して残す）
+                        if e1[1] == 'right':
+                            removed_indices.add(idx2)
+                            print(f"   🔄 同時{event_type}: フレーム{e1[0]}({e1[1]}) を残し、フレーム{e2[0]}({e2[1]}) を除外 - {frame_diff}フレーム差")
+                        else:
+                            removed_indices.add(idx1)
+                            print(f"   🔄 同時{event_type}: フレーム{e2[0]}({e2[1]}) を残し、フレーム{e1[0]}({e1[1]}) を除外 - {frame_diff}フレーム差")
     
     for i, event in enumerate(validated):
         if i not in removed_indices:

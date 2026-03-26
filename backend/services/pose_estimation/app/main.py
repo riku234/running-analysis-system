@@ -291,18 +291,37 @@ def extract_pose_from_video(video_path: str, confidence_threshold: float = 0.5, 
                 
                 # 主要キーポイントの平均visibilityが低い場合は検出を無視（誤検出の可能性）
                 confidence_scores = []  # 常に初期化
+                is_valid_detection = True
+                
                 if avg_key_visibility < 0.3:
+                    is_valid_detection = False
+                else:
+                    # 体のプロポーションチェック（コーンなど非人物の誤検出を防止）
+                    lm = results.pose_landmarks.landmark
+                    shoulder_y = (lm[11].y + lm[12].y) / 2
+                    hip_y = (lm[23].y + lm[24].y) / 2
+                    torso_height = abs(hip_y - shoulder_y)
+                    
+                    MIN_TORSO_HEIGHT = 0.08  # 画面高さの8%未満は人物ではない
+                    if torso_height < MIN_TORSO_HEIGHT:
+                        is_valid_detection = False
+                        if frame_number < 5 or frame_number % 30 == 0:
+                            print(f"   ⚠️  フレーム{frame_number}: 胴体高さ={torso_height:.4f} < {MIN_TORSO_HEIGHT} → 非人物として除外")
+                
+                if not is_valid_detection:
+                    # 非人物検出: キーポイント抽出をスキップし、検出失敗として扱う
                     landmarks_detected = False
                     confidence_score = 0.0
                 else:
                     landmarks_detected = True
                 
                 # 各ランドマークのキーポイントを抽出（Outlier Rejection → OneEuroFilterでスムージング）
+                # ※ is_valid_detectionがFalseの場合はスキップ（非人物検出の場合）
                 current_keypoints = []
                 raw_keypoints_frame = []  # デバッグ用：MediaPipeの生データ
                 filtered_keypoints_frame = []  # デバッグ用：OneEuroFilter後のデータ
                 
-                for i, landmark in enumerate(results.pose_landmarks.landmark):
+                for i, landmark in enumerate(results.pose_landmarks.landmark if is_valid_detection else []):
                     # MediaPipeの生データを保存（デバッグ用）
                     if enable_debug_log:
                         raw_keypoints_frame.append({
